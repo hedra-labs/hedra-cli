@@ -1,13 +1,13 @@
 [package]
-name = "fern-cli-sdk"
-version = "0.0.0"
+name = "hedra-cli"
+version = "0.1.0"
 edition = "2021"
-description = "CLI generator — dynamic command surface from OpenAPI and GraphQL schemas"
+description = "Command-line interface for the Hedra Web API"
 license = "Apache-2.0"
-repository = "https://github.com/fern-api/cli-sdk"
-homepage = "https://github.com/fern-api/cli-sdk"
-authors = ["Fern <hey@buildwithfern.com>"]
-keywords = ["cli", "openapi", "graphql", "fern", "codegen"]
+repository = "https://github.com/hedra-labs/hedra-cli"
+homepage = "https://github.com/hedra-labs/hedra-cli"
+authors = ["Hedra <support@hedra.com>"]
+keywords = ["cli", "hedra", "api"]
 categories = ["command-line-utilities", "web-programming"]
 
 [lib]

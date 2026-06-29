@@ -22,8 +22,6 @@ targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown
 pr-run-mode = "plan"
 # Publish jobs to run (npm publishing deferred until pipeline is validated)
 publish-jobs = []
-# Don't overwrite release.yml on `dist init` (preserves customizations)
-allow-dirty = ["ci"]
 # The archive format to use for windows builds (defaults .zip)
 windows-archive = ".zip"
 # The archive format to use for non-windows builds (defaults .tar.xz)
