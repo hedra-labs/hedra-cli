@@ -6,7 +6,7 @@ description = "Command-line interface for the Hedra Web API"
 license = "Apache-2.0"
 repository = "https://github.com/hedra-labs/hedra-cli"
 homepage = "https://github.com/hedra-labs/hedra-cli"
-authors = ["Hedra <support@hedra.com>"]
+authors = ["Michael Lingelbach <m.j.lbach@gmail.com>"]
 keywords = ["cli", "hedra", "api"]
 categories = ["command-line-utilities", "web-programming"]
 
