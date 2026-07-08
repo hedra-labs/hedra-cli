@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct HttpValidationError {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub detail: Option<Vec<ValidationError>>,
