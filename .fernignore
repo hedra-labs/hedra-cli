@@ -8,7 +8,9 @@ README.md
 src/pager.rs
 
 # Workspace metadata (crate name/authors/version) + lockfile are hand-owned;
-# the generator would reset them to fern-cli-sdk defaults.
+# the generator would reset them to fern-cli-sdk defaults. Drop these two
+# entries when upstream adds crate-metadata config (also restores generator
+# dependency updates): https://github.com/fern-api/fern/issues/16976
 Cargo.toml
 Cargo.lock
 
