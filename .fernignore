@@ -1,3 +1,8 @@
 # Files owned by the user — fern generate will not overwrite these.
 cli/hedra/custom.rs
 README.md
+
+# Hand-fixed runtime file: serializes the PAGER env-var tests (flaky in CI).
+# The fern-cli-generator runtime doesn't carry this fix yet; regeneration
+# must not revert it. Drop this entry once the fix lands upstream.
+src/pager.rs
