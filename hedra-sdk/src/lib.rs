@@ -1,6 +1,6 @@
-//! # Hedra Web API SDK
+//! # Hedra API v3 SDK
 //!
-//! The official Rust SDK for the Hedra Web API.
+//! The official Rust SDK for the Hedra API v3.
 //!
 //! ## Getting Started
 //!
@@ -10,13 +10,15 @@
 //! #[tokio::main]
 //! async fn main() {
 //!     let config = ClientConfig {
-//!         api_key: Some("<value>".to_string()),
+//!         token: Some("<token>".to_string()),
 //!         ..Default::default()
 //!     };
 //!     let client = HedraClient::new(config).expect("Failed to build client");
 //!     client
-//!         .list_models(
-//!             &ListModelsQueryRequest {
+//!         .queue
+//!         .submit(
+//!             &"model".to_string(),
+//!             &SubmitRequest {
 //!                 ..Default::default()
 //!             },
 //!             None,
