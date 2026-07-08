@@ -82,8 +82,7 @@ hedra requests get --request-id <REQUEST_ID>
 ```
 
 The CLI talks to production (`https://api.hedra.com/v3`) by default. Override the base
-URL with `--base-url` or `HEDRA_BASE_URL` (e.g. for staging:
-`--base-url https://api.staging.hedra.com/v3`).
+URL with `--base-url` or `HEDRA_BASE_URL` (e.g. for a mock server in tests).
 
 ## Commands
 
