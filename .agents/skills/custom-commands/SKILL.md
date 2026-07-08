@@ -34,14 +34,15 @@ use hedra_sdk::api::*;
 
 pub fn register(app: CliApp) -> CliApp {
     let app = app.command(
-        clap::Command::new("my-command")
-            .about("Description of your command")
-            .arg(clap::Arg::new("id").required(true)),
+        clap::Command::new("get")
+            .about("Get Request")
+            .arg(clap::Arg::new("request_id").required(true))
+        ,
         |matches, ctx| {
-            let id = matches.get_one::<String>("id").unwrap();
+            let request_id = matches.get_one::<String>("request_id").unwrap();
             let client = super::sdk::client(ctx);
             let result = super::sdk::block_on(
-                client.resource.get(id),
+                client.requests.get(request_id),
             )?;
             println!("{}", serde_json::to_string_pretty(&result).unwrap());
             Ok(())
@@ -51,12 +52,26 @@ pub fn register(app: CliApp) -> CliApp {
 }
 ```
 
+Then build and test:
+```bash
+cargo build
+hedra get <request_id>
+```
+
 ### 2. Available SDK Clients
 
 The `super::sdk::client(ctx)` call returns a `hedra_sdk::api::Client`
 with the following sub-clients:
 
-(Sub-clients are derived from the API spec at generation time.)
+| Field | Type | Description |
+|-------|------|-------------|
+| `client.queue` | `hedra_sdk::api::QueueClient` | queue operations |
+| `client.requests` | `hedra_sdk::api::RequestsClient` | requests operations |
+| `client.models` | `hedra_sdk::api::ModelsClient` | models operations |
+| `client.keys` | `hedra_sdk::api::KeysClient` | keys operations |
+| `client.tokens` | `hedra_sdk::api::TokensClient` | tokens operations |
+| `client.files` | `hedra_sdk::api::FilesClient` | files operations |
+| `client.webhooks` | `hedra_sdk::api::WebhooksClient` | webhooks operations |
 
 ### 3. Key Patterns
 
@@ -82,7 +97,7 @@ use hedra_sdk::api::*;
 Custom commands automatically inherit the CLI's authentication.
 The following auth schemes are configured:
 
-- **APIKeyHeader** (header): env `HEDRA_API_KEY`
+- **KeyAuth** (bearer): env `HEDRA_API_KEY`
 
 No manual auth wiring is needed in custom command handlers.
 
