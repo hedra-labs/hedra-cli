@@ -6,11 +6,11 @@ mod sdk;
 
 use fern_cli_sdk::app::CliApp;
 use fern_cli_sdk::openapi::OpenApiBinding;
-use fern_cli_sdk::auth::{ApiKeyAuth, AuthCredentialSource};
+use fern_cli_sdk::auth::{BearerAuth};
 
 fn main() {
     let app = CliApp::new("hedra")
-        .auth(ApiKeyAuth::new("APIKeyHeader").source(AuthCredentialSource::any(vec![AuthCredentialSource::cli("api-key"), AuthCredentialSource::from_env("HEDRA_API_KEY")])))
+        .auth(BearerAuth::new("KeyAuth").env("HEDRA_API_KEY"))
         .binding(
             OpenApiBinding::new()
                 .spec(include_str!("openapi0.json"))

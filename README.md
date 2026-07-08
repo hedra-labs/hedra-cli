@@ -1,9 +1,10 @@
 # Hedra CLI
 
-Command-line interface for the [Hedra](https://hedra.com) Web API — list models and
-voices, manage assets, and run generations from your terminal.
+Command-line interface for the [Hedra](https://hedra.com) **API v3** — browse the
+model catalog, submit generation jobs to the queue, follow their progress, and manage
+API keys from your terminal.
 
-The binary is `hedra`. Every API resource is a subcommand (e.g. `hedra voices list_voices`).
+The binary is `hedra`. Every API resource is a subcommand (e.g. `hedra queue submit`).
 
 ## Table of contents
 
@@ -11,11 +12,13 @@ The binary is `hedra`. Every API resource is a subcommand (e.g. `hedra voices li
 - [Authentication](#authentication)
 - [Quick start](#quick-start)
 - [Commands](#commands)
-  - [`voices`](#voices)
+  - [`queue`](#queue)
+  - [`requests`](#requests)
   - [`models`](#models)
-  - [`assets`](#assets)
-  - [`generations`](#generations)
-  - [`billing`](#billing)
+  - [`files`](#files)
+  - [`keys`](#keys)
+  - [`tokens`](#tokens)
+  - [`webhooks`](#webhooks)
   - [Built-in commands](#built-in-commands)
 - [Global flags](#global-flags)
 - [Output formats](#output-formats)
@@ -43,18 +46,16 @@ Copy `target/release/hedra` somewhere on your `PATH` (e.g. `~/.local/bin`) to ru
 
 ## Authentication
 
-The API authenticates with an API key sent as the `X-API-Key` header. Provide it in any
-of these ways (checked in this order):
+The API authenticates with `Authorization: Bearer <api key>`, where an API key is the
+`<key_id>:<secret>` credential from the Hedra console. Provide it in any of these ways
+(checked in this order):
 
 ```bash
-# 1. Per-invocation flag
-hedra voices list_voices --api-key "$YOUR_KEY"
+# 1. Environment variable (also auto-loaded from a .env file in the working dir)
+export HEDRA_API_KEY="<key_id>:<secret>"
 
-# 2. Environment variable (also auto-loaded from a .env file in the working dir)
-export HEDRA_API_KEY="sk_hedra_..."
-
-# 3. OS keyring (stored once, reused across runs)
-hedra auth login
+# 2. OS keyring (stored once, reused across runs)
+hedra auth login --with-token
 ```
 
 Check which sources are visible (and detect shadowing) with:
@@ -63,19 +64,26 @@ Check which sources are visible (and detect shadowing) with:
 hedra auth status
 ```
 
+The model catalog (`hedra models …`) and the webhook public key are readable without
+credentials.
+
 ## Quick start
 
 ```bash
-export HEDRA_API_KEY="sk_hedra_..."
+export HEDRA_API_KEY="<key_id>:<secret>"
 
-hedra billing get_credits          # how many credits you have
-hedra models list_models           # available generation models
-hedra voices list_voices           # available voices
+hedra models list                        # the model catalog
+hedra models get --model kling-o3-pro    # schema + variants for one model
+
+# Submit a job and follow it
+hedra queue submit --model kling-o3-pro --input '{"prompt": "a fox sprinting across fresh snow"}'
+hedra requests get_status --request-id <REQUEST_ID>
+hedra requests get --request-id <REQUEST_ID>
 ```
 
-The CLI talks to production (`https://api.hedra.com/web-app/public`) by default. Override
-the base URL with `--base-url` or `HEDRA_BASE_URL` (e.g. for staging:
-`--base-url https://api.staging.hedra.com/web-app/public`).
+The CLI talks to production (`https://api.hedra.com/v3`) by default. Override the base
+URL with `--base-url` or `HEDRA_BASE_URL` (e.g. for staging:
+`--base-url https://api.staging.hedra.com/v3`).
 
 ## Commands
 
@@ -83,101 +91,109 @@ Run `hedra <resource> --help`, or `hedra <resource> <method> --help`, for full d
 any command. The flags below are command-specific; see [Global flags](#global-flags) for
 options available everywhere.
 
-### `voices`
+### `queue`
 
 | Command | Description | Endpoint |
 |---------|-------------|----------|
-| `hedra voices list_voices` | List available voices | `GET /voices` |
+| `hedra queue submit` | Submit a generation job | `POST /queue/{model}` |
+
+| Flag | Description |
+|------|-------------|
+| `--model <STRING>` | Model family or variant id (e.g. `kling-o3-pro`, `kling-o3-pro-i2v`) |
+| `--input <JSON_OBJECT>` | Schema-validated model input |
+| `--webhook <STRING>` | Webhook URL to POST the terminal result to |
+| `--idempotency-key <STRING>` | Dedupe key for safe retries |
+| `--priority <STRING>` | `normal` / `low` |
 
 ```bash
-hedra voices list_voices
-hedra voices list_voices --query "[?asset.labels[?value=='english']].asset.external_id"
+hedra queue submit --model kling-o3-pro --input '{
+  "prompt": "a fox sprinting across fresh snow",
+  "aspect_ratio": "16:9"
+}'
+```
+
+### `requests`
+
+| Command | Description | Endpoint |
+|---------|-------------|----------|
+| `hedra requests list` | List past requests | `GET /requests` |
+| `hedra requests get` | Fetch the result envelope | `GET /requests/{request_id}` |
+| `hedra requests get_status` | Poll progress | `GET /requests/{request_id}/status` |
+| `hedra requests stream` | Follow progress over SSE | `GET /requests/{request_id}/stream` |
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `list` | `--limit <N>` / `--cursor <VALUE>` | Cursor pagination (default limit `20`) |
+| `get` / `get_status` / `stream` | `--request-id <STRING>` | Request to query |
+| `stream` | `--last-event-id <VALUE>` | Resume the event stream |
+
+```bash
+hedra requests list --limit 5
+hedra requests stream --request-id <REQUEST_ID>
 ```
 
 ### `models`
 
 | Command | Description | Endpoint |
 |---------|-------------|----------|
-| `hedra models list_models` | List available models | `GET /models` |
+| `hedra models list` | List model families | `GET /models` |
+| `hedra models get` | Family or variant detail (input schema, routing) | `GET /models/{model}` |
+| `hedra models list_voices` | TTS voice catalog for a model | `GET /models/{model}/voices` |
+| `hedra models get_openapi` | Per-model OpenAPI spec | `GET /models/{model}/openapi.json` |
+| `hedra models estimate` | Cost/ETA without queuing | `POST /models/{model}/estimate` |
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `list` | `--type <VALUE>` | Filter by modality (`video`, `image`, `audio`) |
+| `get` / `list_voices` / `get_openapi` / `estimate` | `--model <STRING>` | Model id |
+| `estimate` | `--input <JSON_OBJECT>` | Input to price |
+
+```bash
+hedra models list --type video
+hedra models estimate --model kling-o3-pro --input '{"prompt": "a fox"}'
+```
+
+### `files`
+
+| Command | Description | Endpoint |
+|---------|-------------|----------|
+| `hedra files upload` | Upload a file for reference inputs | `POST /files` |
+
+```bash
+# Upload, then use the returned URL as image_url / audio_url / video_url on submit
+hedra files upload --file ./headshot.png
+```
+
+### `keys`
+
+| Command | Description | Endpoint |
+|---------|-------------|----------|
+| `hedra keys create` | Mint an API key (secret shown once) | `POST /keys` |
+| `hedra keys list` | List keys (no secrets) | `GET /keys` |
+| `hedra keys rotate` | Rotate a key's secret | `POST /keys/{key_id}/rotate` |
+| `hedra keys revoke` | Revoke a key | `DELETE /keys/{key_id}` |
+
+| Command | Flag | Description |
+|---------|------|-------------|
+| `create` | `--name <STRING>` / `--scopes <VALUE>` / `--kind <personal\|service>` / `--workspace-id <STRING>` / `--expires-at <STRING>` | Key attributes |
+| `rotate` / `revoke` | `--key-id <STRING>` | Target key |
+
+### `tokens`
+
+| Command | Description | Endpoint |
+|---------|-------------|----------|
+| `hedra tokens create` | Mint an ephemeral browser token | `POST /tokens` |
 
 | Flag | Description |
 |------|-------------|
-| `--types <VALUE>` | Filter by model type |
+| `--ttl-seconds <N>` | Token lifetime |
+| `--scopes <VALUE>` | Subset of the minting key's scopes |
 
-```bash
-hedra models list_models
-hedra models list_models --types image
-```
-
-### `assets`
+### `webhooks`
 
 | Command | Description | Endpoint |
 |---------|-------------|----------|
-| `hedra assets list_assets` | List assets | `GET /assets` |
-| `hedra assets create_asset` | Create an asset | `POST /assets` |
-| `hedra assets upload_asset` | Upload bytes to an asset | `POST /assets/{id}/upload` |
-
-| Command | Flag | Description |
-|---------|------|-------------|
-| `list_assets` | `--type <VALUE>` | Asset type (`text`, `image`, `audio`, `video`, `voice`) |
-| `list_assets` | `--ids <VALUE>` | Filter by asset IDs |
-| `create_asset` | `--name <STRING>` | Asset name (defaults to the file name) |
-| `create_asset` | `--type <STRING>` | Asset type (`text`, `image`, `audio`, `video`, `voice`) |
-| `upload_asset` | `--id <UUID>` | Target asset ID |
-| `upload_asset` | `--file <PATH \| @PATH \| ->` | File to upload (`-` reads stdin) |
-
-```bash
-# Create an image asset, then upload bytes to it
-hedra assets create_asset --name "headshot" --type image
-hedra assets upload_asset --id <ASSET_UUID> --file ./headshot.png
-
-# List image assets
-hedra assets list_assets --type image
-```
-
-### `generations`
-
-| Command | Description | Endpoint |
-|---------|-------------|----------|
-| `hedra generations list_generations` | List generations | `GET /generations` |
-| `hedra generations generate_asset` | Start a generation | `POST /generations` |
-| `hedra generations get_status` | Get generation status | `GET /generations/{generation_id}/status` |
-
-| Command | Flag | Description |
-|---------|------|-------------|
-| `list_generations` | `--type <VALUE>` | Filter by generation type |
-| `list_generations` | `--created-after <VALUE>` / `--created-before <VALUE>` | Time-range filters |
-| `list_generations` | `--agent-thread-id <VALUE>` | Filter by agent thread |
-| `list_generations` | `--ids <VALUE>` | Filter by generation IDs |
-| `list_generations` | `--limit <N>` / `--offset <N>` | Pagination (default `100` / `0`) |
-| `generate_asset` | `--json <JSON \| ->` | Request body as JSON (`-` reads stdin) |
-| `get_status` | `--generation-id <UUID>` | Generation to query |
-
-```bash
-# Recent generations
-hedra generations list_generations --limit 5
-
-# Start a generation from a JSON body
-hedra generations generate_asset --json '{
-  "type": "video",
-  "ai_model_id": "<MODEL_ID>",
-  "start_keyframe_id": "<ASSET_ID>",
-  "audio_id": "<ASSET_ID>"
-}'
-
-# Poll its status
-hedra generations get_status --generation-id <GENERATION_UUID>
-```
-
-### `billing`
-
-| Command | Description | Endpoint |
-|---------|-------------|----------|
-| `hedra billing get_credits` | Get credit balance | `GET /billing/credits` |
-
-```bash
-hedra billing get_credits
-```
+| `hedra webhooks get_public_key` | ed25519 public key for signature verification | `GET /webhooks/public-key` |
 
 ### Built-in commands
 
@@ -199,10 +215,10 @@ Available on every command:
 | `--params <JSON>` | Merge extra parameters as JSON (overrides individual flags) |
 | `--format <FORMAT>` | Output format (see below) |
 | `--query <EXPR>` | JMESPath expression applied to the response before formatting |
-| `--output <PATH>` | Write binary responses to a file |
 | `--base-url <URL>` | Override the API base URL |
 | `--page-all` | Auto-paginate and stream results as NDJSON |
 | `--page-limit <N>` | Max pages to fetch when auto-paginating (default `10`) |
+| `--schema` | Print a machine-readable JSON schema for this scope |
 | `--debug` | Dump the HTTP request and response to stderr |
 | `-q, --quiet` | Suppress stdout on success (errors still go to stderr) |
 | `-h, --help` / `-V, --version` | Help / version |
@@ -215,24 +231,24 @@ unmodified response bytes; `jsonl` emits NDJSON (arrays flattened); `http` emits
 response like `curl -i`.
 
 ```bash
-hedra voices list_voices --format table
-hedra models list_models --format json | jq '.[].id'
+hedra models list --format table
+hedra models list --format json | jq '.data[].id'
 ```
 
 ## Pagination
 
-For list endpoints, `--page-all` follows pages automatically and streams each result as a
-line of NDJSON; bound it with `--page-limit`:
+For list endpoints, `--page-all` follows cursor pages automatically and streams each
+result as a line of NDJSON; bound it with `--page-limit`:
 
 ```bash
-hedra generations list_generations --page-all --page-limit 5
+hedra requests list --page-all --page-limit 5
 ```
 
 ## Environment variables
 
 | Variable | Description |
 |----------|-------------|
-| `HEDRA_API_KEY` | API key (the `X-API-Key` credential) |
+| `HEDRA_API_KEY` | API key (`<key_id>:<secret>`, sent as `Authorization: Bearer …`) |
 | `HEDRA_BASE_URL` | Override the API base URL |
 | `HEDRA_CA_BUNDLE` | Path to a PEM file with extra trust roots (or `SSL_CERT_FILE`) |
 | `HEDRA_INSECURE=1` | Skip TLS verification (debugging only) |
