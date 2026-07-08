@@ -1,80 +1,112 @@
-# Hedra Web API CLI Reference
+# Hedra API v3 CLI Reference
 
 Full command reference for `hedra`.
 
 ## Commands
 
-- [`hedra `](#hedra-)
+- [`hedra files`](#hedra-files)
+- [`hedra keys`](#hedra-keys)
+- [`hedra models`](#hedra-models)
+- [`hedra queue`](#hedra-queue)
+- [`hedra requests`](#hedra-requests)
+- [`hedra tokens`](#hedra-tokens)
+- [`hedra webhooks`](#hedra-webhooks)
 
 ---
 
-### `hedra `
+### `hedra files`
 
-#### `hedra  create-asset`
+#### `hedra files upload`
 
-Create Asset
+Upload File
 
-`POST /assets`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra  generate-asset`
-
-Generate Asset
-
-`POST /generations`
+`POST /files`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra  get-credits`
+---
 
-Get Credits
+### `hedra keys`
 
-`GET /billing/credits`
+#### `hedra keys create`
 
-#### `hedra  get-status`
+Create Key
 
-Get Status
-
-`GET /generations/{generation_id}/status`
+`POST /keys`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--generation-id` | `string (uuid)` | Yes |  |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra  list-assets`
+#### `hedra keys list`
 
-List Assets
+List Keys
 
-`GET /assets`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--type` | `AssetType` | Yes |  |
-| `--ids` | `string` | No |  |
-
-#### `hedra  list-generations`
-
-List 
-
-`GET /generations`
+`GET /keys`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--type` | `string` | No |  |
-| `--created-before` | `string` | No |  |
-| `--created-after` | `string` | No |  |
-| `--prompt-query` | `string` | No |  |
-| `--agent-thread-id` | `string` | No |  |
-| `--ids` | `string` | No |  |
-| `--limit` | `integer` | No | Number of items returned in the page. |
-| `--offset` | `integer` | No | Number of records skipped. |
+| `--workspace-id` | `string` | No |  |
 
-#### `hedra  list-models`
+#### `hedra keys revoke`
+
+Revoke Key
+
+`DELETE /keys/{key_id}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--key-id` | `string` | Yes |  |
+
+#### `hedra keys rotate`
+
+Rotate Key
+
+`POST /keys/{key_id}/rotate`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--key-id` | `string` | Yes |  |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+---
+
+### `hedra models`
+
+#### `hedra models estimate`
+
+Estimate
+
+`POST /models/{model}/estimate`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes |  |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra models get`
+
+Get Model
+
+`GET /models/{model}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes |  |
+
+#### `hedra models get-openapi`
+
+A standalone one-operation OpenAPI spec for this model's submit call.
+
+`GET /models/{model}/openapi.json`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes |  |
+
+#### `hedra models list`
 
 List Models
 
@@ -82,24 +114,102 @@ List Models
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--types` | `string` | No |  |
+| `--type` | `string` | No |  |
 
-#### `hedra  list-voices`
+#### `hedra models list-voices`
 
-List Voices
+Voices this model accepts — scoped to the model's voice provider.
 
-`GET /voices`
-
-#### `hedra  upload-asset`
-
-Upload Asset
-
-`POST /assets/{id}/upload`
+`GET /models/{model}/voices`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--id` | `string (uuid)` | Yes |  |
+| `--model` | `string` | Yes |  |
+
+---
+
+### `hedra queue`
+
+#### `hedra queue submit`
+
+Submit
+
+`POST /queue/{model}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes |  |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+---
+
+### `hedra requests`
+
+#### `hedra requests get`
+
+Get Request
+
+`GET /requests/{request_id}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--request-id` | `string` | Yes |  |
+
+#### `hedra requests get-status`
+
+Get Request Status
+
+`GET /requests/{request_id}/status`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--request-id` | `string` | Yes |  |
+
+#### `hedra requests list`
+
+List Requests
+
+`GET /requests`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--limit` | `integer` | No |  |
+| `--cursor` | `string` | No |  |
+
+#### `hedra requests stream`
+
+Stream Request
+
+`GET /requests/{request_id}/stream`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--request-id` | `string` | Yes |  |
+| `--last-event-id` | `string` | No |  |
+
+---
+
+### `hedra tokens`
+
+#### `hedra tokens create`
+
+Create Token
+
+`POST /tokens`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+---
+
+### `hedra webhooks`
+
+#### `hedra webhooks get-public-key`
+
+Public Key
+
+`GET /webhooks/public-key`
 
 ---
 

@@ -55,8 +55,13 @@ pub fn client(ctx: &AppContext) -> hedra_sdk::api::ApiClient {
     );
     hedra_sdk::api::ApiClient {
         config,
-        http_client: http_client.clone(),
-
+        queue: hedra_sdk::api::QueueClient { http_client: http_client.clone() },
+        requests: hedra_sdk::api::RequestsClient { http_client: http_client.clone() },
+        models: hedra_sdk::api::ModelsClient { http_client: http_client.clone() },
+        keys: hedra_sdk::api::KeysClient { http_client: http_client.clone() },
+        tokens: hedra_sdk::api::TokensClient { http_client: http_client.clone() },
+        files: hedra_sdk::api::FilesClient { http_client: http_client.clone() },
+        webhooks: hedra_sdk::api::WebhooksClient { http_client: http_client.clone() },
     }
 }
 
