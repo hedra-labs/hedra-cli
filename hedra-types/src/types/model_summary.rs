@@ -2,20 +2,17 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ModelSummary {
     #[serde(default)]
     pub id: String,
-    #[serde(default)]
-    pub modality: String,
+    pub modality: Modality,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub thumbnail_url: Option<String>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub premium: Option<bool>,
+    pub logo_url: Option<String>,
 }
 
 impl ModelSummary {
@@ -28,11 +25,10 @@ impl ModelSummary {
 #[non_exhaustive]
 pub struct ModelSummaryBuilder {
     id: Option<String>,
-    modality: Option<String>,
+    modality: Option<Modality>,
     name: Option<String>,
     description: Option<String>,
-    thumbnail_url: Option<String>,
-    premium: Option<bool>,
+    logo_url: Option<String>,
 }
 
 impl ModelSummaryBuilder {
@@ -41,8 +37,8 @@ impl ModelSummaryBuilder {
         self
     }
 
-    pub fn modality(mut self, value: impl Into<String>) -> Self {
-        self.modality = Some(value.into());
+    pub fn modality(mut self, value: Modality) -> Self {
+        self.modality = Some(value);
         self
     }
 
@@ -56,13 +52,8 @@ impl ModelSummaryBuilder {
         self
     }
 
-    pub fn thumbnail_url(mut self, value: impl Into<String>) -> Self {
-        self.thumbnail_url = Some(value.into());
-        self
-    }
-
-    pub fn premium(mut self, value: bool) -> Self {
-        self.premium = Some(value);
+    pub fn logo_url(mut self, value: impl Into<String>) -> Self {
+        self.logo_url = Some(value.into());
         self
     }
 
@@ -76,8 +67,7 @@ impl ModelSummaryBuilder {
             modality: self.modality.ok_or_else(|| BuildError::missing_field("modality"))?,
             name: self.name,
             description: self.description,
-            thumbnail_url: self.thumbnail_url,
-            premium: self.premium,
+            logo_url: self.logo_url,
         })
     }
 }

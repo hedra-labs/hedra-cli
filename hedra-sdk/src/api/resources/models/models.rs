@@ -25,7 +25,7 @@ impl ModelsClient {
                 "models",
                 None,
                 QueryBuilder::new()
-                    .serialize("type", request.r#type.clone())
+                    .serialize("modality", request.modality.clone())
                     .build(),
                 options,
             )
@@ -43,6 +43,26 @@ impl ModelsClient {
                 &format!("models/{}", model),
                 None,
                 None,
+                options,
+            )
+            .await
+    }
+
+    pub async fn list_model_jobs(
+        &self,
+        model: &str,
+        request: &ListModelJobsQueryRequest,
+        options: Option<RequestOptions>,
+    ) -> Result<JobListResponse, ApiError> {
+        self.http_client
+            .execute_request(
+                Method::GET,
+                &format!("models/{}/jobs", model),
+                None,
+                QueryBuilder::new()
+                    .int("limit", request.limit.clone())
+                    .serialize("cursor", request.cursor.clone())
+                    .build(),
                 options,
             )
             .await

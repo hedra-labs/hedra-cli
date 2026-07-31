@@ -4,8 +4,9 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct KeyListResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Vec<KeySummary>>,
+    #[serde(default)]
+    pub data: Vec<KeySummary>,
+    /// Opaque cursor for the next page, or null when this response completes the list. Always present. Endpoints that serve the whole collection at once always return null.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
@@ -35,9 +36,11 @@ impl KeyListResponseBuilder {
     }
 
     /// Consumes the builder and constructs a [`KeyListResponse`].
+    /// This method will fail if any of the following fields are not set:
+    /// - [`data`](KeyListResponseBuilder::data)
     pub fn build(self) -> Result<KeyListResponse, BuildError> {
         Ok(KeyListResponse {
-            data: self.data,
+            data: self.data.ok_or_else(|| BuildError::missing_field("data"))?,
             next_cursor: self.next_cursor,
         })
     }

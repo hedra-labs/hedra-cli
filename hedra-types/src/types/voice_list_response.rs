@@ -4,8 +4,9 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct VoiceListResponse {
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub data: Option<Vec<VoiceSummary>>,
+    #[serde(default)]
+    pub data: Vec<VoiceSummary>,
+    /// Opaque cursor for the next page, or null when this response completes the list. Always present. Endpoints that serve the whole collection at once always return null.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub next_cursor: Option<String>,
 }
@@ -35,9 +36,11 @@ impl VoiceListResponseBuilder {
     }
 
     /// Consumes the builder and constructs a [`VoiceListResponse`].
+    /// This method will fail if any of the following fields are not set:
+    /// - [`data`](VoiceListResponseBuilder::data)
     pub fn build(self) -> Result<VoiceListResponse, BuildError> {
         Ok(VoiceListResponse {
-            data: self.data,
+            data: self.data.ok_or_else(|| BuildError::missing_field("data"))?,
             next_cursor: self.next_cursor,
         })
     }

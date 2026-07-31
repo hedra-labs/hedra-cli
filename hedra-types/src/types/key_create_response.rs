@@ -16,9 +16,9 @@ pub struct KeyCreateResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
+    pub expires_at: Option<DateTime<FixedOffset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
+    pub created_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeyCreateResponse {
@@ -36,8 +36,8 @@ pub struct KeyCreateResponseBuilder {
     name: Option<String>,
     scopes: Option<Vec<String>>,
     workspace_id: Option<String>,
-    expires_at: Option<String>,
-    created_at: Option<String>,
+    expires_at: Option<DateTime<FixedOffset>>,
+    created_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeyCreateResponseBuilder {
@@ -71,13 +71,13 @@ impl KeyCreateResponseBuilder {
         self
     }
 
-    pub fn expires_at(mut self, value: impl Into<String>) -> Self {
-        self.expires_at = Some(value.into());
+    pub fn expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.expires_at = Some(value);
         self
     }
 
-    pub fn created_at(mut self, value: impl Into<String>) -> Self {
-        self.created_at = Some(value.into());
+    pub fn created_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.created_at = Some(value);
         self
     }
 

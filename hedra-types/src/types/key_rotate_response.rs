@@ -16,9 +16,9 @@ pub struct KeyRotateResponse {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
+    pub expires_at: Option<DateTime<FixedOffset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub previous_secret_expires_at: Option<String>,
+    pub previous_secret_expires_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeyRotateResponse {
@@ -36,8 +36,8 @@ pub struct KeyRotateResponseBuilder {
     name: Option<String>,
     scopes: Option<Vec<String>>,
     workspace_id: Option<String>,
-    expires_at: Option<String>,
-    previous_secret_expires_at: Option<String>,
+    expires_at: Option<DateTime<FixedOffset>>,
+    previous_secret_expires_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeyRotateResponseBuilder {
@@ -71,13 +71,13 @@ impl KeyRotateResponseBuilder {
         self
     }
 
-    pub fn expires_at(mut self, value: impl Into<String>) -> Self {
-        self.expires_at = Some(value.into());
+    pub fn expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.expires_at = Some(value);
         self
     }
 
-    pub fn previous_secret_expires_at(mut self, value: impl Into<String>) -> Self {
-        self.previous_secret_expires_at = Some(value.into());
+    pub fn previous_secret_expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.previous_secret_expires_at = Some(value);
         self
     }
 

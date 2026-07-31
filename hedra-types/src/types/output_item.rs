@@ -2,11 +2,17 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// One per-modality output. `outputs` is always an array, even for one.
+/// One item of a job's `outputs[]` (`GET /v3/jobs/{job_id}`). `outputs` is
+/// always an array, even for a single output.
+/// 
+/// Every key is always present. The ones a modality carries no value for
+/// serialize as null — an image output reports `duration_ms: null` and
+/// `fps: null`, an audio output `width: null` — so the shape is one object
+/// rather than one per modality.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct OutputItem {
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub status: Option<RequestStatus>,
+    pub status: Option<OutputStatus>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -32,7 +38,7 @@ impl OutputItem {
 #[derive(Clone, PartialEq, Default, Debug)]
 #[non_exhaustive]
 pub struct OutputItemBuilder {
-    status: Option<RequestStatus>,
+    status: Option<OutputStatus>,
     url: Option<String>,
     content_type: Option<String>,
     width: Option<i64>,
@@ -43,7 +49,7 @@ pub struct OutputItemBuilder {
 }
 
 impl OutputItemBuilder {
-    pub fn status(mut self, value: RequestStatus) -> Self {
+    pub fn status(mut self, value: OutputStatus) -> Self {
         self.status = Some(value);
         self
     }
