@@ -15,13 +15,13 @@ pub struct KeySummary {
     pub workspace_id: Option<String>,
     pub status: KeyStatus,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub created_at: Option<String>,
+    pub created_at: Option<DateTime<FixedOffset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
+    pub expires_at: Option<DateTime<FixedOffset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub revoked_at: Option<String>,
+    pub revoked_at: Option<DateTime<FixedOffset>>,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub last_used_at: Option<String>,
+    pub last_used_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeySummary {
@@ -39,10 +39,10 @@ pub struct KeySummaryBuilder {
     scopes: Option<Vec<String>>,
     workspace_id: Option<String>,
     status: Option<KeyStatus>,
-    created_at: Option<String>,
-    expires_at: Option<String>,
-    revoked_at: Option<String>,
-    last_used_at: Option<String>,
+    created_at: Option<DateTime<FixedOffset>>,
+    expires_at: Option<DateTime<FixedOffset>>,
+    revoked_at: Option<DateTime<FixedOffset>>,
+    last_used_at: Option<DateTime<FixedOffset>>,
 }
 
 impl KeySummaryBuilder {
@@ -76,23 +76,23 @@ impl KeySummaryBuilder {
         self
     }
 
-    pub fn created_at(mut self, value: impl Into<String>) -> Self {
-        self.created_at = Some(value.into());
+    pub fn created_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.created_at = Some(value);
         self
     }
 
-    pub fn expires_at(mut self, value: impl Into<String>) -> Self {
-        self.expires_at = Some(value.into());
+    pub fn expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.expires_at = Some(value);
         self
     }
 
-    pub fn revoked_at(mut self, value: impl Into<String>) -> Self {
-        self.revoked_at = Some(value.into());
+    pub fn revoked_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.revoked_at = Some(value);
         self
     }
 
-    pub fn last_used_at(mut self, value: impl Into<String>) -> Self {
-        self.last_used_at = Some(value.into());
+    pub fn last_used_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.last_used_at = Some(value);
         self
     }
 

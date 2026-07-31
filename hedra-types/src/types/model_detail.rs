@@ -2,26 +2,21 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelDetail {
     #[serde(default)]
     pub id: String,
-    #[serde(default)]
-    pub kind: String,
-    #[serde(default)]
-    pub modality: String,
+    pub modality: Modality,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
     #[serde(skip_serializing_if = "Option::is_none")]
+    pub logo_url: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<HashMap<String, serde_json::Value>>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<HashMap<String, serde_json::Value>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub routing: Option<Vec<ModelRoute>>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub variants: Option<Vec<ModelVariant>>,
 }
 
 impl ModelDetail {
@@ -34,14 +29,12 @@ impl ModelDetail {
 #[non_exhaustive]
 pub struct ModelDetailBuilder {
     id: Option<String>,
-    kind: Option<String>,
-    modality: Option<String>,
+    modality: Option<Modality>,
     name: Option<String>,
     description: Option<String>,
+    logo_url: Option<String>,
     input_schema: Option<HashMap<String, serde_json::Value>>,
     output_schema: Option<HashMap<String, serde_json::Value>>,
-    routing: Option<Vec<ModelRoute>>,
-    variants: Option<Vec<ModelVariant>>,
 }
 
 impl ModelDetailBuilder {
@@ -50,13 +43,8 @@ impl ModelDetailBuilder {
         self
     }
 
-    pub fn kind(mut self, value: impl Into<String>) -> Self {
-        self.kind = Some(value.into());
-        self
-    }
-
-    pub fn modality(mut self, value: impl Into<String>) -> Self {
-        self.modality = Some(value.into());
+    pub fn modality(mut self, value: Modality) -> Self {
+        self.modality = Some(value);
         self
     }
 
@@ -70,6 +58,11 @@ impl ModelDetailBuilder {
         self
     }
 
+    pub fn logo_url(mut self, value: impl Into<String>) -> Self {
+        self.logo_url = Some(value.into());
+        self
+    }
+
     pub fn input_schema(mut self, value: HashMap<String, serde_json::Value>) -> Self {
         self.input_schema = Some(value);
         self
@@ -80,32 +73,19 @@ impl ModelDetailBuilder {
         self
     }
 
-    pub fn routing(mut self, value: Vec<ModelRoute>) -> Self {
-        self.routing = Some(value);
-        self
-    }
-
-    pub fn variants(mut self, value: Vec<ModelVariant>) -> Self {
-        self.variants = Some(value);
-        self
-    }
-
     /// Consumes the builder and constructs a [`ModelDetail`].
     /// This method will fail if any of the following fields are not set:
     /// - [`id`](ModelDetailBuilder::id)
-    /// - [`kind`](ModelDetailBuilder::kind)
     /// - [`modality`](ModelDetailBuilder::modality)
     pub fn build(self) -> Result<ModelDetail, BuildError> {
         Ok(ModelDetail {
             id: self.id.ok_or_else(|| BuildError::missing_field("id"))?,
-            kind: self.kind.ok_or_else(|| BuildError::missing_field("kind"))?,
             modality: self.modality.ok_or_else(|| BuildError::missing_field("modality"))?,
             name: self.name,
             description: self.description,
+            logo_url: self.logo_url,
             input_schema: self.input_schema,
             output_schema: self.output_schema,
-            routing: self.routing,
-            variants: self.variants,
         })
     }
 }

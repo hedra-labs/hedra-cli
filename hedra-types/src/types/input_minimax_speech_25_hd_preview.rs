@@ -1,0 +1,82 @@
+pub use crate::prelude::*;
+#[allow(unused_imports)]
+use super::*;
+
+/// Model-specific inputs for `minimax-speech-25-hd-preview`.
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
+pub struct InputMinimaxSpeech25HdPreview {
+    /// Generation prompt.
+    #[serde(default)]
+    pub text: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    #[serde(with = "crate::core::number_serializers::option")]
+    pub stability: Option<f64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    #[serde(default)]
+    #[serde(with = "crate::core::number_serializers::option")]
+    pub speed: Option<f64>,
+    /// Language code; 'auto' by default.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Voice to speak with (`voice_<uuid>`). List valid voices at GET /v3/models/minimax-speech-25-hd-preview/voices.
+    #[serde(default)]
+    pub voice_id: String,
+}
+
+impl InputMinimaxSpeech25HdPreview {
+    pub fn builder() -> InputMinimaxSpeech25HdPreviewBuilder {
+        <InputMinimaxSpeech25HdPreviewBuilder as Default>::default()
+    }
+}
+
+#[derive(Clone, PartialEq, Default, Debug)]
+#[non_exhaustive]
+pub struct InputMinimaxSpeech25HdPreviewBuilder {
+    text: Option<String>,
+    stability: Option<f64>,
+    speed: Option<f64>,
+    language: Option<String>,
+    voice_id: Option<String>,
+}
+
+impl InputMinimaxSpeech25HdPreviewBuilder {
+    pub fn text(mut self, value: impl Into<String>) -> Self {
+        self.text = Some(value.into());
+        self
+    }
+
+    pub fn stability(mut self, value: f64) -> Self {
+        self.stability = Some(value);
+        self
+    }
+
+    pub fn speed(mut self, value: f64) -> Self {
+        self.speed = Some(value);
+        self
+    }
+
+    pub fn language(mut self, value: impl Into<String>) -> Self {
+        self.language = Some(value.into());
+        self
+    }
+
+    pub fn voice_id(mut self, value: impl Into<String>) -> Self {
+        self.voice_id = Some(value.into());
+        self
+    }
+
+    /// Consumes the builder and constructs a [`InputMinimaxSpeech25HdPreview`].
+    /// This method will fail if any of the following fields are not set:
+    /// - [`text`](InputMinimaxSpeech25HdPreviewBuilder::text)
+    /// - [`voice_id`](InputMinimaxSpeech25HdPreviewBuilder::voice_id)
+    pub fn build(self) -> Result<InputMinimaxSpeech25HdPreview, BuildError> {
+        Ok(InputMinimaxSpeech25HdPreview {
+            text: self.text.ok_or_else(|| BuildError::missing_field("text"))?,
+            stability: self.stability,
+            speed: self.speed,
+            language: self.language,
+            voice_id: self.voice_id.ok_or_else(|| BuildError::missing_field("voice_id"))?,
+        })
+    }
+}

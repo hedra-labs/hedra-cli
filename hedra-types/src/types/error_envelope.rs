@@ -11,6 +11,12 @@ pub struct ErrorEnvelope {
     pub retryable: Option<bool>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub retry_after: Option<i64>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub param: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub details: Option<Vec<FieldError>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub replaced_by: Option<String>,
 }
 
 impl ErrorEnvelope {
@@ -26,6 +32,9 @@ pub struct ErrorEnvelopeBuilder {
     message: Option<String>,
     retryable: Option<bool>,
     retry_after: Option<i64>,
+    param: Option<String>,
+    details: Option<Vec<FieldError>>,
+    replaced_by: Option<String>,
 }
 
 impl ErrorEnvelopeBuilder {
@@ -49,6 +58,21 @@ impl ErrorEnvelopeBuilder {
         self
     }
 
+    pub fn param(mut self, value: impl Into<String>) -> Self {
+        self.param = Some(value.into());
+        self
+    }
+
+    pub fn details(mut self, value: Vec<FieldError>) -> Self {
+        self.details = Some(value);
+        self
+    }
+
+    pub fn replaced_by(mut self, value: impl Into<String>) -> Self {
+        self.replaced_by = Some(value.into());
+        self
+    }
+
     /// Consumes the builder and constructs a [`ErrorEnvelope`].
     /// This method will fail if any of the following fields are not set:
     /// - [`code`](ErrorEnvelopeBuilder::code)
@@ -59,6 +83,9 @@ impl ErrorEnvelopeBuilder {
             message: self.message.ok_or_else(|| BuildError::missing_field("message"))?,
             retryable: self.retryable,
             retry_after: self.retry_after,
+            param: self.param,
+            details: self.details,
+            replaced_by: self.replaced_by,
         })
     }
 }
