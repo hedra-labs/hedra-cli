@@ -131,6 +131,10 @@ jobs:
             curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
             echo "$HOME/.cargo/bin" >> $GITHUB_PATH
           fi
+      - name: "Disable GCC outline atomics for ARM64 musl C dependencies"
+        if: "contains(matrix.targets, 'aarch64-unknown-linux-musl')"
+        run: "echo 'CFLAGS=-mno-outline-atomics' >> \"$GITHUB_ENV\""
+        shell: "bash"
       - name: Install dist
         run: ${{ matrix.install_dist.run }}
       # Get the dist-manifest
