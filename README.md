@@ -28,6 +28,24 @@ The binary is `hedra`. Every API resource is a subcommand (e.g. `hedra queue sub
 
 ## Installation
 
+### npm
+
+```bash
+npm install --global @hedra/cli
+```
+
+### Homebrew
+
+```bash
+brew install hedra-labs/tap/hedra-cli
+```
+
+### Installer script
+
+```bash
+curl --proto '=https' --tlsv1.2 -LsSf https://github.com/hedra-labs/hedra-cli/releases/latest/download/hedra-cli-installer.sh | sh
+```
+
 ### Build from source
 
 Install the [Rust toolchain](https://rustup.rs/), then:
@@ -41,8 +59,7 @@ cargo build --release
 
 Copy `target/release/hedra` somewhere on your `PATH` (e.g. `~/.local/bin`) to run it as `hedra`.
 
-> Prebuilt installers (shell / PowerShell / Homebrew) are produced by the release
-> workflow once a tagged release is published; until then, build from source.
+Prebuilt archives and installers are published from tagged releases.
 
 ## Authentication
 
