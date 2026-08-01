@@ -4,17 +4,21 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SubmitResponse {
+    /// This job's id (`job_<uuid>`). The job's output asset carries the same UUID, so once the job completes, replacing the `job_` prefix with `asset_` yields the `asset_id` to reference its output in a later submit's media inputs.
     #[serde(default)]
-    pub request_id: String,
+    pub job_id: String,
     #[serde(default)]
     pub model: String,
-    pub status: RequestStatus,
+    pub status: JobStatus,
+    /// Path of this job's status monitor: poll GET /v3/jobs/{job_id}/status for status, progress, and an estimate.
     #[serde(default)]
     pub status_url: String,
+    /// Path of the job resource itself: GET /v3/jobs/{job_id} returns the result envelope, including the outputs once it completes. Also the value of this response's `Location` header.
     #[serde(default)]
-    pub response_url: String,
+    pub result_url: String,
+    /// ISO-8601 instant this job is estimated to finish. Null when no estimate exists for the model yet; poll GET /v3/jobs/{job_id}/status for a refreshed one.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub estimated_completion_at: Option<String>,
+    pub estimated_completion_at: Option<DateTime<FixedOffset>>,
 }
 
 impl SubmitResponse {
@@ -26,17 +30,17 @@ impl SubmitResponse {
 #[derive(Clone, PartialEq, Default, Debug)]
 #[non_exhaustive]
 pub struct SubmitResponseBuilder {
-    request_id: Option<String>,
+    job_id: Option<String>,
     model: Option<String>,
-    status: Option<RequestStatus>,
+    status: Option<JobStatus>,
     status_url: Option<String>,
-    response_url: Option<String>,
-    estimated_completion_at: Option<String>,
+    result_url: Option<String>,
+    estimated_completion_at: Option<DateTime<FixedOffset>>,
 }
 
 impl SubmitResponseBuilder {
-    pub fn request_id(mut self, value: impl Into<String>) -> Self {
-        self.request_id = Some(value.into());
+    pub fn job_id(mut self, value: impl Into<String>) -> Self {
+        self.job_id = Some(value.into());
         self
     }
 
@@ -45,7 +49,7 @@ impl SubmitResponseBuilder {
         self
     }
 
-    pub fn status(mut self, value: RequestStatus) -> Self {
+    pub fn status(mut self, value: JobStatus) -> Self {
         self.status = Some(value);
         self
     }
@@ -55,30 +59,30 @@ impl SubmitResponseBuilder {
         self
     }
 
-    pub fn response_url(mut self, value: impl Into<String>) -> Self {
-        self.response_url = Some(value.into());
+    pub fn result_url(mut self, value: impl Into<String>) -> Self {
+        self.result_url = Some(value.into());
         self
     }
 
-    pub fn estimated_completion_at(mut self, value: impl Into<String>) -> Self {
-        self.estimated_completion_at = Some(value.into());
+    pub fn estimated_completion_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.estimated_completion_at = Some(value);
         self
     }
 
     /// Consumes the builder and constructs a [`SubmitResponse`].
     /// This method will fail if any of the following fields are not set:
-    /// - [`request_id`](SubmitResponseBuilder::request_id)
+    /// - [`job_id`](SubmitResponseBuilder::job_id)
     /// - [`model`](SubmitResponseBuilder::model)
     /// - [`status`](SubmitResponseBuilder::status)
     /// - [`status_url`](SubmitResponseBuilder::status_url)
-    /// - [`response_url`](SubmitResponseBuilder::response_url)
+    /// - [`result_url`](SubmitResponseBuilder::result_url)
     pub fn build(self) -> Result<SubmitResponse, BuildError> {
         Ok(SubmitResponse {
-            request_id: self.request_id.ok_or_else(|| BuildError::missing_field("request_id"))?,
+            job_id: self.job_id.ok_or_else(|| BuildError::missing_field("job_id"))?,
             model: self.model.ok_or_else(|| BuildError::missing_field("model"))?,
             status: self.status.ok_or_else(|| BuildError::missing_field("status"))?,
             status_url: self.status_url.ok_or_else(|| BuildError::missing_field("status_url"))?,
-            response_url: self.response_url.ok_or_else(|| BuildError::missing_field("response_url"))?,
+            result_url: self.result_url.ok_or_else(|| BuildError::missing_field("result_url"))?,
             estimated_completion_at: self.estimated_completion_at,
         })
     }

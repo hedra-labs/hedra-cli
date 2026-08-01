@@ -5,6 +5,7 @@ use super::*;
 /// One voice a model accepts; `id` goes into ``input.voice_id`` on submit.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct VoiceSummary {
+    /// The voice's id (`voice_<uuid>`); pass it as `input.voice_id` on submit.
     #[serde(default)]
     pub id: String,
     #[serde(skip_serializing_if = "Option::is_none")]

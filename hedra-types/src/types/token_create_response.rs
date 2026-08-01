@@ -7,7 +7,7 @@ pub struct TokenCreateResponse {
     #[serde(default)]
     pub token: String,
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub expires_at: Option<String>,
+    pub expires_at: Option<DateTime<FixedOffset>>,
 }
 
 impl TokenCreateResponse {
@@ -20,7 +20,7 @@ impl TokenCreateResponse {
 #[non_exhaustive]
 pub struct TokenCreateResponseBuilder {
     token: Option<String>,
-    expires_at: Option<String>,
+    expires_at: Option<DateTime<FixedOffset>>,
 }
 
 impl TokenCreateResponseBuilder {
@@ -29,8 +29,8 @@ impl TokenCreateResponseBuilder {
         self
     }
 
-    pub fn expires_at(mut self, value: impl Into<String>) -> Self {
-        self.expires_at = Some(value.into());
+    pub fn expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.expires_at = Some(value);
         self
     }
 

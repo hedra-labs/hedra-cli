@@ -7,36 +7,43 @@ pub enum ApiError {
     BadRequestError {
         message: String,
         error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
     },
     #[error("UnauthorizedError: Authentication failed - {message}")]
     UnauthorizedError {
         message: String,
         error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
     },
     #[error("ForbiddenError: Access forbidden - {message}")]
     ForbiddenError {
         message: String,
         error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
     },
     #[error("NotFoundError: Resource not found - {message}")]
     NotFoundError {
         message: String,
         error: Option<ErrorEnvelope>,
-    },
-    #[error("UnprocessableEntityError: Unprocessable entity - {message}")]
-    UnprocessableEntityError {
-        message: String,
-        detail: Option<Vec<ValidationError>>,
+        trace_id: Option<String>,
     },
     #[error("TooManyRequestsError: Rate limit exceeded - {message}")]
     TooManyRequestsError {
         message: String,
         error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
     },
     #[error("InternalServerError: Internal server error - {message}")]
     InternalServerError {
         message: String,
         error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
+    },
+    #[error("UnprocessableEntityError: Unprocessable entity - {message}")]
+    UnprocessableEntityError {
+        message: String,
+        error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
     },
     #[error("HTTP error {status}: {message}")]
     Http { status: u16, message: String },
@@ -76,12 +83,16 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::BadRequestError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
+                    trace_id: None,
                 };
             }
             401 => {
@@ -97,12 +108,16 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::UnauthorizedError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
+                    trace_id: None,
                 };
             }
             403 => {
@@ -118,12 +133,16 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::ForbiddenError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
+                    trace_id: None,
                 };
             }
             404 => {
@@ -139,33 +158,16 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::NotFoundError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
-                };
-            }
-            422 => {
-                // Parse error body for UnprocessableEntityError;
-                if let Some(body_str) = body {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                        return Self::UnprocessableEntityError {
-                            message: parsed
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown error")
-                                .to_string(),
-                            detail: parsed.get("detail").and_then(|v| {
-                                serde_json::from_value::<Vec<ValidationError>>(v.clone()).ok()
-                            }),
-                        };
-                    }
-                }
-                return Self::UnprocessableEntityError {
-                    message: body.unwrap_or("Unknown error").to_string(),
-                    detail: None,
+                    trace_id: None,
                 };
             }
             429 => {
@@ -181,12 +183,16 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::TooManyRequestsError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
+                    trace_id: None,
                 };
             }
             500 => {
@@ -202,12 +208,41 @@ impl ApiError {
                             error: parsed.get("error").and_then(|v| {
                                 serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
                             }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::InternalServerError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
+                    trace_id: None,
+                };
+            }
+            422 => {
+                // Parse error body for UnprocessableEntityError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::UnprocessableEntityError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                            }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
+                        };
+                    }
+                }
+                return Self::UnprocessableEntityError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                    trace_id: None,
                 };
             }
             _ => Self::Http {

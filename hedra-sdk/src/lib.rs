@@ -15,10 +15,9 @@
 //!     };
 //!     let client = HedraClient::new(config).expect("Failed to build client");
 //!     client
-//!         .queue
-//!         .submit(
-//!             &"model".to_string(),
-//!             &SubmitRequest {
+//!         .jobs
+//!         .list(
+//!             &JobsListQueryRequest {
 //!                 ..Default::default()
 //!             },
 //!             None,
