@@ -1,0 +1,4 @@
+- name: Disable GCC outline atomics for ARM64 musl C dependencies
+  if: contains(matrix.targets, 'aarch64-unknown-linux-musl')
+  shell: bash
+  run: echo 'CFLAGS=-mno-outline-atomics' >> "$GITHUB_ENV"
