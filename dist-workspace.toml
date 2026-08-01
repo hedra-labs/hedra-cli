@@ -20,9 +20,10 @@ github-attestations = true
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # Which actions to run on pull requests
 pr-run-mode = "plan"
-# Publish stable releases to the package managers after GitHub artifacts are
-# available. These jobs require NPM_TOKEN and HOMEBREW_TAP_TOKEN secrets.
-publish-jobs = ["npm", "homebrew"]
+# Publish stable Homebrew releases after GitHub artifacts are available. The
+# first npm package must be published interactively with 2FA; once it exists,
+# configure npm Trusted Publishing and add an OIDC-based custom publish job.
+publish-jobs = ["homebrew"]
 # Homebrew tap backing `brew install hedra-labs/tap/hedra-cli`.
 tap = "hedra-labs/homebrew-tap"
 # The archive format to use for windows builds (defaults .zip)
