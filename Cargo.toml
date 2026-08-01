@@ -73,6 +73,9 @@ jmespath = "0.3"
 
 [package.metadata.dist]
 dist = true
+# Keep package-manager names explicit: both install the `hedra` binary.
+npm-package = "@hedra/cli"
+formula = "hedra-cli"
 
 # The profile that 'cargo dist' will build with
 [dependencies.hedra_sdk]
