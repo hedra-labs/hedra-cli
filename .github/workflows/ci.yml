@@ -16,7 +16,6 @@ env:
 
 jobs:
   check:
-    name: Rust checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
