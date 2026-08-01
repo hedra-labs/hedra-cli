@@ -73,6 +73,10 @@ jmespath = "0.3"
 
 [package.metadata.dist]
 dist = true
+# Release binaries use the self-contained TLS backend so Linux musl targets
+# do not require a cross-compiled OpenSSL installation.
+default-features = false
+features = ["rustls"]
 # Keep package-manager names explicit: both install the `hedra` binary.
 npm-package = "@hedra/cli"
 formula = "hedra-cli"
