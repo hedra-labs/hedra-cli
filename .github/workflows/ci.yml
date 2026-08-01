@@ -15,7 +15,8 @@ env:
   RUSTFLAGS: "-A warnings"
 
 jobs:
-  rust:
+  check:
+    name: Rust checks
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
