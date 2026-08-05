@@ -5,6 +5,7 @@ use super::*;
 /// Price of a would-be submit, in US dollars.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct EstimateResponse {
+    /// The resolved model id this estimate prices.
     #[serde(default)]
     pub model: String,
     /// Price of a would-be submit.

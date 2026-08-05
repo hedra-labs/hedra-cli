@@ -5,8 +5,10 @@ use super::*;
 /// The ed25519 public key callers verify outbound webhook signatures with.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct WebhookPublicKey {
+    /// Signature algorithm; always `ed25519`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub algorithm: Option<String>,
+    /// Base64-encoded ed25519 public key. Verify each delivery's signature header with it before trusting the payload.
     #[serde(default)]
     pub public_key: String,
 }

@@ -4,14 +4,19 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct KeyCreateRequest {
+    /// Human-readable label for the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Scopes granted to the key; omitted means full access.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<ApiKeyScope>>,
+    /// `personal` (default) dies with the member; `service` is workspace-shared, OWNER/ADMIN-managed, and survives member removal.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub kind: Option<ApiKeyKind>,
+    /// Target workspace; omitted means the authenticating key's workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// ISO-8601 instant the key stops authenticating; omitted means it never expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<FixedOffset>>,
 }

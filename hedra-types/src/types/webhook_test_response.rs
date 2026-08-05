@@ -4,10 +4,13 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct WebhookTestResponse {
+    /// Whether the test delivery got a 2xx from the endpoint.
     #[serde(default)]
     pub ok: bool,
+    /// HTTP status the endpoint returned; null when the request never got a response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub response_status: Option<i64>,
+    /// Why the test failed; null on success.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
 }

@@ -4,8 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct LogDrainCreate {
+    /// Human-readable label.
     #[serde(default)]
     pub name: String,
+    /// HTTPS endpoint job-log batches are posted to.
     #[serde(default)]
     pub url: String,
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -13,10 +15,13 @@ pub struct LogDrainCreate {
     /// Signs every NDJSON post. Required when `format` is `ndjson` (the default); optional for `otlp` drains, whose receivers authenticate with `headers` instead.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
+    /// Extra headers sent with every post — typically the receiver's authentication. Stored values are never echoed back; reads expose `header_names` only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, Option<String>>>,
+    /// Whether the drain receives batches.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// Maximum log lines per post.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_size: Option<i64>,
 }

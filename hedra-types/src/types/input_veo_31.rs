@@ -5,6 +5,7 @@ use super::*;
 /// Model-specific inputs for `veo-31`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputVeo31 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

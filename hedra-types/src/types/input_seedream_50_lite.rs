@@ -3,11 +3,16 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `seedream-50-lite`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: aspect_ratio, images, prompt, resolution
+/// (2) requires: aspect_ratio, prompt, resolution; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputSeedream50Lite {
     /// Generation prompt.
     #[serde(default)]
     pub prompt: String,
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.

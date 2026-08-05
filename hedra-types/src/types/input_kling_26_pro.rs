@@ -3,8 +3,13 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `kling-26-pro`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: aspect_ratio, duration_ms, prompt; must omit: start_image
+/// (2) requires: aspect_ratio, duration_ms, prompt, start_image; must omit: cfg_scale
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKling26Pro {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

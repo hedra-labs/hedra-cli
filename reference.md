@@ -31,9 +31,9 @@ Get Usage
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--start` | `string` | No |  |
-| `--end` | `string` | No |  |
-| `--group-by` | `UsageGroupBy` | No |  |
+| `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time. |
+| `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
+| `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
 
 ---
 
@@ -41,7 +41,11 @@ Get Usage
 
 #### `hedra files upload`
 
-Upload File
+Store a file and return a short-lived URL to pass in a model's `input`.
+
+Free, and available on an empty API wallet — funding is enforced when you
+submit a generation, not when you upload its inputs. `GET /v3/balance`
+reports what the wallet holds.
 
 `POST /files`
 
@@ -61,7 +65,7 @@ Get Job
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--job-id` | `string` | Yes |  |
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 
 #### `hedra jobs get-status`
 
@@ -71,7 +75,7 @@ Get Job Status
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--job-id` | `string` | Yes |  |
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 | `--logs-after` | `string` | No | Tail this job's lifecycle events incrementally: returns only events newer than this cursor, plus `logs_next_cursor` to send on the next poll. Pass `start` to begin from the job's first event. Omit it and the response carries no events at all — the default polling shape is unchanged. |
 
 #### `hedra jobs list`
@@ -82,8 +86,8 @@ List Jobs
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--limit` | `integer` | No |  |
-| `--cursor` | `string` | No |  |
+| `--limit` | `integer` | No | Maximum items per page. |
+| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
 #### `hedra jobs list-job-logs`
 
@@ -93,9 +97,9 @@ List Job Logs
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--job-id` | `string` | Yes |  |
-| `--limit` | `integer` | No |  |
-| `--cursor` | `string` | No |  |
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
+| `--limit` | `integer` | No | Maximum items per page. |
+| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
 #### `hedra jobs stream`
 
@@ -105,8 +109,8 @@ Stream Job
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--job-id` | `string` | Yes |  |
-| `--last-event-id` | `string` | No |  |
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
+| `--last-event-id` | `string` | No | Resume after this event id — the standard SSE reconnect header; browsers' EventSource sends it automatically. |
 
 #### `hedra jobs submit-dreamina-31`
 
@@ -181,6 +185,18 @@ The big-canvas choice for ultra-high-res images and flagship visuals.
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/flux-11-ultra`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra jobs submit-flux-3`
+
+Black Forest Labs FLUX.3 text-to-video with native audio.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/flux-3`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -392,7 +408,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra jobs submit-ideogram-v4`
 
-Ideogram V4 at its middle render setting; poster-ready text and layout at everyday cost.
+Ideogram V4 renders poster-ready text and layout; the required quality parameter picks turbo, balanced or quality, which sets both the render effort and the price.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -551,6 +567,18 @@ Microsoft AI's MAI-Image-2.5: photorealistic generation and editing with strong 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/mai-image-2-5`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra jobs submit-minimax-h3`
+
+MiniMax H3 video generation from text, frames, or references.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/minimax-h3`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -882,7 +910,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra jobs submit-vidu-q3`
 
-Vidu Q3 text-to-video with native dialogue and sound, up to 16 seconds
+Vidu Q3 video with native dialogue and sound, up to 16 seconds — from a text prompt, from a start frame, or between a start and end frame
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -906,7 +934,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra jobs submit-wan-2-7`
 
-Wan 2.7 text-to-video with native audio and up to 15-second generations
+Wan 2.7 video with native audio — from a text prompt, from a first frame with an optional last frame, or from reference images that keep subjects consistent
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -938,7 +966,7 @@ List Keys
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--workspace-id` | `string` | No |  |
+| `--workspace-id` | `string` | No | List keys of this workspace; omitted means the authenticating key's workspace. |
 
 #### `hedra keys revoke`
 
@@ -948,7 +976,7 @@ Revoke Key
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--key-id` | `string` | Yes |  |
+| `--key-id` | `string` | Yes | The key's public identifier. |
 
 #### `hedra keys rotate`
 
@@ -958,7 +986,7 @@ Rotate Key
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--key-id` | `string` | Yes |  |
+| `--key-id` | `string` | Yes | The key's public identifier. |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
@@ -983,7 +1011,7 @@ Delete Log Drain
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--drain-id` | `string` | Yes |  |
+| `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
 #### `hedra log-drains get-log-drain`
 
@@ -993,7 +1021,7 @@ Get Log Drain
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--drain-id` | `string` | Yes |  |
+| `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
 #### `hedra log-drains list-log-drains`
 
@@ -1009,7 +1037,7 @@ Test Log Drain
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--drain-id` | `string` | Yes |  |
+| `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
 #### `hedra log-drains update-log-drain`
 
@@ -1019,7 +1047,7 @@ Update Log Drain
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--drain-id` | `string` | Yes |  |
+| `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
@@ -1034,7 +1062,7 @@ Estimate
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 #### `hedra models get`
@@ -1045,7 +1073,7 @@ Get Model
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 
 #### `hedra models get-openapi`
 
@@ -1055,7 +1083,7 @@ A standalone one-operation OpenAPI spec for this model's submit call.
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 
 #### `hedra models list`
 
@@ -1075,9 +1103,9 @@ List Model Jobs
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
-| `--limit` | `integer` | No |  |
-| `--cursor` | `string` | No |  |
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
+| `--limit` | `integer` | No | Maximum items per page. |
+| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
 #### `hedra models list-voices`
 
@@ -1087,7 +1115,7 @@ Voices this model accepts — scoped to the model's voice provider.
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 
 ---
 
@@ -1133,8 +1161,8 @@ List Deliveries
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--limit` | `integer` | No |  |
-| `--cursor` | `string` | No |  |
+| `--limit` | `integer` | No | Maximum items per page. |
+| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
 #### `hedra webhooks put-default`
 
@@ -1165,7 +1193,7 @@ the one case where the duplicate is the point.
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--job-id` | `string` | Yes |  |
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 
 #### `hedra webhooks test-default`
 

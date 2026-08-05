@@ -9,12 +9,16 @@ use super::*;
 /// can fix it without re-fetching the model schema.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct FieldError {
+    /// Dotted path to the offending input (e.g. `input.resolution`).
     #[serde(default)]
     pub field: String,
+    /// What is wrong with this field's value.
     #[serde(default)]
     pub message: String,
+    /// Machine-readable hint for which constraint failed ("required", "enum", "type", …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// The accepted values, when the field is an enum — so the request can be fixed without re-fetching the model schema.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed: Option<Vec<String>>,
 }

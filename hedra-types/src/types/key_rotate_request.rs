@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct KeyRotateRequest {
+    /// Seconds the old secret keeps authenticating after the rotation; omitted means the service default (24h).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub grace_period_seconds: Option<i64>,
 }

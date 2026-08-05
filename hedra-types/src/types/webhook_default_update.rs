@@ -4,8 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct WebhookDefaultUpdate {
+    /// HTTPS endpoint to receive terminal webhooks for every job that names no per-job `webhook` on submit.
     #[serde(default)]
     pub url: String,
+    /// Whether the default endpoint receives deliveries; false pauses it without discarding the URL.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
 }

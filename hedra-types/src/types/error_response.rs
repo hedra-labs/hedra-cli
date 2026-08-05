@@ -3,9 +3,10 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Top-level error body: ``{"error": {...}}`` plus a debug id.
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ErrorResponse {
     pub error: ErrorEnvelope,
+    /// Debug id to quote to support (32-char hex trace id), also emitted as the `X-Trace-Id` response header.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub trace_id: Option<String>,
 }

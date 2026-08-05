@@ -2,34 +2,45 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebhookDeliverySummary {
+    /// The job whose terminal event this delivers.
     #[serde(default)]
     pub job_id: String,
+    /// Whether GET /v3/jobs/{job_id} works for the caller — false when the job belongs to a different owner than the authenticating key.
     #[serde(default)]
     pub job_accessible: bool,
+    /// The resolved model id the job ran on.
     #[serde(default)]
     pub model: String,
+    /// The terminal event this delivery announces; null until the delivery fires — a row registered at submit has no outcome to announce while its job is still running.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_type: Option<WebhookEventType>,
     pub status: WebhookDeliveryStatus,
     pub source: WebhookDeliverySource,
+    /// Delivery attempts so far, cumulative across replays.
     #[serde(default)]
     pub attempts: i64,
+    /// How many operator replays this delivery has had; 0 means every attempt was automatic.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redelivery_count: Option<i64>,
+    /// One entry per operator replay, oldest first — each holds the delivery's fields as they stood when the replay was requested. Replays recorded before this history existed appear only in `redelivery_count`, so the list can be shorter.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub redeliveries: Option<Vec<WebhookRedelivery>>,
+    /// HTTP status of the most recent attempt; null when it never got a response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_response_status: Option<i64>,
     /// Why the most recent delivery attempt failed, in the same error envelope `GET /jobs/{job_id}` returns for a failed job: a stable `code` from the shared error vocabulary, a fixed operator-facing `message`, and `retryable`. Null while no attempt has failed. Destination URLs, addresses, headers, credentials, response bodies, and internal exception text are never included — those stay in Hedra's own logs. `retryable` describes the condition, not what Hedra did: every non-2xx response is retried on the published ladder, so it answers whether replaying this delivery is likely to help. Deliveries that failed before this field became structured report `UNKNOWN`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<ErrorEnvelope>,
+    /// The destination endpoint.
     #[serde(default)]
     pub webhook_url: String,
+    /// ISO-8601 instant the delivery was registered.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,
+    /// ISO-8601 instant of the most recent attempt; null before the first one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_attempt_at: Option<DateTime<FixedOffset>>,
 }

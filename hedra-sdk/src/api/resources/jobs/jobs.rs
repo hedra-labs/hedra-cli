@@ -1,5 +1,5 @@
 use crate::api::*;
-use crate::{ApiError, ClientConfig, HttpClient, QueryBuilder, RequestOptions};
+use crate::{ApiError, ClientConfig, HttpClient, QueryBuilder, RequestOptions, SseStream};
 use reqwest::Method;
 
 pub struct JobsClient {
@@ -91,14 +91,15 @@ impl JobsClient {
         &self,
         job_id: &str,
         options: Option<RequestOptions>,
-    ) -> Result<serde_json::Value, ApiError> {
+    ) -> Result<SseStream<serde_json::Value>, ApiError> {
         self.http_client
-            .execute_request(
+            .execute_sse_request(
                 Method::GET,
                 &format!("jobs/{}/stream", job_id),
                 None,
                 None,
                 options,
+                None,
             )
             .await
     }
@@ -279,6 +280,33 @@ impl JobsClient {
             .execute_request(
                 Method::POST,
                 "models/flux-11-ultra",
+                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Black Forest Labs FLUX.3 text-to-video with native audio.
+    ///
+    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    pub async fn submit_flux3(
+        &self,
+        request: &SubmitBodyFlux3,
+        options: Option<RequestOptions>,
+    ) -> Result<SubmitResponse, ApiError> {
+        self.http_client
+            .execute_request(
+                Method::POST,
+                "models/flux-3",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -745,7 +773,7 @@ impl JobsClient {
             .await
     }
 
-    /// Ideogram V4 at its middle render setting; poster-ready text and layout at everyday cost.
+    /// Ideogram V4 renders poster-ready text and layout; the required quality parameter picks turbo, balanced or quality, which sets both the render effort and the price.
     ///
     /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
     ///
@@ -1114,6 +1142,33 @@ impl JobsClient {
             .execute_request(
                 Method::POST,
                 "models/mai-image-2-5",
+                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// MiniMax H3 video generation from text, frames, or references.
+    ///
+    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    pub async fn submit_minimax_h3(
+        &self,
+        request: &SubmitBodyMinimaxH3,
+        options: Option<RequestOptions>,
+    ) -> Result<SubmitResponse, ApiError> {
+        self.http_client
+            .execute_request(
+                Method::POST,
+                "models/minimax-h3",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -1850,7 +1905,7 @@ impl JobsClient {
             .await
     }
 
-    /// Vidu Q3 text-to-video with native dialogue and sound, up to 16 seconds
+    /// Vidu Q3 video with native dialogue and sound, up to 16 seconds — from a text prompt, from a start frame, or between a start and end frame
     ///
     /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
     ///
@@ -1904,7 +1959,7 @@ impl JobsClient {
             .await
     }
 
-    /// Wan 2.7 text-to-video with native audio and up to 15-second generations
+    /// Wan 2.7 video with native audio — from a text prompt, from a first frame with an optional last frame, or from reference images that keep subjects consistent
     ///
     /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
     ///

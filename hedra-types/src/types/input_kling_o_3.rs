@@ -3,8 +3,17 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `kling-o3`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: aspect_ratio, duration_ms, images, prompt; accepts quality: standard; resolution: 720p
+/// (2) requires: aspect_ratio, duration_ms, images, prompt, resolution; accepts quality: pro; resolution: 1080p | 4K
+/// (3) requires: aspect_ratio, duration_ms, prompt; must omit: end_image, images, start_image; accepts quality: standard; resolution: 720p
+/// (4) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: end_image, images, start_image; accepts quality: pro; resolution: 1080p | 4K
+/// (5) requires: aspect_ratio, duration_ms, prompt, resolution, start_image; accepts quality: pro; resolution: 1080p | 4K
+/// (6) requires: aspect_ratio, duration_ms, prompt, start_image; accepts quality: standard; resolution: 720p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKlingO3 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

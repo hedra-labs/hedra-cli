@@ -5,6 +5,7 @@ use super::*;
 /// Model-specific inputs for `seedance-20-mini`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputSeedance20Mini {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

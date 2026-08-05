@@ -7,8 +7,10 @@ use super::*;
 /// ``group_by=model``.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct UsageBucket {
+    /// What this bucket rolls up: `"total"`, an ISO date (`YYYY-MM-DD`, UTC), or a public model id — per `group_by`.
     #[serde(default)]
     pub key: String,
+    /// Jobs submitted in this bucket.
     #[serde(default)]
     pub jobs: i64,
     /// Net amount spent in this bucket.

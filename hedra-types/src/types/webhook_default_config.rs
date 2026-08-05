@@ -4,12 +4,16 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct WebhookDefaultConfig {
+    /// The stored default endpoint; null when none is configured.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Whether the default endpoint is active.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// ISO-8601 instant the config last changed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_at: Option<DateTime<FixedOffset>>,
+    /// The API key that last changed the config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_by_key_id: Option<String>,
 }

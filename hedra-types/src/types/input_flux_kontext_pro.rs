@@ -5,13 +5,14 @@ use super::*;
 /// Model-specific inputs for `flux-kontext-pro`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, prompt
-/// (2) requires: images, prompt
+/// (1) requires: aspect_ratio, prompt; must omit: images
+/// (2) requires: images, prompt; must omit: aspect_ratio, resolution
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputFluxKontextPro {
     /// Generation prompt.
     #[serde(default)]
     pub prompt: String,
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
@@ -29,7 +30,7 @@ pub struct InputFluxKontextPro {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Images to edit or blend.
+    /// The single source image to edit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFluxKontextProImagesItem>>,
 }

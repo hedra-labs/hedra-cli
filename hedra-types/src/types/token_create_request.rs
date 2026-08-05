@@ -4,8 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct TokenCreateRequest {
+    /// Seconds until the token expires; omitted means the service default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ttl_seconds: Option<i64>,
+    /// Scopes granted to the token. Omitted means every scope of the minting key; an explicit subset narrows the grant, and requesting beyond the key's scopes is a 403.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<ApiKeyScope>>,
 }

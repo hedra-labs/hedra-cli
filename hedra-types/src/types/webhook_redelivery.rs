@@ -5,19 +5,23 @@ use super::*;
 /// The outcome a replay superseded: the delivery's own fields as they stood
 /// when the operator requested the redelivery. Only finished deliveries can be
 /// replayed, so `status` is always terminal (`DELIVERED` / `FAILED`).
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebhookRedelivery {
+    /// ISO-8601 instant the redelivery was requested.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub requested_at: DateTime<FixedOffset>,
     pub status: WebhookDeliveryStatus,
+    /// Cumulative attempt count as it stood when this replay was requested.
     #[serde(default)]
     pub attempts: i64,
+    /// HTTP status of the superseded cycle's last attempt; null when it never got a response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_response_status: Option<i64>,
     /// Why the most recent delivery attempt failed, in the same error envelope `GET /jobs/{job_id}` returns for a failed job: a stable `code` from the shared error vocabulary, a fixed operator-facing `message`, and `retryable`. Null while no attempt has failed. Destination URLs, addresses, headers, credentials, response bodies, and internal exception text are never included — those stay in Hedra's own logs. `retryable` describes the condition, not what Hedra did: every non-2xx response is retried on the published ladder, so it answers whether replaying this delivery is likely to help. Deliveries that failed before this field became structured report `UNKNOWN`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<ErrorEnvelope>,
+    /// ISO-8601 instant of the superseded cycle's last attempt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_attempt_at: Option<DateTime<FixedOffset>>,
 }
