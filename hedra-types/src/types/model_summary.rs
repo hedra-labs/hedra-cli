@@ -4,13 +4,17 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct ModelSummary {
+    /// The model's public id — the value POST /v3/models/{model} takes.
     #[serde(default)]
     pub id: String,
     pub modality: Modality,
+    /// Human-readable name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// One-line summary of what the model does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// URL of the provider's logo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
 }

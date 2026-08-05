@@ -5,11 +5,11 @@ use super::*;
 /// Model-specific inputs for `kling-o1`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, end_image, prompt, start_image
-/// (2) requires: aspect_ratio, duration_ms, images, prompt
-/// (3) requires: aspect_ratio, duration_ms, prompt, start_image
+/// (1) requires: aspect_ratio, duration_ms, images, prompt
+/// (2) requires: aspect_ratio, duration_ms, prompt, start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKlingO1 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

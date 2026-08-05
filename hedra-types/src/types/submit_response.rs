@@ -4,9 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SubmitResponse {
-    /// This job's id (`job_<uuid>`). The job's output asset carries the same UUID, so once the job completes, replacing the `job_` prefix with `asset_` yields the `asset_id` to reference its output in a later submit's media inputs.
+    /// This job's id — server-issued, and opaque.
     #[serde(default)]
     pub job_id: String,
+    /// The resolved model id this job runs on.
     #[serde(default)]
     pub model: String,
     pub status: JobStatus,

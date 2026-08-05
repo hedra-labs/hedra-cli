@@ -96,6 +96,7 @@ impl WebhooksClient {
     ///
     /// # Arguments
     ///
+    /// * `job_id` - The job's id (`job_<uuid>`).
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns

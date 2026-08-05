@@ -5,6 +5,7 @@ use super::*;
 /// Model-specific inputs for `hedra-character-3`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputHedraCharacter3 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.
@@ -19,8 +20,11 @@ pub struct InputHedraCharacter3 {
     pub duration_ms: Option<i64>,
     /// Start frame (image-to-video).
     pub start_image: InputHedraCharacter3StartImage,
-    /// Driving audio.
+    /// Driving audio: a single reference, or a list of up to 4 references for multi-speaker generation — one audio per speaker, played in list order.
     pub audio: InputHedraCharacter3Audio,
+    /// Speaker position(s) in the start frame, as normalized [x, y] image coordinates (0-1 from the top-left).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub bounding_box_target: Option<InputHedraCharacter3BoundingBoxTarget>,
 }
 
 impl InputHedraCharacter3 {
@@ -39,6 +43,7 @@ pub struct InputHedraCharacter3Builder {
     duration_ms: Option<i64>,
     start_image: Option<InputHedraCharacter3StartImage>,
     audio: Option<InputHedraCharacter3Audio>,
+    bounding_box_target: Option<InputHedraCharacter3BoundingBoxTarget>,
 }
 
 impl InputHedraCharacter3Builder {
@@ -77,6 +82,11 @@ impl InputHedraCharacter3Builder {
         self
     }
 
+    pub fn bounding_box_target(mut self, value: InputHedraCharacter3BoundingBoxTarget) -> Self {
+        self.bounding_box_target = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputHedraCharacter3`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputHedraCharacter3Builder::prompt)
@@ -93,6 +103,7 @@ impl InputHedraCharacter3Builder {
             duration_ms: self.duration_ms,
             start_image: self.start_image.ok_or_else(|| BuildError::missing_field("start_image"))?,
             audio: self.audio.ok_or_else(|| BuildError::missing_field("audio"))?,
+            bounding_box_target: self.bounding_box_target,
         })
     }
 }

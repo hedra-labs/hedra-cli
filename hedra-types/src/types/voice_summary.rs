@@ -8,10 +8,13 @@ pub struct VoiceSummary {
     /// The voice's id (`voice_<uuid>`); pass it as `input.voice_id` on submit.
     #[serde(default)]
     pub id: String,
+    /// Human-readable name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// URL of a short audio sample of this voice.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub preview_url: Option<String>,
+    /// Curation metadata (language, gender, accent, ...).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub labels: Option<HashMap<String, String>>,
 }

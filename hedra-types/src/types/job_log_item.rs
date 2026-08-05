@@ -5,16 +5,20 @@ use super::*;
 /// One customer-visible lifecycle event for a v3 job.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct JobLogItem {
+    /// Monotonically increasing id of this event within the job's log. Cursors are separate opaque values (`next_cursor` / `logs_next_cursor`); do not send this id as one.
     #[serde(default)]
     pub id: i64,
+    /// ISO-8601 instant the event was recorded.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub timestamp: DateTime<FixedOffset>,
     pub level: JobLogLevel,
     pub event: JobLogEvent,
+    /// Human-readable summary of the event.
     #[serde(default)]
     pub message: String,
     pub source: JobLogSource,
+    /// Structured detail specific to this event type; empty when the event carries none.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<HashMap<String, serde_json::Value>>,
 }

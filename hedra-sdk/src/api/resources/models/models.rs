@@ -72,6 +72,7 @@ impl ModelsClient {
     ///
     /// # Arguments
     ///
+    /// * `model` - The model's public id (`GET /v3/models`).
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns
@@ -97,6 +98,7 @@ impl ModelsClient {
     ///
     /// # Arguments
     ///
+    /// * `model` - The model's public id (`GET /v3/models`).
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns

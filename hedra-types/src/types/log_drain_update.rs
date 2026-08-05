@@ -4,19 +4,25 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct LogDrainUpdate {
+    /// New label; omitted means unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// New destination; omitted means unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// New wire format; omitted means unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub format: Option<LogDrainFormat>,
     /// Rotates the signing secret. No conditional applies here: the drain may already hold one. Switching `format` to `ndjson` on a drain with no stored secret requires supplying one in the same request.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub secret: Option<String>,
+    /// Replaces the full header set; `{}` clears it. Omitted means unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub headers: Option<HashMap<String, Option<String>>>,
+    /// Pause (false) or resume (true) the drain; omitted means unchanged. Re-enabling clears the auto-disable failure count.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enabled: Option<bool>,
+    /// New maximum log lines per post; omitted means unchanged.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub batch_size: Option<i64>,
 }

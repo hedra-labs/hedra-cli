@@ -5,11 +5,12 @@ use super::*;
 /// Model-specific inputs for `vidu-q3`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, resolution
-/// (2) requires: duration_ms, end_image, prompt, resolution, start_image
-/// (3) requires: duration_ms, prompt, resolution, start_image
+/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: end_image, start_image
+/// (2) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio
+/// (3) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, end_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputViduQ3 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

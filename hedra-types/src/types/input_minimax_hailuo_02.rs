@@ -3,8 +3,17 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `minimax-hailuo-02`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio; accepts quality: standard; resolution: 768p
+/// (2) requires: duration_ms, prompt; must omit: end_image, start_image; accepts quality: standard; resolution: 768p
+/// (3) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, end_image; accepts quality: standard; resolution: 768p
+/// (4) requires: end_image, prompt, start_image; must omit: aspect_ratio; accepts duration_ms: 6000; quality: pro; resolution: 1080p
+/// (5) requires: prompt; must omit: end_image, start_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
+/// (6) requires: prompt, start_image; must omit: aspect_ratio, end_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputMinimaxHailuo02 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.
@@ -19,7 +28,7 @@ pub struct InputMinimaxHailuo02 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). The output video follows this image's aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxHailuo02StartImage>,
     /// End frame (first-last-frame-to-video).

@@ -5,10 +5,13 @@ use super::*;
 /// Query parameters for getUsage
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct GetUsageQueryRequest {
+    /// Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<DateTime<FixedOffset>>,
+    /// Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end: Option<DateTime<FixedOffset>>,
+    /// One summary row (`total`), one per UTC day (`day`), or one per model (`model`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_by: Option<UsageGroupBy>,
 }

@@ -8,10 +8,12 @@ pub struct InputElevenlabsFlashMultilingualV2 {
     /// Generation prompt.
     #[serde(default)]
     pub text: String,
+    /// Voice stability, from 0 to 1. Higher values give a steadier, more consistent delivery; lower values allow more expressive variation between generations.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub stability: Option<f64>,
+    /// Speech rate multiplier; 1.0 is the voice's natural pace.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]

@@ -2,40 +2,54 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct LogDrainConfig {
+    /// The drain's id (`drain_<uuid>`).
     #[serde(default)]
     pub id: String,
+    /// Human-readable label.
     #[serde(default)]
     pub name: String,
+    /// The destination endpoint.
     #[serde(default)]
     pub url: String,
     pub format: LogDrainFormat,
+    /// Names of the configured extra headers. Values are write-only and never echoed back.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub header_names: Option<Vec<String>>,
+    /// Whether the drain receives batches.
     #[serde(default)]
     pub enabled: bool,
+    /// Maximum log lines per post.
     #[serde(default)]
     pub batch_size: i64,
+    /// Failed batches since the last success; the drain auto-disables when it crosses the failure threshold.
     #[serde(default)]
     pub consecutive_failures: i64,
+    /// ISO-8601 instant of the last delivered batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_success_at: Option<DateTime<FixedOffset>>,
+    /// ISO-8601 instant of the last failed batch.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_failure_at: Option<DateTime<FixedOffset>>,
+    /// HTTP status of the last failed batch; null when it never got a response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_failure_status: Option<i64>,
     /// Why the most recent batch delivery failed, in the same error envelope `GET /jobs/{job_id}` returns for a failed job: a stable `code` from the shared error vocabulary, a fixed operator-facing `message`, and `retryable`. Null while no batch has failed, and cleared on the next success. Destination URLs, headers, credentials, response bodies, and internal exception text are never included. Nor is your drain URL written to Hedra's own logs, since it may carry authentication in its query string. `retryable` describes the condition, not what Hedra did: every failed batch is requeued until the drain auto-disables, so it answers whether fixing the destination and re-enabling is likely to help. Drains that last failed before this field became structured report `UNKNOWN`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<ErrorEnvelope>,
+    /// Why the drain is off (`consecutive_failures` for auto-disable, `disabled_by_user`); null while enabled.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub disabled_reason: Option<String>,
+    /// ISO-8601 instant the drain was created.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,
+    /// ISO-8601 instant the config last changed.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub updated_at: DateTime<FixedOffset>,
+    /// The API key that last changed the config.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub updated_by_key_id: Option<String>,
 }

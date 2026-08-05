@@ -5,6 +5,7 @@ use super::*;
 /// Query parameters for list
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct KeysListQueryRequest {
+    /// List keys of this workspace; omitted means the authenticating key's workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
 }

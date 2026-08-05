@@ -13,6 +13,19 @@ impl FilesClient {
         })
     }
 
+    /// Store a file and return a short-lived URL to pass in a model's `input`.
+    ///
+    /// Free, and available on an empty API wallet — funding is enforced when you
+    /// submit a generation, not when you upload its inputs. `GET /v3/balance`
+    /// reports what the wallet holds.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
     pub async fn upload(
         &self,
         request: &UploadRequest,

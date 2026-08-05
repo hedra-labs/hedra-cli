@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct EstimateRequest {
+    /// The same model-specific inputs a submit would carry; the estimate prices exactly this body.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input: Option<HashMap<String, serde_json::Value>>,
 }

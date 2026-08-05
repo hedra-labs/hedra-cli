@@ -3,8 +3,13 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `grok-video`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: start_image; accepts aspect_ratio: 1:1 | 4:3 | 3:4 | 16:9 | 9:16 | 3:2 | 2:3
+/// (2) requires: aspect_ratio, duration_ms, prompt, resolution, start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputGrokVideo {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

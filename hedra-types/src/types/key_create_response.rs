@@ -4,19 +4,26 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct KeyCreateResponse {
+    /// The key's public identifier.
     #[serde(default)]
     pub key_id: String,
+    /// The full `<key_id>:<secret>` pair — a valid Bearer credential. Returned exactly once, at creation; store it now.
     #[serde(default)]
     pub credential: String,
     pub kind: ApiKeyKind,
+    /// Human-readable label for the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Scopes granted to the key; null means full access (a legacy key predating scopes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<String>>,
+    /// The workspace the key bills and acts in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
+    /// ISO-8601 instant the key stops authenticating; null means it never expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<FixedOffset>>,
+    /// ISO-8601 instant the key was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<FixedOffset>>,
 }

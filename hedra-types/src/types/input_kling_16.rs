@@ -3,8 +3,13 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Model-specific inputs for `kling-16`.
+/// 
+/// Accepted field combinations (one per input mode):
+/// (1) requires: prompt; must omit: start_image; accepts resolution: 720p
+/// (2) requires: prompt, start_image; accepts resolution: 1080p
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputKling16 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

@@ -4,17 +4,23 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ModelDetail {
+    /// The model's public id — the value POST /v3/models/{model} takes.
     #[serde(default)]
     pub id: String,
     pub modality: Modality,
+    /// Human-readable name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// One-line summary of what the model does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// URL of the provider's logo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
+    /// JSON Schema for this model's `input` object on submit — the same schema `GET /v3/models/{model}/openapi.json` embeds.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub input_schema: Option<HashMap<String, serde_json::Value>>,
+    /// JSON Schema of one item of a completed job's `outputs[]`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_schema: Option<HashMap<String, serde_json::Value>>,
 }

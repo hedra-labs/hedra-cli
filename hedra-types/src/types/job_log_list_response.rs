@@ -4,6 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct JobLogListResponse {
+    /// This page of items.
     #[serde(default)]
     pub data: Vec<JobLogItem>,
     /// Opaque cursor for the next page, or null when this response completes the list. Always present. Endpoints that serve the whole collection at once always return null.

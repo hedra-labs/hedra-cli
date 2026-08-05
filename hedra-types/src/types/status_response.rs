@@ -15,12 +15,14 @@ use super::*;
 /// inside this one (ENG-9694), and MCP progress notifications stay status-only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StatusResponse {
+    /// The job this status describes.
     #[serde(default)]
     pub job_id: String,
     pub status: JobStatus,
     /// Fraction of the job completed, from 0 to 1 (not a percentage). Null when the job has not reported progress yet.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub progress: Option<f64>,
+    /// ISO-8601 instant this job is estimated to finish; null when no estimate exists for the model yet. Refreshed on every poll.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_completion_at: Option<DateTime<FixedOffset>>,
     /// Lifecycle events newer than the `logs_after` cursor, oldest first. Present only when `logs_after` is supplied; absent from SSE status frames and MCP progress notifications.

@@ -15,3 +15,6 @@ Cargo.lock
 # Release pipeline (cargo-dist) + CI + Dependabot are hand-maintained.
 dist-workspace.toml
 .github/
+.fern/replay.lock
+.fern/replay.yml
+.gitattributes

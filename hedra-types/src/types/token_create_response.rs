@@ -4,8 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct TokenCreateResponse {
+    /// The ephemeral token — a valid Bearer credential until it expires. Shown exactly once.
     #[serde(default)]
     pub token: String,
+    /// ISO-8601 instant the token stops authenticating.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<FixedOffset>>,
 }

@@ -5,8 +5,10 @@ use super::*;
 /// Query parameters for listJobLogs
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct ListJobLogsQueryRequest {
+    /// Maximum items per page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
+    /// Opaque cursor from the previous page's `next_cursor`; omit for the first page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
 }

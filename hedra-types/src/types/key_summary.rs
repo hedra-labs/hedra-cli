@@ -4,22 +4,30 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct KeySummary {
+    /// The key's public identifier; null only for legacy rows predating public key ids.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub key_id: Option<String>,
     pub kind: ApiKeyKind,
+    /// Human-readable label for the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
+    /// Scopes granted to the key; null means full access (a legacy key predating scopes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<String>>,
+    /// The workspace the key bills and acts in.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub workspace_id: Option<String>,
     pub status: KeyStatus,
+    /// ISO-8601 instant the key was created.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_at: Option<DateTime<FixedOffset>>,
+    /// ISO-8601 instant the key stops authenticating; null means it never expires.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub expires_at: Option<DateTime<FixedOffset>>,
+    /// ISO-8601 instant the key was revoked; null unless `status` is `revoked`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub revoked_at: Option<DateTime<FixedOffset>>,
+    /// ISO-8601 instant the key last authenticated a request; null when unused.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_used_at: Option<DateTime<FixedOffset>>,
 }

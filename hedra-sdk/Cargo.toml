@@ -15,7 +15,9 @@ base64 = "0.22"
 bytes = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 futures = "0.3"
+pin-project = { version = "1.1", optional = true }
 reqwest = { version = "0.12", features = ["json", "stream"], default-features = false }
+reqwest-sse = { version = "0.1", optional = true }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "1.0"
@@ -25,8 +27,9 @@ tokio = { version = "1.0", features = ["full"] }
 tokio-test = "0.4"
 
 [features]
-default = ["multipart"]
+default = ["multipart", "sse"]
 multipart = ["reqwest/multipart"]
+sse = ["reqwest-sse", "pin-project"]
 
 [dependencies.hedra_types]
 path = "../hedra-types"

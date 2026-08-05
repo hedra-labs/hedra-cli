@@ -5,10 +5,11 @@ use super::*;
 /// Model-specific inputs for `pixverse-v6`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, resolution
-/// (2) requires: duration_ms, prompt, resolution, start_image
+/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: start_image
+/// (2) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputPixverseV6 {
+    /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt.

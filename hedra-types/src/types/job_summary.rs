@@ -4,14 +4,17 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct JobSummary {
+    /// The job's id — server-issued, and opaque.
     #[serde(default)]
     pub job_id: String,
+    /// The resolved model id this job ran on.
     #[serde(default)]
     pub model: String,
     /// The quality level this job ran at; present only for models that offer quality levels.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<String>,
     pub status: JobStatus,
+    /// ISO-8601 instant the job was submitted.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,

@@ -3,40 +3,48 @@ pub use crate::prelude::*;
 use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(tag = "source")]
-#[non_exhaustive]
+#[serde(untagged)]
 pub enum InputHedraCharacter3Audio {
-        #[serde(rename = "url")]
-        #[non_exhaustive]
-        Url {
-            #[serde(default)]
-            url: String,
-        },
+        InputHedraCharacter3AudioZero(InputHedraCharacter3AudioZero),
 
-        #[serde(rename = "asset")]
-        #[non_exhaustive]
-        Asset {
-            #[serde(default)]
-            asset_id: String,
-        },
-
-        /// Catch-all variant for unrecognized discriminant values.
-        /// If the server sends a discriminant not recognized by the current SDK
-        /// version, the raw payload is captured here so callers can still inspect it.
-        #[serde(untagged)]
-        __Unknown(serde_json::Value),
+        InputHedraCharacter3AudioOneItemList(Vec<InputHedraCharacter3AudioOneItem>),
 }
 
 impl InputHedraCharacter3Audio {
-    pub fn url(url: String) -> Self {
-        Self::Url { url }
+    pub fn is_input_hedra_character3audio_zero(&self) -> bool {
+        matches!(self, Self::InputHedraCharacter3AudioZero(_))
     }
 
-    pub fn asset(asset_id: String) -> Self {
-        Self::Asset { asset_id }
+    pub fn is_input_hedra_character3audio_one_item_list(&self) -> bool {
+        matches!(self, Self::InputHedraCharacter3AudioOneItemList(_))
     }
 
-    pub fn unknown(value: serde_json::Value) -> Self {
-        Self::__Unknown(value)
+
+    pub fn as_input_hedra_character3audio_zero(&self) -> Option<&InputHedraCharacter3AudioZero> {
+        match self {
+                    Self::InputHedraCharacter3AudioZero(value) => Some(value),
+                    _ => None,
+                }
+    }
+
+    pub fn into_input_hedra_character3audio_zero(self) -> Option<InputHedraCharacter3AudioZero> {
+        match self {
+                    Self::InputHedraCharacter3AudioZero(value) => Some(value),
+                    _ => None,
+                }
+    }
+
+    pub fn as_input_hedra_character3audio_one_item_list(&self) -> Option<&Vec<InputHedraCharacter3AudioOneItem>> {
+        match self {
+                    Self::InputHedraCharacter3AudioOneItemList(value) => Some(value),
+                    _ => None,
+                }
+    }
+
+    pub fn into_input_hedra_character3audio_one_item_list(self) -> Option<Vec<InputHedraCharacter3AudioOneItem>> {
+        match self {
+                    Self::InputHedraCharacter3AudioOneItemList(value) => Some(value),
+                    _ => None,
+                }
     }
 }

@@ -4,8 +4,10 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ResultResponse {
+    /// The job this envelope describes.
     #[serde(default)]
     pub job_id: String,
+    /// The resolved model id this job ran on.
     #[serde(default)]
     pub model: String,
     /// The quality level this job ran at; present only for models that offer quality levels.
@@ -15,11 +17,13 @@ pub struct ResultResponse {
     /// The prompt this job ran with. When `enhance_prompt` was set, this is the rewritten prompt the model received rather than the one submitted. Absent on models that take no prompt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
+    /// The job's outputs — always an array, even for a single output; empty until the job completes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outputs: Option<Vec<OutputItem>>,
     /// Timing for this job; present on completed jobs only.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
+    /// Why the job failed; null unless `status` is `FAILED`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorEnvelope>,
     /// The most recent lifecycle events for this job, oldest first. Capped; GET /v3/jobs/{job_id}/logs serves the full paginated history. Absent from webhook payloads.

@@ -4,13 +4,16 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct UsageResponse {
+    /// Window start (inclusive).
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub start: DateTime<FixedOffset>,
+    /// Window end (exclusive).
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub end: DateTime<FixedOffset>,
     pub group_by: UsageGroupBy,
+    /// Jobs submitted across the whole window.
     #[serde(default)]
     pub total_jobs: i64,
     /// Net amount spent across the whole window.
@@ -20,6 +23,7 @@ pub struct UsageResponse {
     /// ISO-4217 currency code for every amount in this response.
     #[serde(default)]
     pub currency: String,
+    /// One bucket per `group_by` group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<UsageBucket>>,
 }
