@@ -1,0 +1,291 @@
+# Stamp a release version across the workspace, then tag it.
+#
+# `Cargo.toml` cannot be un-`.fernignore`d — it carries `[lib] name =
+# "fern_cli_sdk"`, `[[bin]] name = "hedra"` and the native-tls/rustls feature
+# blocks, all of which the generator would reset to fern-cli-sdk defaults. So
+# `fern generate --version X` from fern-config can never write this CLI's
+# version, and something in this repo has to. That something is this workflow.
+#
+# Two dispatches, because `main` is a protected branch (PR + 1 approving
+# review, admins included) and no workflow can push a commit to it:
+#
+#   1. mode=stamp  — writes <version> into the three crate manifests on a
+#                    `release/v<version>` branch, refreshes Cargo.lock, proves
+#                    `dist plan --tag=v<version>` resolves, opens a PR.
+#   2. mode=tag    — after that PR merges, re-checks main really is at
+#                    <version>, then creates and pushes `v<version>`.
+#
+# cargo-dist's release.yml takes over from the tag push.
+#
+# ---------------------------------------------------------------------------
+# Which versions actually have to match the tag
+# ---------------------------------------------------------------------------
+# cargo-dist matches the pushed tag against the versions of the *dist-able*
+# packages, not against every `dist-workspace.toml` member. Only the root
+# `hedra-cli` crate is dist-able: it is the only one with a `[[bin]]` and the
+# only one carrying `[package.metadata.dist] dist = true`. `hedra_sdk` and
+# `hedra_types` are libraries, so cargo-dist ignores their versions entirely.
+#
+# Measured against cargo-dist 0.31.0, the version release.yml pins (ENG-10112):
+#
+#   root/sdk/types        tag       result
+#   0.2.0/0.1.0/0.0.0     v1.0.0    error: "nothing for dist to Release!"
+#   0.2.0/0.1.0/0.0.0     v0.2.0    ok -> releases [(hedra-cli, 0.2.0)]
+#   1.0.0/0.1.0/0.0.0     v1.0.0    ok -> releases [(hedra-cli, 1.0.0)]
+#   1.0.0/1.0.0/1.0.0     v1.0.0    ok -> releases [(hedra-cli, 1.0.0)]  (identical plan)
+#   1.0.0/1.0.0/1.0.0     v0.2.0    error: "nothing for dist to Release!"
+#
+# The shipped v0.2.0 release is the same result in the wild: it was tagged
+# while hedra-sdk was 0.1.0 and hedra-types 0.0.0, and produced 22 assets.
+#
+# So only the root crate's version is load-bearing. This workflow stamps all
+# three anyway, because three members of one dist workspace reporting three
+# different versions for one tag is a trap for the next reader, not because
+# cargo-dist demands it. The mismatch case fails loudly at `dist plan` rather
+# than shipping an artifact under the wrong number, which is why the `dist
+# plan --tag=` gate below runs before anything is pushed.
+
+name: Version
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to release, without the leading "v" (e.g. 1.0.0)'
+        required: true
+        type: string
+      mode:
+        description: 'stamp = open the version-bump PR; tag = tag main once that PR has merged'
+        required: true
+        default: stamp
+        type: choice
+        options: [stamp, tag]
+      dry_run:
+        description: 'Verify everything but push nothing (default: on)'
+        required: false
+        default: true
+        type: boolean
+
+concurrency:
+  group: version-${{ inputs.version }}
+  cancel-in-progress: false
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-A warnings"
+  DIST_VERSION: "0.31.0" # keep in lockstep with cargo-dist-version in dist-workspace.toml
+  MANIFESTS: "Cargo.toml hedra-sdk/Cargo.toml hedra-types/Cargo.toml"
+
+jobs:
+  # ---------------------------------------------------------------------------
+  # mode=stamp — write the version, prove it, open the PR.
+  # ---------------------------------------------------------------------------
+  stamp:
+    if: inputs.mode == 'stamp'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      # A tag or a PR created with the built-in GITHUB_TOKEN does not start
+      # another workflow run — GitHub suppresses that to avoid recursion. Two
+      # things here depend on it not being suppressed: the stamp PR needs the
+      # `rust` check to run (it is a required status check, so without it the
+      # PR can never merge), and the tag in mode=tag needs to start release.yml.
+      # Fail now rather than after pushing something inert.
+      - name: Require a release token for real runs
+        if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::secrets.RELEASE_TOKEN is not set."
+            echo "A PR opened with the built-in GITHUB_TOKEN does not trigger the 'rust'"
+            echo "workflow, and 'rust' is a required status check on main — so the version"
+            echo "bump PR would be unmergeable. Add a PAT as RELEASE_TOKEN with"
+            echo "Contents: read/write and Pull requests: read/write, or re-run with"
+            echo "dry_run enabled and do the push by hand."
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Refuse to reuse an existing tag or branch
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::tag v${{ inputs.version }} already exists on origin"; exit 1
+          fi
+          if git ls-remote --exit-code --heads origin "refs/heads/release/v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::branch release/v${{ inputs.version }} already exists on origin; delete it or pick another version"; exit 1
+          fi
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Stamp the version into every dist-workspace member
+        run: |
+          # shellcheck disable=SC2086  # $MANIFESTS is a path list; splitting is the point
+          python3 .github/scripts/set-version.py "${{ inputs.version }}" $MANIFESTS
+
+      - name: Refresh Cargo.lock
+        # --workspace re-resolves only the workspace members (whose versions
+        # just changed) and leaves every third-party pin alone.
+        run: cargo update --workspace
+
+      - name: Check the stamped tree exactly as CI will
+        run: |
+          cargo check --locked --all-targets
+          cargo check --locked --all-targets --no-default-features --features rustls
+
+      - name: Install dist
+        shell: bash
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+
+      - name: Prove cargo-dist resolves v${{ inputs.version }}
+        # The gate that matters: if the tag would not match a dist-able crate,
+        # this fails here instead of after the tag is already pushed.
+        run: dist plan --tag="v${{ inputs.version }}"
+
+      - name: Summarise
+        run: |
+          {
+            echo "### Stamped \`v${{ inputs.version }}\`"
+            echo
+            echo "Dry run: \`${{ inputs.dry_run }}\`"
+            echo
+            echo '```diff'
+            # shellcheck disable=SC2086  # $MANIFESTS is a path list; splitting is the point
+            git --no-pager diff -- $MANIFESTS
+            echo '```'
+            echo
+            echo "\`Cargo.lock\`: $(git --no-pager diff --shortstat -- Cargo.lock)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Commit, push, open the PR
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "release/v${{ inputs.version }}"
+          # shellcheck disable=SC2086  # $MANIFESTS is a path list; splitting is the point
+          git add -- $MANIFESTS Cargo.lock
+          git commit -m "release: v${{ inputs.version }}" \
+                     -m "Stamped across every dist-workspace.toml member by .github/workflows/version.yml."
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "release/v${{ inputs.version }}"
+          gh pr create \
+            --base main \
+            --head "release/v${{ inputs.version }}" \
+            --title "release: v${{ inputs.version }}" \
+            --body "$(cat <<EOF
+          Version stamp for \`v${{ inputs.version }}\`, produced by \`.github/workflows/version.yml\`.
+
+          - \`Cargo.toml\`, \`hedra-sdk/Cargo.toml\`, \`hedra-types/Cargo.toml\` set to \`${{ inputs.version }}\`
+          - \`Cargo.lock\` refreshed with \`cargo update --workspace\`
+          - \`cargo check --locked --all-targets\` passed, for both TLS feature sets
+          - \`dist plan --tag=v${{ inputs.version }}\` resolved
+
+          **Merge this, then dispatch \`Version\` again with \`mode: tag\` and the same
+          version** to push \`v${{ inputs.version }}\` and start the release.
+          EOF
+          )"
+
+      - name: Next step
+        if: ${{ !inputs.dry_run }}
+        run: |
+          echo "Merge the PR above, then re-dispatch this workflow with mode=tag, version=${{ inputs.version }}." >> "$GITHUB_STEP_SUMMARY"
+
+  # ---------------------------------------------------------------------------
+  # mode=tag — main is already stamped; create the tag that starts release.yml.
+  # ---------------------------------------------------------------------------
+  tag:
+    if: inputs.mode == 'tag'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Require a release token for real runs
+        if: ${{ !inputs.dry_run }}
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if [ -z "$RELEASE_TOKEN" ]; then
+            echo "::error::secrets.RELEASE_TOKEN is not set."
+            echo "A tag pushed with the built-in GITHUB_TOKEN does not start release.yml,"
+            echo "so the tag would exist but nothing would be built. Add a PAT as"
+            echo "RELEASE_TOKEN with Contents: read/write, or push the tag by hand:"
+            echo "    git fetch origin main && git tag v${{ inputs.version }} origin/main && git push origin v${{ inputs.version }}"
+            exit 1
+          fi
+
+      - uses: actions/checkout@v6
+        with:
+          ref: main
+          fetch-depth: 0
+          persist-credentials: false
+          token: ${{ secrets.RELEASE_TOKEN || github.token }}
+
+      - name: Refuse to reuse an existing tag
+        run: |
+          set -euo pipefail
+          if git ls-remote --exit-code --tags origin "refs/tags/v${{ inputs.version }}" >/dev/null 2>&1; then
+            echo "::error::tag v${{ inputs.version }} already exists on origin"; exit 1
+          fi
+
+      - name: Verify main is stamped at ${{ inputs.version }}
+        # Guards the ordering mistake: tagging before the stamp PR has merged
+        # would tag a tree whose root crate is still at the old version, and
+        # cargo-dist would reject the tag mid-release.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC2086  # $MANIFESTS is a path list; splitting is the point
+          python3 - "${{ inputs.version }}" $MANIFESTS <<'PY'
+          import sys, tomllib
+          want, rc = sys.argv[1], 0
+          for path in sys.argv[2:]:
+              with open(path, "rb") as fh:
+                  have = tomllib.load(fh).get("package", {}).get("version")
+              if have == want:
+                  print(f"ok  {path} = {have}")
+              else:
+                  print(f"::error file={path}::expected {want}, found {have} — has the stamp PR merged?")
+                  rc = 1
+          sys.exit(rc)
+          PY
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v1
+
+      - name: Install dist
+        shell: bash
+        run: curl --proto '=https' --tlsv1.2 -LsSf "https://github.com/axodotdev/cargo-dist/releases/download/v${DIST_VERSION}/cargo-dist-installer.sh" | sh
+
+      - name: Prove cargo-dist resolves v${{ inputs.version }}
+        run: dist plan --tag="v${{ inputs.version }}"
+
+      - name: Create and push the tag
+        if: ${{ !inputs.dry_run }}
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          set -euo pipefail
+          git config user.name  "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "v${{ inputs.version }}" -m "v${{ inputs.version }}"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git"
+          git push origin "v${{ inputs.version }}"
+          echo "Pushed \`v${{ inputs.version }}\` — the Release workflow (cargo-dist) builds and publishes from here." >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Dry run summary
+        if: ${{ inputs.dry_run }}
+        run: |
+          echo "Dry run — main is stamped at ${{ inputs.version }} and \`dist plan\` resolves. Re-run with dry_run off to push \`v${{ inputs.version }}\`." >> "$GITHUB_STEP_SUMMARY"
