@@ -12,6 +12,12 @@ ci = "github"
 # crate, whose default features pull in native-tls/OpenSSL and break the
 # musl builds.
 precise-builds = true
+# Release binaries use the self-contained TLS backend so Linux musl targets
+# do not require a cross-compiled OpenSSL installation. `dist plan` is blind to
+# these two keys — the oracle is the `cargo build` argv `dist build` emits,
+# which must carry `--no-default-features --features rustls`.
+default-features = false
+features = ["rustls"]
 # The installers to generate for each app
 installers = ["shell", "powershell", "npm", "homebrew"]
 # Whether to enable GitHub Attestations
@@ -28,6 +34,9 @@ pr-run-mode = "plan"
 publish-jobs = ["homebrew"]
 # Homebrew tap backing `brew install hedra-labs/tap/hedra-cli`.
 tap = "hedra-labs/homebrew-tap"
+# Keep package-manager names explicit: both install the `hedra` binary.
+npm-package = "@hedra/cli"
+formula = "hedra-cli"
 # The archive format to use for windows builds (defaults .zip)
 windows-archive = ".zip"
 # The archive format to use for non-windows builds (defaults .tar.xz)
