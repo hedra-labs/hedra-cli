@@ -1,9 +1,21 @@
 # Stamp a release version across the workspace, then tag it.
 #
-# `Cargo.toml` cannot be un-`.fernignore`d — it carries `[lib] name =
-# "fern_cli_sdk"`, `[[bin]] name = "hedra"` and the native-tls/rustls feature
-# blocks, all of which the generator would reset to fern-cli-sdk defaults. So
-# `fern generate --version X` from fern-config can never write this CLI's
+# `Cargo.toml` cannot be un-`.fernignore`d. The generator's copy is the upstream
+# SDK template's own manifest, not a template for ours — diffing
+# /dist/sdk/Cargo.toml out of fernapi/fern-cli-generator:0.30.2 against this
+# repo's, regeneration would rename the crate to `fern-cli-sdk`, reset the
+# version to 0.18.1, replace description/repository/homepage/authors/keywords
+# with Fern's, flip `[package.metadata.dist]` from `dist = true` to
+# `dist = false` (cargo-dist would then build nothing, and the rustls /
+# npm-package / formula release config would be gone), drop
+# `[dependencies.hedra_sdk]` so the crate no longer compiles, and add the
+# template's internal `strip-schema` binary.
+#
+# (The `[lib] name = "fern_cli_sdk"` and the native-tls/rustls feature blocks
+# are identical upstream, so those are *not* at risk — the identity and the
+# release config are.)
+#
+# So `fern generate --version X` from fern-config can never write this CLI's
 # version, and something in this repo has to. That something is this workflow.
 #
 # Two dispatches, because `main` is a protected branch (PR + 1 approving
