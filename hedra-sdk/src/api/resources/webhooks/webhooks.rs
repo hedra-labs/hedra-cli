@@ -13,29 +13,104 @@ impl WebhooksClient {
         })
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.webhooks.get_public_key(None).await;
+    /// }
+    /// ```
     pub async fn get_public_key(
         &self,
         options: Option<RequestOptions>,
     ) -> Result<WebhookPublicKey, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(Method::GET, "webhooks/public-key", None, None, options)
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.webhooks.get_default(None).await;
+    /// }
+    /// ```
     pub async fn get_default(
         &self,
         options: Option<RequestOptions>,
     ) -> Result<WebhookDefaultConfig, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(Method::GET, "webhooks/default", None, None, options)
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .webhooks
+    ///         .put_default(
+    ///             &WebhookDefaultUpdate {
+    ///                 url: "url".to_string(),
+    ///                 enabled: None,
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn put_default(
         &self,
         request: &WebhookDefaultUpdate,
         options: Option<RequestOptions>,
     ) -> Result<WebhookDefaultConfig, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::PUT,
@@ -47,26 +122,100 @@ impl WebhooksClient {
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.webhooks.delete_default(None).await;
+    /// }
+    /// ```
     pub async fn delete_default(&self, options: Option<RequestOptions>) -> Result<(), ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(Method::DELETE, "webhooks/default", None, None, options)
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.webhooks.test_default(None).await;
+    /// }
+    /// ```
     pub async fn test_default(
         &self,
         options: Option<RequestOptions>,
     ) -> Result<WebhookTestResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(Method::POST, "webhooks/default/test", None, None, options)
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .webhooks
+    ///         .list_deliveries(
+    ///             &ListDeliveriesQueryRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn list_deliveries(
         &self,
         request: &ListDeliveriesQueryRequest,
         options: Option<RequestOptions>,
     ) -> Result<WebhookDeliveryListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -102,11 +251,34 @@ impl WebhooksClient {
     /// # Returns
     ///
     /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.webhooks.redeliver(&"job_id".to_string(), None).await;
+    /// }
+    /// ```
     pub async fn redeliver(
         &self,
         job_id: &str,
         options: Option<RequestOptions>,
     ) -> Result<WebhookDeliverySummary, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::POST,
