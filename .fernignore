@@ -7,14 +7,29 @@ README.md
 # must not revert it. Drop this entry once the fix lands upstream.
 src/pager.rs
 
-# Deliberately NOT ignored: Cargo.toml and Cargo.lock are both generator-owned.
-# The generator emits the whole workspace — the CLI's own deps (clap, keyring,
-# tokio-tungstenite, the TLS feature matrix) included — plus a Cargo.lock that
-# resolves them. Leaving both to the generator keeps manifest and lockfile
-# moving together in one regeneration PR, so `cargo check --locked` passes by
-# construction. Re-adding Cargo.lock here reopens ENG-10048: the bot cannot
-# update a lockfile it does not own, so any generated dependency change fails CI.
+# Cargo.toml stays generator-owned (#25) — fern-config sets `packageIdentity`, so
+# regeneration writes hedra-cli's crate identity. Cargo.lock does NOT: the
+# generator emits one, but it is resolved from a stale snapshot rather than from
+# the manifests it ships in the same run. #29 emitted a lockfile missing `chrono`
+# — a direct dependency of an unmodified hedra-sdk/Cargo.toml — along with the
+# whole gzip transitive set, so `cargo check --locked` refused it. Pinning the
+# lockfile here keeps the good resolution instead of letting each regeneration
+# clobber it. (ENG-10048 tried the opposite in #27; this is that experiment's
+# result, not a return to an untested assumption.)
+#
+# Known edge, ENG-10130: the generator stamps the release version into both
+# Cargo.toml and Cargo.lock, so a version bump moves the un-ignored manifest and
+# not this pinned lockfile — refresh with `cargo fetch` when that happens.
+Cargo.lock
 
 # Release pipeline (cargo-dist) + CI + Dependabot are hand-maintained.
 dist-workspace.toml
 .github/
+
+# The generator never emits .gitattributes — which is exactly why this entry has
+# to stay. For a file that exists in the repo but is not emitted, .fernignore is
+# the only thing stopping regeneration from DELETING it: PR #29 removed the file
+# outright once the entry was dropped. "Never emitted" makes an entry
+# load-bearing, not redundant; only a file that is both unemitted and absent is
+# safe to un-ignore.
+.gitattributes
