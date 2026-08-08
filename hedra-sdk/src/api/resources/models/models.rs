@@ -14,11 +14,41 @@ impl ModelsClient {
         })
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .models
+    ///         .list(
+    ///             &ModelsListQueryRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn list(
         &self,
         request: &ModelsListQueryRequest,
         options: Option<RequestOptions>,
     ) -> Result<ModelListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -32,11 +62,33 @@ impl ModelsClient {
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.models.get(&"model".to_string(), None).await;
+    /// }
+    /// ```
     pub async fn get(
         &self,
         model: &str,
         options: Option<RequestOptions>,
     ) -> Result<ModelDetail, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -48,12 +100,43 @@ impl ModelsClient {
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .models
+    ///         .list_model_jobs(
+    ///             &"model".to_string(),
+    ///             &ListModelJobsQueryRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn list_model_jobs(
         &self,
         model: &str,
         request: &ListModelJobsQueryRequest,
         options: Option<RequestOptions>,
     ) -> Result<JobListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -78,11 +161,34 @@ impl ModelsClient {
     /// # Returns
     ///
     /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.models.list_voices(&"model".to_string(), None).await;
+    /// }
+    /// ```
     pub async fn list_voices(
         &self,
         model: &str,
         options: Option<RequestOptions>,
     ) -> Result<VoiceListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -104,11 +210,34 @@ impl ModelsClient {
     /// # Returns
     ///
     /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client.models.get_openapi(&"model".to_string(), None).await;
+    /// }
+    /// ```
     pub async fn get_openapi(
         &self,
         model: &str,
         options: Option<RequestOptions>,
     ) -> Result<HashMap<String, serde_json::Value>, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::GET,
@@ -120,12 +249,43 @@ impl ModelsClient {
             .await
     }
 
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .models
+    ///         .estimate(
+    ///             &"model".to_string(),
+    ///             &EstimateRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn estimate(
         &self,
         model: &str,
         request: &EstimateRequest,
         options: Option<RequestOptions>,
     ) -> Result<EstimateResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_request(
                 Method::POST,
