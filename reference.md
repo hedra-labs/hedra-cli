@@ -112,6 +112,21 @@ Stream Job
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 | `--last-event-id` | `string` | No | Resume after this event id — the standard SSE reconnect header; browsers' EventSource sends it automatically. |
 
+#### `hedra jobs submit`
+
+Runs any model in the catalog by its public id, with `input` passed through untyped — the same call the typed operations below make, minus the compile-time schema.
+
+Reach for it when the model is not known ahead of time: a client generated before a model shipped can still run it, and an id read from `GET /v3/models` at runtime needs no regeneration. Prefer the typed operation whenever your client already has one — `input` here is validated against the same published schema (`GET /v3/models/{model}`), so a bad field is a `400` at submit rather than an error before the call.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/{model}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra jobs submit-dreamina-31`
 
 Ultra high quality generations for professional grade images.
@@ -1109,7 +1124,7 @@ List Model Jobs
 
 #### `hedra models list-voices`
 
-Voices this model accepts — scoped to the model's voice provider.
+Voices this model accepts — scoped to the model's voice provider. fern-config end-to-end regeneration probe 20260808-030645.
 
 `GET /models/{model}/voices`
 
