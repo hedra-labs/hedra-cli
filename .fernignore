@@ -7,9 +7,10 @@ README.md
 # must not revert it. Drop this entry once the fix lands upstream.
 src/pager.rs
 
-# Workspace metadata (crate name/authors/version) + lockfile are hand-owned;
-# the generator would reset them to fern-cli-sdk defaults.
-Cargo.toml
+# Cargo.toml is generator-owned: fern-config sets `packageIdentity` for
+# fern-cli-generator, so regeneration writes hedra-cli's crate identity rather
+# than the fern-cli-sdk defaults. The lockfile is still hand-owned — the
+# generator does not emit one (ENG-10048).
 Cargo.lock
 
 # Release pipeline (cargo-dist) + CI + Dependabot are hand-maintained.
