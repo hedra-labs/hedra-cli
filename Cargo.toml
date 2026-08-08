@@ -2,7 +2,7 @@
 name = "hedra-cli"
 version = "0.2.0"
 edition = "2021"
-description = "Command-line interface for the Hedra Web API"
+description = "Command-line interface for the Hedra Web API — API spec 3.0.0"
 license = "Apache-2.0"
 repository = "https://github.com/hedra-labs/hedra-cli"
 homepage = "https://github.com/hedra-labs/hedra-cli"
@@ -73,13 +73,6 @@ jmespath = "0.3"
 
 [package.metadata.dist]
 dist = true
-# Release binaries use the self-contained TLS backend so Linux musl targets
-# do not require a cross-compiled OpenSSL installation.
-default-features = false
-features = ["rustls"]
-# Keep package-manager names explicit: both install the `hedra` binary.
-npm-package = "@hedra/cli"
-formula = "hedra-cli"
 
 # The profile that 'cargo dist' will build with
 [dependencies.hedra_sdk]

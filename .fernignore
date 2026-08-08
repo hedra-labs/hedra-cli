@@ -7,14 +7,14 @@ README.md
 # must not revert it. Drop this entry once the fix lands upstream.
 src/pager.rs
 
-# Workspace metadata (crate name/authors/version) + lockfile are hand-owned;
-# the generator would reset them to fern-cli-sdk defaults.
-Cargo.toml
-Cargo.lock
+# Deliberately NOT ignored: Cargo.toml and Cargo.lock are both generator-owned.
+# The generator emits the whole workspace — the CLI's own deps (clap, keyring,
+# tokio-tungstenite, the TLS feature matrix) included — plus a Cargo.lock that
+# resolves them. Leaving both to the generator keeps manifest and lockfile
+# moving together in one regeneration PR, so `cargo check --locked` passes by
+# construction. Re-adding Cargo.lock here reopens ENG-10048: the bot cannot
+# update a lockfile it does not own, so any generated dependency change fails CI.
 
 # Release pipeline (cargo-dist) + CI + Dependabot are hand-maintained.
 dist-workspace.toml
 .github/
-.fern/replay.lock
-.fern/replay.yml
-.gitattributes
