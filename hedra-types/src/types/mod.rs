@@ -5,9 +5,10 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 106 types for API operations
+//! - **Request/Response Types**: 108 types for API operations
 //! - **Model Types**: 355 types for data representation
 
+pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_event;
@@ -453,6 +454,7 @@ pub mod submit_body_veo31;
 pub mod submit_body_vidu_q3;
 pub mod submit_body_vidu_q3_reference;
 pub mod submit_body_wan27;
+pub mod submit_body;
 pub mod estimate_request;
 pub mod key_create_request;
 pub mod key_rotate_request;
@@ -470,6 +472,7 @@ pub mod keys_list_query_request;
 pub mod get_usage_query_request;
 pub mod list_deliveries_query_request;
 
+pub use jobs_jobs_stream_response::JobsStreamResponse;
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_event::WebhookJobCompletedPayloadXHedraWebhookEvent;
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery::WebhookJobCompletedPayloadXHedraWebhookRedelivery;
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_event::WebhookJobFailedPayloadXHedraWebhookEvent;
@@ -915,6 +918,7 @@ pub use submit_body_veo31::SubmitBodyVeo31;
 pub use submit_body_vidu_q3::SubmitBodyViduQ3;
 pub use submit_body_vidu_q3_reference::SubmitBodyViduQ3Reference;
 pub use submit_body_wan27::SubmitBodyWan27;
+pub use submit_body::SubmitBody;
 pub use estimate_request::EstimateRequest;
 pub use key_create_request::KeyCreateRequest;
 pub use key_rotate_request::KeyRotateRequest;
