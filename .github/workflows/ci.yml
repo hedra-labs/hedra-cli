@@ -5,6 +5,10 @@ on:
   push:
     branches:
       - main
+  # Lets refresh-lockfile.yml re-run CI on a fern-bot branch after it pushes a
+  # Cargo.lock refresh with the default GITHUB_TOKEN, whose pushes fire no
+  # workflows on their own (ENG-10202).
+  workflow_dispatch:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
