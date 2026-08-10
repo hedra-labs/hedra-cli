@@ -2,3 +2,6 @@
 **/*.rs.bk
 .DS_Store
 *.swp
+*.iml
+/.agents/scheduled_tasks.lock
+/.agents/worktrees/

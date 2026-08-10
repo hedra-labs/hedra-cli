@@ -18,7 +18,13 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
-current_generation: c44f093438608195e5a24454501e56be6802acdf
+  - commit_sha: 13977635cd12d66d7e733e5d13cb2dd005666026
+    tree_hash: 302e7f552c1cabc6ef5b37242436273990f778b0
+    timestamp: 2026-08-10T22:53:56.247Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.30.2
+current_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
 patches:
   - id: patch-6c702a15
     content_hash: sha256:2c2ee4a03d10b0888f7e89c6f862dfff61918297b229f0135ded2ce733f93b90
@@ -142,7 +148,7 @@ patches:
         tempfile = "3"
         wiremock = "0.6"
         tokio = { version = "1", features = ["full"] }
-    status: resolving
+    status: unresolved
   - id: patch-7a35179e
     content_hash: sha256:e3b617143e962d515aa5ca717357089e8f6b6ddcab54fb86bd3b65968614a815
     original_commit: 7a35179e5976536a0569252bc3a24f9c329628ff
@@ -259,13 +265,13 @@ patches:
         tempfile = "3"
         wiremock = "0.6"
         tokio = { version = "1", features = ["full"] }
-    status: resolving
+    status: unresolved
   - id: patch-eeb99c81
     content_hash: sha256:e4b6b7544dbe5bbc82fe18ece5a4578b2924e812b8d24e0308e63393718f35c0
     original_commit: eeb99c818c7087356bca86e7d1950870b96a8e63
     original_message: Update gitignore (#46)
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: c44f093438608195e5a24454501e56be6802acdf
+    base_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
     files:
       - .gitignore
     patch_content: |
@@ -289,3 +295,4 @@ patches:
         *.iml
         /.agents/scheduled_tasks.lock
         /.agents/worktrees/
+    user_owned: true
