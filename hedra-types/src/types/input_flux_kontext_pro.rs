@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `flux-kontext-pro`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, prompt; must omit: images
-/// (2) requires: images, prompt; must omit: aspect_ratio, resolution
+/// (1) requires: images, prompt; must omit: aspect_ratio, resolution
+/// (2) requires: aspect_ratio, prompt; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputFluxKontextPro {
     /// Generation prompt.
@@ -18,21 +18,21 @@ pub struct InputFluxKontextPro {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// Output aspect ratio.
+    /// The single source image to edit.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputFluxKontextProAspectRatio>,
-    /// Output resolution.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub resolution: Option<InputFluxKontextProResolution>,
+    pub images: Option<Vec<InputFluxKontextProImagesItem>>,
     /// Output image format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<InputFluxKontextProOutputFormat>,
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// The single source image to edit.
+    /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<Vec<InputFluxKontextProImagesItem>>,
+    pub aspect_ratio: Option<InputFluxKontextProAspectRatio>,
+    /// Output resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<InputFluxKontextProResolution>,
 }
 
 impl InputFluxKontextPro {
@@ -47,11 +47,11 @@ pub struct InputFluxKontextProBuilder {
     prompt: Option<String>,
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
-    aspect_ratio: Option<InputFluxKontextProAspectRatio>,
-    resolution: Option<InputFluxKontextProResolution>,
+    images: Option<Vec<InputFluxKontextProImagesItem>>,
     output_format: Option<InputFluxKontextProOutputFormat>,
     seed: Option<i64>,
-    images: Option<Vec<InputFluxKontextProImagesItem>>,
+    aspect_ratio: Option<InputFluxKontextProAspectRatio>,
+    resolution: Option<InputFluxKontextProResolution>,
 }
 
 impl InputFluxKontextProBuilder {
@@ -70,13 +70,8 @@ impl InputFluxKontextProBuilder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputFluxKontextProAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
-    pub fn resolution(mut self, value: InputFluxKontextProResolution) -> Self {
-        self.resolution = Some(value);
+    pub fn images(mut self, value: Vec<InputFluxKontextProImagesItem>) -> Self {
+        self.images = Some(value);
         self
     }
 
@@ -90,8 +85,13 @@ impl InputFluxKontextProBuilder {
         self
     }
 
-    pub fn images(mut self, value: Vec<InputFluxKontextProImagesItem>) -> Self {
-        self.images = Some(value);
+    pub fn aspect_ratio(mut self, value: InputFluxKontextProAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
+    pub fn resolution(mut self, value: InputFluxKontextProResolution) -> Self {
+        self.resolution = Some(value);
         self
     }
 
@@ -103,11 +103,11 @@ impl InputFluxKontextProBuilder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
-            aspect_ratio: self.aspect_ratio,
-            resolution: self.resolution,
+            images: self.images,
             output_format: self.output_format,
             seed: self.seed,
-            images: self.images,
+            aspect_ratio: self.aspect_ratio,
+            resolution: self.resolution,
         })
     }
 }

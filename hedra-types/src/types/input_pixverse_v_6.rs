@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `pixverse-v6`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: start_image
-/// (2) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio
+/// (1) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio
+/// (2) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputPixverseV6 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -29,12 +29,12 @@ pub struct InputPixverseV6 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputPixverseV6AspectRatio>,
     /// Start frame (image-to-video).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputPixverseV6StartImage>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputPixverseV6AspectRatio>,
 }
 
 impl InputPixverseV6 {
@@ -53,8 +53,8 @@ pub struct InputPixverseV6Builder {
     generate_audio: Option<bool>,
     negative_prompt: Option<String>,
     seed: Option<i64>,
-    aspect_ratio: Option<InputPixverseV6AspectRatio>,
     start_image: Option<InputPixverseV6StartImage>,
+    aspect_ratio: Option<InputPixverseV6AspectRatio>,
 }
 
 impl InputPixverseV6Builder {
@@ -93,13 +93,13 @@ impl InputPixverseV6Builder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputPixverseV6AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
+    pub fn start_image(mut self, value: InputPixverseV6StartImage) -> Self {
+        self.start_image = Some(value);
         self
     }
 
-    pub fn start_image(mut self, value: InputPixverseV6StartImage) -> Self {
-        self.start_image = Some(value);
+    pub fn aspect_ratio(mut self, value: InputPixverseV6AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
         self
     }
 
@@ -117,8 +117,8 @@ impl InputPixverseV6Builder {
             generate_audio: self.generate_audio,
             negative_prompt: self.negative_prompt,
             seed: self.seed,
-            aspect_ratio: self.aspect_ratio,
             start_image: self.start_image,
+            aspect_ratio: self.aspect_ratio,
         })
     }
 }

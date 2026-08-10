@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `seedance-20`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: fast; resolution: 480p | 720p
-/// (2) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: standard
+/// (1) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: standard
+/// (2) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: fast; resolution: 480p | 720p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputSeedance20 {
     /// Number of outputs generated per job. Only 1 is supported.

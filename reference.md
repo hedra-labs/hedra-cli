@@ -112,6 +112,21 @@ Stream Job
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 | `--last-event-id` | `string` | No | Resume after this event id — the standard SSE reconnect header; browsers' EventSource sends it automatically. |
 
+#### `hedra jobs submit`
+
+Runs any model in the catalog by its public id, with `input` passed through untyped — the same call the typed operations below make, minus the compile-time schema.
+
+Reach for it when the model is not known ahead of time: a client generated before a model shipped can still run it, and an id read from `GET /v3/models` at runtime needs no regeneration. Prefer the typed operation whenever your client already has one — `input` here is validated against the same published schema (`GET /v3/models/{model}`), so a bad field is a `400` at submit rather than an error before the call.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/{model}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra jobs submit-dreamina-31`
 
 Ultra high quality generations for professional grade images.
@@ -476,6 +491,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra jobs submit-kling-26-motion-control`
+
+Transfer movements from a reference video to any character image. Cost-effective mode for motion transfer, perfect for portraits and simple animations.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/kling-26-motion-control`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra jobs submit-kling-26-pro`
 
 Cinematic visuals, fluid motion, and native audio generation.
@@ -524,6 +551,30 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra jobs submit-kling-o3-edit`
+
+Edit videos using natural language.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/kling-o3-edit`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra jobs submit-kling-o3-reference`
+
+Input a reference video and preserve motion and camera style.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/kling-o3-reference`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra jobs submit-kling-v3`
 
 Text-to-video with ultra-high-definition storyboards and native audio.
@@ -531,6 +582,18 @@ Text-to-video with ultra-high-definition storyboards and native audio.
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/kling-v3`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra jobs submit-kling-v3-motion-control`
+
+Animate a character image to match the motion of a reference video. Standard tier for cost-effective generation.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/kling-v3-motion-control`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -795,6 +858,18 @@ ByteDance Seedance 2.0 Mini video generation model
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/seedance-20-mini`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra jobs submit-seedance-25`
+
+ByteDance Seedance 2.5 video generation model
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/seedance-25`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|

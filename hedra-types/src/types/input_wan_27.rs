@@ -5,9 +5,9 @@ use super::*;
 /// Model-specific inputs for `wan-2-7`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image; accepts duration_ms: 2000 | 3000 | 4000 | 5000 | 6000 | 7000 | 8000 | 9000 | 10000
-/// (2) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: end_image, images, start_image
-/// (3) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, images
+/// (1) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, images
+/// (2) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image; accepts duration_ms: 2000 | 3000 | 4000 | 5000 | 6000 | 7000 | 8000 | 9000 | 10000
+/// (3) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: end_image, images, start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputWan27 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -22,23 +22,23 @@ pub struct InputWan27 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputWan27AspectRatio>,
     /// Output resolution.
     pub resolution: InputWan27Resolution,
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Reference images.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<Vec<InputWan27ImagesItem>>,
     /// Start frame (image-to-video).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputWan27StartImage>,
     /// End frame (first-last-frame-to-video).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputWan27EndImage>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputWan27AspectRatio>,
+    /// Reference images.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<InputWan27ImagesItem>>,
 }
 
 impl InputWan27 {
@@ -54,12 +54,12 @@ pub struct InputWan27Builder {
     prompt: Option<String>,
     negative_prompt: Option<String>,
     seed: Option<i64>,
-    aspect_ratio: Option<InputWan27AspectRatio>,
     resolution: Option<InputWan27Resolution>,
     duration_ms: Option<i64>,
-    images: Option<Vec<InputWan27ImagesItem>>,
     start_image: Option<InputWan27StartImage>,
     end_image: Option<InputWan27EndImage>,
+    aspect_ratio: Option<InputWan27AspectRatio>,
+    images: Option<Vec<InputWan27ImagesItem>>,
 }
 
 impl InputWan27Builder {
@@ -83,11 +83,6 @@ impl InputWan27Builder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputWan27AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
     pub fn resolution(mut self, value: InputWan27Resolution) -> Self {
         self.resolution = Some(value);
         self
@@ -98,11 +93,6 @@ impl InputWan27Builder {
         self
     }
 
-    pub fn images(mut self, value: Vec<InputWan27ImagesItem>) -> Self {
-        self.images = Some(value);
-        self
-    }
-
     pub fn start_image(mut self, value: InputWan27StartImage) -> Self {
         self.start_image = Some(value);
         self
@@ -110,6 +100,16 @@ impl InputWan27Builder {
 
     pub fn end_image(mut self, value: InputWan27EndImage) -> Self {
         self.end_image = Some(value);
+        self
+    }
+
+    pub fn aspect_ratio(mut self, value: InputWan27AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
+    pub fn images(mut self, value: Vec<InputWan27ImagesItem>) -> Self {
+        self.images = Some(value);
         self
     }
 
@@ -124,12 +124,12 @@ impl InputWan27Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             negative_prompt: self.negative_prompt,
             seed: self.seed,
-            aspect_ratio: self.aspect_ratio,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
-            images: self.images,
             start_image: self.start_image,
             end_image: self.end_image,
+            aspect_ratio: self.aspect_ratio,
+            images: self.images,
         })
     }
 }
