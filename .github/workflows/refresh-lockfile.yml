@@ -19,12 +19,21 @@
 # then fixes the branch.
 #
 # CI re-trigger: pushes made with the default GITHUB_TOKEN do NOT fire other
-# workflows, so the refreshed commit would sit unchecked. Configure the repo
-# secret LOCKFILE_REFRESH_TOKEN (fine-grained PAT or GitHub App token with
-# contents: read/write on this repo) and the push re-triggers ci.yml's
-# pull_request run by itself. Until that secret exists the workflow falls back
-# to GITHUB_TOKEN and explicitly dispatches ci.yml on the branch instead
-# (workflow_dispatch is exempt from the GITHUB_TOKEN no-retrigger rule).
+# workflows, so the refreshed commit would sit unchecked and the PR's required
+# `rust` check unsatisfied. The push identity is a chain, best available first
+# (ENG-10210):
+#   1. GitHub App installation token, minted at runtime from the repo variable
+#      LOCKFILE_REFRESH_APP_CLIENT_ID plus the repo secret
+#      LOCKFILE_REFRESH_APP_PRIVATE_KEY (an org-owned app with contents:
+#      read/write, installed on this repo). App-token pushes re-trigger
+#      ci.yml's pull_request run natively.
+#   2. LOCKFILE_REFRESH_TOKEN, a fine-grained PAT with contents: read/write on
+#      this repo — same native re-trigger, but a personal credential.
+#   3. GITHUB_TOKEN, whose push fires no workflows: the last step then
+#      explicitly dispatches ci.yml on the branch (workflow_dispatch is exempt
+#      from the no-retrigger rule). That run validates the commit but cannot
+#      satisfy the PR's required `rust` check, so a human must approve the
+#      parked pull_request runs.
 
 name: Refresh lockfile
 
@@ -49,11 +58,19 @@ jobs:
   refresh:
     runs-on: ubuntu-latest
     steps:
+      - name: Mint app token
+        id: app-token
+        if: vars.LOCKFILE_REFRESH_APP_CLIENT_ID != ''
+        uses: actions/create-github-app-token@v3
+        with:
+          client-id: ${{ vars.LOCKFILE_REFRESH_APP_CLIENT_ID }}
+          private-key: ${{ secrets.LOCKFILE_REFRESH_APP_PRIVATE_KEY }}
+
       - name: Checkout branch head
         uses: actions/checkout@v6
         with:
           ref: ${{ github.ref_name }}
-          token: ${{ secrets.LOCKFILE_REFRESH_TOKEN || github.token }}
+          token: ${{ steps.app-token.outputs.token || secrets.LOCKFILE_REFRESH_TOKEN || github.token }}
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
@@ -75,6 +92,9 @@ jobs:
 
       - name: Commit and push (Cargo.lock only)
         if: steps.staleness.outputs.stale == 'true'
+        env:
+          APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
+          GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           status="$(git status --porcelain)"
           if [ -z "$status" ]; then
@@ -88,8 +108,14 @@ jobs:
           fi
           # The refreshed lockfile must fully resolve before we push it.
           cargo metadata --locked --format-version 1 > /dev/null
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          # Attribute the commit to whichever identity is doing the push.
+          if [ -n "$APP_SLUG" ]; then
+            git config user.name "${APP_SLUG}[bot]"
+            git config user.email "$(gh api "/users/${APP_SLUG}[bot]" --jq .id)+${APP_SLUG}[bot]@users.noreply.github.com"
+          else
+            git config user.name "github-actions[bot]"
+            git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          fi
           git add Cargo.lock
           git commit -m "build: refresh Cargo.lock after regeneration"
           git push origin "HEAD:${{ github.ref_name }}"
@@ -97,12 +123,17 @@ jobs:
       - name: Re-trigger CI when pushed with the fallback token
         if: steps.staleness.outputs.stale == 'true'
         env:
+          APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REFRESH_TOKEN: ${{ secrets.LOCKFILE_REFRESH_TOKEN }}
           GH_TOKEN: ${{ github.token }}
         run: |
+          if [ -n "$APP_TOKEN" ]; then
+            echo "Pushed with the app installation token; the push itself re-triggers ci.yml."
+            exit 0
+          fi
           if [ -n "$REFRESH_TOKEN" ]; then
             echo "Pushed with LOCKFILE_REFRESH_TOKEN; the push itself re-triggers ci.yml."
             exit 0
           fi
-          echo "::warning::LOCKFILE_REFRESH_TOKEN is not configured; pushed with GITHUB_TOKEN, which fires no workflows. Dispatching ci.yml on ${{ github.ref_name }} instead."
+          echo "::warning::Neither the app credentials nor LOCKFILE_REFRESH_TOKEN is configured; pushed with GITHUB_TOKEN, which fires no workflows. Dispatching ci.yml on ${{ github.ref_name }} instead."
           gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.ref_name }}"
