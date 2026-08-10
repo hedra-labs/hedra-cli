@@ -26,11 +26,42 @@ impl FilesClient {
     /// # Returns
     ///
     /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .files
+    ///         .upload(
+    ///             &UploadRequest {
+    ///                 file: b"test file content".to_vec(),
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
     pub async fn upload(
         &self,
         request: &UploadRequest,
         options: Option<RequestOptions>,
     ) -> Result<FileUploadResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.0.0".to_string());
+            Some(o)
+        };
         self.http_client
             .execute_multipart_request(
                 Method::POST,
