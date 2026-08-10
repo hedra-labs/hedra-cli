@@ -142,7 +142,7 @@ patches:
         tempfile = "3"
         wiremock = "0.6"
         tokio = { version = "1", features = ["full"] }
-    status: unresolved
+    status: resolving
   - id: patch-7a35179e
     content_hash: sha256:e3b617143e962d515aa5ca717357089e8f6b6ddcab54fb86bd3b65968614a815
     original_commit: 7a35179e5976536a0569252bc3a24f9c329628ff
@@ -259,7 +259,7 @@ patches:
         tempfile = "3"
         wiremock = "0.6"
         tokio = { version = "1", features = ["full"] }
-    status: unresolved
+    status: resolving
   - id: patch-eeb99c81
     content_hash: sha256:e4b6b7544dbe5bbc82fe18ece5a4578b2924e812b8d24e0308e63393718f35c0
     original_commit: eeb99c818c7087356bca86e7d1950870b96a8e63
