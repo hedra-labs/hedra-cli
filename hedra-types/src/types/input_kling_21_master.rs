@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `kling-21-master`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt; must omit: start_image
-/// (2) requires: aspect_ratio, duration_ms, prompt, start_image
+/// (1) requires: aspect_ratio, duration_ms, prompt, start_image
+/// (2) requires: aspect_ratio, duration_ms, prompt; must omit: start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKling21Master {
     /// Number of outputs generated per job. Only 1 is supported.

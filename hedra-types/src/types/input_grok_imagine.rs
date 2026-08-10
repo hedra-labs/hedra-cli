@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `grok-imagine`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, prompt; must omit: images
-/// (2) requires: images, prompt; must omit: aspect_ratio
+/// (1) requires: images, prompt; must omit: aspect_ratio
+/// (2) requires: aspect_ratio, prompt; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputGrokImagine {
     /// Generation prompt.
@@ -18,15 +18,15 @@ pub struct InputGrokImagine {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputGrokImagineAspectRatio>,
-    /// Output image format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<InputGrokImagineOutputFormat>,
     /// Images to edit or blend.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputGrokImagineImagesItem>>,
+    /// Output image format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<InputGrokImagineOutputFormat>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputGrokImagineAspectRatio>,
 }
 
 impl InputGrokImagine {
@@ -41,9 +41,9 @@ pub struct InputGrokImagineBuilder {
     prompt: Option<String>,
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
-    aspect_ratio: Option<InputGrokImagineAspectRatio>,
-    output_format: Option<InputGrokImagineOutputFormat>,
     images: Option<Vec<InputGrokImagineImagesItem>>,
+    output_format: Option<InputGrokImagineOutputFormat>,
+    aspect_ratio: Option<InputGrokImagineAspectRatio>,
 }
 
 impl InputGrokImagineBuilder {
@@ -62,8 +62,8 @@ impl InputGrokImagineBuilder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputGrokImagineAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
+    pub fn images(mut self, value: Vec<InputGrokImagineImagesItem>) -> Self {
+        self.images = Some(value);
         self
     }
 
@@ -72,8 +72,8 @@ impl InputGrokImagineBuilder {
         self
     }
 
-    pub fn images(mut self, value: Vec<InputGrokImagineImagesItem>) -> Self {
-        self.images = Some(value);
+    pub fn aspect_ratio(mut self, value: InputGrokImagineAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
         self
     }
 
@@ -85,9 +85,9 @@ impl InputGrokImagineBuilder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
-            aspect_ratio: self.aspect_ratio,
-            output_format: self.output_format,
             images: self.images,
+            output_format: self.output_format,
+            aspect_ratio: self.aspect_ratio,
         })
     }
 }

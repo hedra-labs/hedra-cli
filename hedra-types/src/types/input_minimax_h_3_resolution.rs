@@ -8,6 +8,7 @@ use super::*;
 pub enum InputMinimaxH3Resolution {
     SevenHundredSixtyEightP,
     TwoK,
+    FourK,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -18,6 +19,7 @@ impl Serialize for InputMinimaxH3Resolution {
         match self {
             Self::SevenHundredSixtyEightP => serializer.serialize_str("768p"),
             Self::TwoK => serializer.serialize_str("2K"),
+            Self::FourK => serializer.serialize_str("4K"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -29,6 +31,7 @@ impl<'de> Deserialize<'de> for InputMinimaxH3Resolution {
         match value.as_str() {
             "768p" => Ok(Self::SevenHundredSixtyEightP),
             "2K" => Ok(Self::TwoK),
+            "4K" => Ok(Self::FourK),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -39,6 +42,7 @@ impl fmt::Display for InputMinimaxH3Resolution {
         match self {
             Self::SevenHundredSixtyEightP => write!(f, "768p"),
             Self::TwoK => write!(f, "2K"),
+            Self::FourK => write!(f, "4K"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }
