@@ -18,254 +18,20 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
-current_generation: c44f093438608195e5a24454501e56be6802acdf
+  - commit_sha: 13977635cd12d66d7e733e5d13cb2dd005666026
+    tree_hash: 302e7f552c1cabc6ef5b37242436273990f778b0
+    timestamp: 2026-08-10T22:53:56.247Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.30.2
+current_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
 patches:
-  - id: patch-6c702a15
-    content_hash: sha256:2c2ee4a03d10b0888f7e89c6f862dfff61918297b229f0135ded2ce733f93b90
-    original_commit: 6c702a15979c075c6307bb1d932eb7bfa4f78912
-    original_message: "build(dist): move dist keys to workspace, un-ignore Cargo.toml"
-    original_author: Mihai Toader <mihai@hedra.com>
-    base_generation: 2fddfb62372075e4d3a6222bd710ff4702270378
-    files:
-      - Cargo.toml
-    patch_content: |
-      diff --git a/Cargo.toml b/Cargo.toml
-      index 3aaced4..4a95f8b 100644
-      --- a/Cargo.toml
-      +++ b/Cargo.toml
-      @@ -73,13 +73,6 @@ jmespath = "0.3"
-       
-       [package.metadata.dist]
-       dist = true
-      -# Release binaries use the self-contained TLS backend so Linux musl targets
-      -# do not require a cross-compiled OpenSSL installation.
-      -default-features = false
-      -features = ["rustls"]
-      -# Keep package-manager names explicit: both install the `hedra` binary.
-      -npm-package = "@hedra/cli"
-      -formula = "hedra-cli"
-       
-       # The profile that 'cargo dist' will build with
-       [dependencies.hedra_sdk]
-    theirs_snapshot:
-      Cargo.toml: |
-        [package]
-        name = "hedra-cli"
-        version = "0.2.0"
-        edition = "2021"
-        description = "Command-line interface for the Hedra Web API"
-        license = "Apache-2.0"
-        repository = "https://github.com/hedra-labs/hedra-cli"
-        homepage = "https://github.com/hedra-labs/hedra-cli"
-        authors = ["Hedra <support@hedra.com>"]
-        keywords = ["cli", "hedra", "api"]
-        categories = ["command-line-utilities", "web-programming"]
-
-        [lib]
-        name = "fern_cli_sdk"
-        path = "src/lib.rs"
-
-        [[bin]]
-        name = "hedra"
-        path = "cli/hedra/main.rs"
-
-        [features]
-        # TLS backend selection.
-        #
-        #   default = ["native-tls"]
-        #       Uses the OS's native TLS stack (Secure Transport on macOS, SChannel on
-        #       Windows, OpenSSL on Linux). Honors the OS keychain / cert store —
-        #       what users typically expect for an interactive CLI.
-        #
-        #   ["rustls"]   (cargo build --no-default-features --features rustls)
-        #       Uses the pure-Rust rustls crate with Mozilla's bundled webpki roots.
-        #       Produces self-contained static binaries that don't depend on system
-        #       OpenSSL — preferred for distribution to varied Linux servers, scratch
-        #       Docker images, and cross-compiled musl/ARM builds. Does NOT read the
-        #       OS keychain; users must use `<NAME>_CA_BUNDLE` for custom roots.
-        default = ["native-tls"]
-        native-tls = ["reqwest/native-tls", "tokio-tungstenite/native-tls"]
-        rustls = ["reqwest/rustls-tls-native-roots", "tokio-tungstenite/rustls-tls-native-roots"]
-
-        [dependencies]
-        anyhow = "1"
-        base64 = "0.22"
-        bytes = "1"
-        clap = { version = "4", features = ["derive", "string", "env"] }
-        clap_complete = "4"
-        clap_mangen = "0.2"
-        hmac = "0.12"
-        dotenvy = "0.15"
-        futures-util = "0.3"
-        httpdate = "1"
-        libc = "0.2"
-        percent-encoding = "2.3.2"
-        reqwest = { version = "0.12", features = ["json", "multipart", "stream"], default-features = false }
-        serde = { version = "1", features = ["derive"] }
-        serde_json = "1"
-        serde_json_path = "0.7"
-        serde_yaml = "0.9.34"
-        secrecy = "0.10"
-        serde_qs = "1.1.1"
-        sha2 = "0.10"
-        thiserror = "2"
-        keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
-        webbrowser = "1"
-        rand = "0.8"
-        tokio = { version = "1", features = ["full"] }
-        tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake"] }
-        tokio-util = { version = "0.7", features = ["io"] }
-        tracing = "0.1"
-        tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-        tracing-appender = "0.2"
-        unicode-normalization = "0.1.25"
-        form_urlencoded = "1"
-        jmespath = "0.3"
-
-        [package.metadata.dist]
-        dist = true
-
-        # The profile that 'cargo dist' will build with
-        [dependencies.hedra_sdk]
-        path = "hedra-sdk"
-
-        [profile.dist]
-        inherits = "release"
-        lto = "thin"
-
-        [build-dependencies]
-        serde = "1"
-        serde_yaml = "0.9.34"
-
-        [dev-dependencies]
-        serial_test = "3.4.0"
-        tempfile = "3"
-        wiremock = "0.6"
-        tokio = { version = "1", features = ["full"] }
-    status: resolving
-  - id: patch-7a35179e
-    content_hash: sha256:e3b617143e962d515aa5ca717357089e8f6b6ddcab54fb86bd3b65968614a815
-    original_commit: 7a35179e5976536a0569252bc3a24f9c329628ff
-    original_message: "chore: reset manifest version to 0.9.9 as the computed-release baseline (#40)"
-    original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 2fddfb62372075e4d3a6222bd710ff4702270378
-    files:
-      - Cargo.toml
-    patch_content: |
-      diff --git a/Cargo.toml b/Cargo.toml
-      index 4a95f8b..c89b1dd 100644
-      --- a/Cargo.toml
-      +++ b/Cargo.toml
-      @@ -1,6 +1,6 @@
-       [package]
-       name = "hedra-cli"
-      -version = "0.2.0"
-      +version = "0.9.9"
-       edition = "2021"
-       description = "Command-line interface for the Hedra Web API"
-       license = "Apache-2.0"
-    theirs_snapshot:
-      Cargo.toml: |
-        [package]
-        name = "hedra-cli"
-        version = "0.9.9"
-        edition = "2021"
-        description = "Command-line interface for the Hedra Web API"
-        license = "Apache-2.0"
-        repository = "https://github.com/hedra-labs/hedra-cli"
-        homepage = "https://github.com/hedra-labs/hedra-cli"
-        authors = ["Hedra <support@hedra.com>"]
-        keywords = ["cli", "hedra", "api"]
-        categories = ["command-line-utilities", "web-programming"]
-
-        [lib]
-        name = "fern_cli_sdk"
-        path = "src/lib.rs"
-
-        [[bin]]
-        name = "hedra"
-        path = "cli/hedra/main.rs"
-
-        [features]
-        # TLS backend selection.
-        #
-        #   default = ["native-tls"]
-        #       Uses the OS's native TLS stack (Secure Transport on macOS, SChannel on
-        #       Windows, OpenSSL on Linux). Honors the OS keychain / cert store —
-        #       what users typically expect for an interactive CLI.
-        #
-        #   ["rustls"]   (cargo build --no-default-features --features rustls)
-        #       Uses the pure-Rust rustls crate with Mozilla's bundled webpki roots.
-        #       Produces self-contained static binaries that don't depend on system
-        #       OpenSSL — preferred for distribution to varied Linux servers, scratch
-        #       Docker images, and cross-compiled musl/ARM builds. Does NOT read the
-        #       OS keychain; users must use `<NAME>_CA_BUNDLE` for custom roots.
-        default = ["native-tls"]
-        native-tls = ["reqwest/native-tls", "tokio-tungstenite/native-tls"]
-        rustls = ["reqwest/rustls-tls-native-roots", "tokio-tungstenite/rustls-tls-native-roots"]
-
-        [dependencies]
-        anyhow = "1"
-        base64 = "0.22"
-        bytes = "1"
-        clap = { version = "4", features = ["derive", "string", "env"] }
-        clap_complete = "4"
-        clap_mangen = "0.2"
-        hmac = "0.12"
-        dotenvy = "0.15"
-        futures-util = "0.3"
-        httpdate = "1"
-        libc = "0.2"
-        percent-encoding = "2.3.2"
-        reqwest = { version = "0.12", features = ["json", "multipart", "stream"], default-features = false }
-        serde = { version = "1", features = ["derive"] }
-        serde_json = "1"
-        serde_json_path = "0.7"
-        serde_yaml = "0.9.34"
-        secrecy = "0.10"
-        serde_qs = "1.1.1"
-        sha2 = "0.10"
-        thiserror = "2"
-        keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
-        webbrowser = "1"
-        rand = "0.8"
-        tokio = { version = "1", features = ["full"] }
-        tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake"] }
-        tokio-util = { version = "0.7", features = ["io"] }
-        tracing = "0.1"
-        tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
-        tracing-appender = "0.2"
-        unicode-normalization = "0.1.25"
-        form_urlencoded = "1"
-        jmespath = "0.3"
-
-        [package.metadata.dist]
-        dist = true
-
-        # The profile that 'cargo dist' will build with
-        [dependencies.hedra_sdk]
-        path = "hedra-sdk"
-
-        [profile.dist]
-        inherits = "release"
-        lto = "thin"
-
-        [build-dependencies]
-        serde = "1"
-        serde_yaml = "0.9.34"
-
-        [dev-dependencies]
-        serial_test = "3.4.0"
-        tempfile = "3"
-        wiremock = "0.6"
-        tokio = { version = "1", features = ["full"] }
-    status: resolving
   - id: patch-eeb99c81
     content_hash: sha256:e4b6b7544dbe5bbc82fe18ece5a4578b2924e812b8d24e0308e63393718f35c0
     original_commit: eeb99c818c7087356bca86e7d1950870b96a8e63
     original_message: Update gitignore (#46)
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: c44f093438608195e5a24454501e56be6802acdf
+    base_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
     files:
       - .gitignore
     patch_content: |
@@ -289,3 +55,22 @@ patches:
         *.iml
         /.agents/scheduled_tasks.lock
         /.agents/worktrees/
+    user_owned: true
+dismissals:
+  - patch_id: patch-6c702a15
+    original_commit: 6c702a15979c075c6307bb1d932eb7bfa4f78912
+    original_message: "build(dist): move dist keys to workspace, un-ignore Cargo.toml"
+    content_hashes:
+      - sha256:2c2ee4a03d10b0888f7e89c6f862dfff61918297b229f0135ded2ce733f93b90
+    dismissed_at: 2026-08-10T23:02:58.145Z
+    via: forget
+  - patch_id: patch-7a35179e
+    original_commit: 7a35179e5976536a0569252bc3a24f9c329628ff
+    original_message: "chore: reset manifest version to 0.9.9 as the computed-release baseline (#40)"
+    content_hashes:
+      - sha256:e3b617143e962d515aa5ca717357089e8f6b6ddcab54fb86bd3b65968614a815
+    dismissed_at: 2026-08-10T23:02:58.182Z
+    via: forget
+forgotten_hashes:
+  - sha256:2c2ee4a03d10b0888f7e89c6f862dfff61918297b229f0135ded2ce733f93b90
+  - sha256:e3b617143e962d515aa5ca717357089e8f6b6ddcab54fb86bd3b65968614a815
