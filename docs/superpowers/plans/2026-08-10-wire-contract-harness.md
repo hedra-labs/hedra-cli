@@ -21,7 +21,23 @@
   which matches CI's `ubuntu-latest` + unpinned toolchain more closely than the
   macOS host does. A local `cargo` is also available (1.97.1) and is fine for a
   quick inner loop, but the container run is the one that counts.
-- **Red is the deliverable.** Three assertions are expected to fail. A *compile* error or a failure with a different message means the harness is wrong; a failure with the stated message is success.
+- **Red is the deliverable.** ~~Three assertions are expected to fail.~~ **Two.** A *compile* error or a failure with a different message means the harness is wrong; a failure with the stated message is success.
+
+> **Post-implementation correction (2026-08-11).** Task 3 below prescribes
+> `Vec::new()` for `CliExecutor`'s `global_headers`. That is wrong — the real
+> bridge passes `ctx.build_sdk_executor()`'s `entries[0].global_headers`, which
+> is non-empty — and it manufactured a third "failure" that does not exist in the
+> product. The prescription is struck through in place below, with the corrected
+> code, so the error stays visible; the implementers followed the plan as
+> written and this was a planning defect, not an implementation one. Full
+> analysis and the disproving evidence live in the spec's *Correction* section.
+>
+> Method note for future plans of this shape: when a plan's success criterion is
+> a *specific failing assertion*, the plan owes each red step a check that the
+> harness cannot produce that failure on its own. Every hand-reconstructed
+> argument in a replica is a candidate. Cheapest such check here would have been
+> a one-off trace of the built binary — which is exactly what eventually
+> disproved the finding.
 
 ---
 
@@ -279,7 +295,8 @@ fn direct_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
     hedra_sdk::api::ModelsClient::new(config).expect("ModelsClient::new")
 }
 
-/// Without an executor the SDK applies its own headers, so all four arrive.
+/// Without an executor the SDK applies its own headers, so three arrive with
+/// correct values; the fourth is asserted separately because its value is wrong.
 /// This passing is what makes scenario 2's failure attributable to the executor.
 #[tokio::test]
 async fn sdk_direct_sends_identity_headers() {
@@ -355,7 +372,7 @@ fern generate --version has no channel to it."
 
 ---
 
-### Task 3: SDK-via-executor scenario — the two bypass failures
+### Task 3: SDK-via-executor scenario — ~~the two bypass failures~~ one failure and one regression lock
 
 **Files:**
 - Modify: `tests/wire_contract.rs`
@@ -364,6 +381,8 @@ fern generate --version has no channel to it."
 - Consumes: helpers from Task 1; `fern_cli_sdk::sdk_executor::{CliExecutor, SdkRequestExecutor}`, `fern_cli_sdk::auth::provider::{DynAuthProvider, NoAuthProvider}`, `hedra_sdk::{ClientConfig, HttpClient, RequestExecutor}`.
 
 This is the path a custom command hits. It replicates `cli/hedra/sdk.rs:19-66` because that file belongs to the binary, not the lib, and so cannot be imported by an integration test.
+
+**The replica must be faithful, argument by argument.** The real bridge reads its arguments off a live `AppContext`; every one reconstructed by hand here is a place this scenario can report a defect the product does not have. Step 1 below got `global_headers` wrong and did exactly that.
 
 - [ ] **Step 1: Append the scenario**
 
@@ -405,6 +424,12 @@ impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
 }
 
 /// Mirror of `client()` in `cli/hedra/sdk.rs:48-66`, pointed at the mock server.
+///
+/// CORRECTED: the third argument was `Vec::new()` as originally planned. The
+/// real bridge passes `entries[0].global_headers`, resolved from the spec's
+/// `x-fern-global-headers` defaults. See the correction note at the top of
+/// this plan. The shipped file also documents the replica's other divergences
+/// (auth provider, base URL).
 fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
     let http_config = fern_cli_sdk::http::HttpConfig::new("hedra").expect("HttpConfig::new");
     let auth: fern_cli_sdk::auth::provider::DynAuthProvider =
@@ -412,7 +437,7 @@ fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
     let executor = Arc::new(fern_cli_sdk::sdk_executor::CliExecutor::new(
         http_config,
         auth,
-        Vec::new(),
+        cli_global_headers(), // was: Vec::new() — the planning defect
         Some(base_url.clone()),
     ));
     let adapter =
@@ -444,16 +469,13 @@ async fn executor_path_preserves_config_identity_headers() {
     assert_header(&req, "x-fern-sdk-name", "hedra_sdk");
 }
 
-/// The spec-version header must survive the CLI's executor.
+/// The spec-version header must survive the CLI's executor. It does.
 ///
-/// DEFECT — fails today, and this is an ENG-10092 regression. That ticket added
-/// X-Hedra-Spec-Version to the CLI surface and verified it by grepping the
-/// GENERATED TREE, which cannot distinguish "emitted" from "delivered". The
-/// generated methods inject it into `options.additional_headers`
-/// (`hedra-sdk/src/api/resources/models/models.rs:45-51`), but request-level
-/// headers are applied only inside `apply_custom_headers` — which the executor
-/// branch skips. Asserted separately from the config-level headers because a
-/// partial fix could restore one channel and not the other.
+/// CORRECTED — this test PASSES. The doc comment originally planned here
+/// called it "an ENG-10092 regression"; that was false, produced by the
+/// `Vec::new()` defect above. The CLI re-supplies this header on its own
+/// global-header channel, which the executor branch does stamp. The shipped
+/// file carries the accurate version: a regression lock, not a defect report.
 #[tokio::test]
 async fn executor_path_preserves_spec_version_header() {
     let server = mock_server().await;
@@ -467,11 +489,15 @@ async fn executor_path_preserves_spec_version_header() {
     assert_header(&req, "x-hedra-spec-version", &spec_version());
 }
 
-/// The executor path still identifies the CLI, even while dropping SDK headers.
-/// Passes today: the User-Agent is a default header on the reqwest client that
-/// `HttpConfig::build_client` produces, so it does not travel through
-/// `apply_custom_headers`. This is what confirms the executor is sending the
-/// request at all, rather than the scenario silently not firing.
+/// The executor path still identifies the CLI, even while dropping the
+/// X-Fern-* trio. Passes today: the User-Agent is a default header on the
+/// reqwest client that `HttpConfig::build_client` produces, so it does not
+/// travel through `apply_custom_headers`. It shows client-level headers
+/// survive, so an absence is channel-specific rather than a wholesale wipe.
+///
+/// CORRECTED: this was planned as confirming "the executor is sending the
+/// request at all, rather than the scenario silently not firing". That is
+/// redundant — `capture_one` already asserts exactly one request arrived.
 #[tokio::test]
 async fn executor_path_still_sends_user_agent() {
     let server = mock_server().await;
@@ -495,33 +521,42 @@ docker run --rm -v "$PWD":/w -w /w rust:latest \
   cargo test --locked --test wire_contract
 ```
 
-Expected: 6 passed, 3 failed. Exactly these three, and no others:
+Expected: **7 passed, 2 failed**. Exactly these two, and no others:
 
 | Test | Expected message |
 |---|---|
 | `sdk_direct_reports_the_real_crate_version` | `x-fern-sdk-version`: expected `1.0.0-dev`, received `0.1.0` |
 | `executor_path_preserves_config_identity_headers` | `x-fern-language`: expected `Rust`, received nothing |
-| `executor_path_preserves_spec_version_header` | `x-hedra-spec-version`: expected `3.2.2`, received nothing |
 
-`executor_path_still_sends_user_agent` **must pass**. If it fails, the executor
-is not reaching the mock server at all and the two "received nothing" failures
-prove nothing — fix the wiring before treating them as evidence.
+~~| `executor_path_preserves_spec_version_header` | `x-hedra-spec-version`:
+expected `3.2.2`, received nothing |~~ — **retracted, this test passes.** It
+failed only because of the `Vec::new()` defect corrected above. The real CLI
+delivers this header; a trace of the built binary shows
+`x-hedra-spec-version: 3.2.2` on the wire.
+
+`executor_path_still_sends_user_agent` **must pass** — but not for the reason
+originally given here. ~~If it fails, the executor is not reaching the mock
+server at all and the two "received nothing" failures prove nothing.~~ A
+scenario that never fired already fails in `capture_one` with `expected exactly
+one captured request`, before any header is read. What this control actually
+establishes is that the executor's client-level headers survive, so a
+"received nothing" is specific to one header channel rather than everything
+being stripped.
 
 - [ ] **Step 3: Commit**
 
 ```bash
 git add tests/wire_contract.rs
-git commit -m "test: document that the CLI executor drops every SDK header
+git commit -m "test: document that the CLI executor drops the X-Fern-* trio
 
-Adds the SDK-via-executor scenario, replicating cli/hedra/sdk.rs. Two
-assertions fail by design: with_executor skips apply_custom_headers, so
-both the config-level X-Fern-* headers and the request-level
-X-Hedra-Spec-Version are discarded.
+Adds the SDK-via-executor scenario, replicating cli/hedra/sdk.rs. One
+assertion fails by design: with_executor documents that the executor
+owns auth and custom headers, and the CLI's executor never picks up
+ClientConfig::custom_headers, so the X-Fern-* trio is discarded.
 
-The second is an ENG-10092 regression — that ticket verified the header
-by grepping the generated tree, which cannot tell emitted from
-delivered. The User-Agent assertion passes, confirming the executor does
-reach the server and the absences are real."
+X-Hedra-Spec-Version is NOT affected: the CLI re-supplies it through
+CliExecutor::global_headers, so it reaches the wire. That assertion
+passes and serves as the repo's only regression lock on ENG-10092."
 ```
 
 ---
@@ -548,7 +583,9 @@ Note the separate second defect: the `X-Fern-SDK-Version` literal needs a channe
 
 ## Self-Review
 
-**Spec coverage.** Three scenarios → Tasks 1/3/2 respectively. Sources-of-truth assertions → Task 1 helper `spec_version()` plus `env!("CARGO_PKG_VERSION")` throughout. `.fernignore` survival → Task 1 Step 1. Container verification → every run step. Three expected failures with distinct root causes → Task 3 Step 2 table. Deliverables 3 and 4 → Task 4. The spec's non-goal (no in-repo fix) is enforced by the Global Constraints.
+**Spec coverage.** Three scenarios → Tasks 1/3/2 respectively. Sources-of-truth assertions → Task 1 helper `spec_version()` plus `env!("CARGO_PKG_VERSION")` throughout. `.fernignore` survival → Task 1 Step 1. Container verification → every run step. ~~Three~~ Two expected failures with distinct root causes → Task 3 Step 2 table. Deliverables 3 and 4 → Task 4. The spec's non-goal (no in-repo fix) is enforced by the Global Constraints.
+
+**What this self-review missed.** It checked that every planned assertion traced to a spec claim, and that every helper was used — structural completeness. It never asked whether a planned *failure* could be produced by the plan's own test code rather than by the product, which is the one question a red-is-the-deliverable plan most needs answered. The shipped file gained a `cli_global_headers()` helper (and `embedded_spec()` / `global_header_default()`) that this plan does not list, precisely to close that gap.
 
 **Placeholders.** None: every step carries runnable code or an exact command.
 
