@@ -1,0 +1,90 @@
+# Hand-owned Fern Replay config (.fernignore'd). Generation only ever reads it —
+# the one code path that writes it is `fern replay bootstrap` with .fernignore
+# migration, which the generate path never asks for. Companion to .fernignore,
+# but the opposite lever:
+#
+#   .fernignore  — "generator, do not WRITE this file"        (freezes the file)
+#   exclude here — "replay, do not RE-APPLY customizations"   (frees the file)
+#
+# Replay records every non-.fernignore'd commit since the last generation as a
+# "customization" and replays it onto each new generation. Entries here tell it
+# not to, so the listed files always land as pure generated output.
+#
+# Verified semantics, fern-api 5.94.0 — the version generate-sdks.yml actually
+# ran on 2026-08-11 ("Installed Fern CLI version 5.94.0"). It installs via
+# fern-api/setup-fern-cli with version: latest and pins nothing, so this floats;
+# re-read the applicator rather than trusting this note after a CLI bump.
+#
+#   - `exclude` suppresses patch APPLICATION, not detection.
+#     ReplayApplicator.applyPatches() tests isExcluded(patch) at the top of the
+#     loop and pushes {status:"skipped"} before any apply attempt, so an
+#     excluded patch can never conflict or go "unresolved" ("Action required"
+#     on a regeneration PR). Detection still records it in replay.lock's
+#     `patches:` ledger — the entry just stays inert there.
+#   - Entries are minimatch globs against repo-relative paths.
+#
+# WHOLE-PATCH SEMANTICS: isExcluded() is `patch.files.some(f => ...)` — a patch
+# is skipped ENTIRELY if ANY of its files matches. Keep version bumps in
+# dedicated commits, or a mixed commit will drag real customizations into the
+# skip along with the bump.
+#
+# There is already one commit we cannot clean up for exactly that reason.
+# patch-d06b3c36 ("fix: re-supply the X-Fern-* identity headers the CLI executor
+# drops (#57)") carries the same stale-stamp defect as the entry below —
+#
+#     hedra-sdk/src/config.rs  -("X-Fern-SDK-Version", "0.1.0")
+#                              +("X-Fern-SDK-Version", "1.0.0-dev")
+#
+# — but it also carries the real src/sdk_executor.rs fix, so excluding
+# hedra-sdk/src/config.rs would skip both. Leave it alone for now: the stamp is
+# repaired on bot branches by .github/scripts/patch-sdk-headers.py, and the only
+# clean fix is to re-record #57 as two commits. Surfaced on ENG-10241; it needs
+# its own ticket before anyone reaches for an exclude here.
+
+exclude:
+  # Machine-owned version stamps (ENG-10241).
+  #
+  # Every regeneration resets these two member manifests to the generator's own
+  # defaults — hedra_sdk to 0.1.0, hedra_types to 0.0.0 — while the root crate
+  # keeps the number `fern generate --version` stamped, because fern-config's
+  # `packageIdentity` upserts into the ROOT [package] table and version is not
+  # one of its keys. .github/scripts/set-version.py re-aligns the members from
+  # the root afterwards; refresh-lockfile.yml carries the full rationale.
+  #
+  # That alignment commit is what Replay picked up as a customization —
+  # patch-ed9886b4, from "ci: align the workspace crate versions on every
+  # regeneration (#52)", whose entire diff is:
+  #
+  #     hedra-sdk/Cargo.toml     -version = "0.1.0"   +version = "1.0.0-dev"
+  #     hedra-types/Cargo.toml   -version = "0.0.0"   +version = "1.0.0-dev"
+  #
+  # Replaying a version stamp is wrong in both directions:
+  #
+  #   - It re-stamps a stale number. refresh-lockfile.yml masks this today, but
+  #     it only fires on `push: fern-bot/**`. release-sdks.yml (fern-config#44)
+  #     regenerates and commits straight to main with no bot branch, so on a
+  #     release regeneration the replayed "1.0.0-dev" is the last write — the
+  #     `-dev` suffix the release exists to strip.
+  #   - It will eventually conflict instead of applying. The patch context is
+  #     the generator's own `version = "0.1.0"` / `"0.0.0"` lines; the day the
+  #     generator emits anything else, the patch goes unresolved and the
+  #     regeneration PR shows "Action required". hedra-python hit exactly this
+  #     on pyproject.toml when a test regeneration stamped 1.1.0 (its PR #44).
+  #
+  # Do NOT "fix" this by .fernignore'ing the two manifests instead. That was
+  # tried and rejected (ENG-10112 §2, PR #21, never merged): freezing them also
+  # freezes real generated dependency changes, the ENG-10048 trap the Cargo.lock
+  # entry in .fernignore documents. Excluding here leaves both files fully
+  # generator-owned and only stops Replay putting yesterday's stamp back on top.
+  - hedra-sdk/Cargo.toml
+  - hedra-types/Cargo.toml
+
+  # NOT excluded, deliberately: docs/superpowers/** (patch-d871322c, ~1.8k lines
+  # of markdown in the ledger). Excluding it would be actively unsafe. Those
+  # files are hand-written and the generator emits nothing under docs/, so
+  # Replay re-adding them was the only thing keeping them in the tree; an
+  # exclude here drops that without replacing it, which is precisely the #27 →
+  # #29 sequence that deleted .gitattributes. The ledger noise is real, but
+  # .fernignore is the lever for it — see the docs/ entry there, which both
+  # protects the files and retires the patch (Replay cleanses a patch whose
+  # files all match .fernignore).

@@ -40,3 +40,32 @@ dist-workspace.toml
 # emitted, .fernignore is the only thing stopping regeneration from DELETING
 # it (see the .gitattributes entry above and PR #29).
 tests/
+
+# Hand-owned Replay config (ENG-10241) — the .gitattributes shape again, and
+# the worst case of it: hand-written, never emitted, and — unlike
+# .fern/replay.lock — never rewritten by Replay either, so nothing would put it
+# back. Fern's own CLI agrees the entry belongs here: REPLAY_FERNIGNORE_ENTRIES
+# hard-codes [.fern/replay.lock, .fern/replay.yml, .gitattributes], and Replay's
+# bootstrap wrote all three into this file in eae75ca. #27 removed them as dead
+# entries — the same cleanup that cost us .gitattributes in PR #29 — and #30
+# restored only .gitattributes. Bootstrap runs only when .fern/replay.lock is
+# absent, so it will not re-add this one for us.
+#
+# .fern/replay.lock is deliberately NOT listed, measured rather than assumed:
+# hedra-python does list it and Replay rewrote its lock anyway in the
+# 2026-08-11 regeneration (current_generation dc24150), and hedra-cli does not
+# list it and has never lost one — PR #29 deleted .gitattributes in the very
+# same run that left .fern/replay.lock MODIFIED. The entry is inert in both
+# directions. Losing the lock is also self-healing (Replay re-bootstraps the
+# ledger from HEAD); losing replay.yml silently un-excludes the version stamps.
+.fern/replay.yml
+
+# Hand-written planning docs (ENG-10241). The generator emits nothing under
+# docs/ — no such tree in fernapi/fern-cli-generator:0.30.2, and no regeneration
+# commit has ever touched the directory — so this is load-bearing for the same
+# reason tests/ above is. Until now the files' only protection was Replay
+# re-adding them through patch-d871322c on every generation, which is also why
+# that patch parks ~1.8k lines of markdown in replay.lock. This entry fixes both:
+# Replay cleanses a patch whose files ALL match .fernignore, exactly as it did to
+# patch-eeb99c81 (root .gitignore) once #60 added that entry.
+docs/
