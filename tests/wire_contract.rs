@@ -283,7 +283,6 @@ async fn sdk_direct_sends_identity_headers() {
 ///
 /// Comparing against CARGO_PKG_VERSION also transitively guards that alignment.
 #[tokio::test]
-#[ignore = "ENG-10226 defect 2: the generated literal says 0.1.0; un-ignored by the header-patch PR (#57)"]
 async fn sdk_direct_reports_the_real_crate_version() {
     let server = mock_server().await;
     let client = direct_models_client(server.uri());
@@ -390,7 +389,6 @@ fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
 ///
 /// The fix therefore belongs in the generated bridge, not in `http_client.rs`.
 #[tokio::test]
-#[ignore = "ENG-10226 defect 1: the executor drops the X-Fern-* trio; un-ignored by the header-patch PR (#57)"]
 async fn executor_path_preserves_config_identity_headers() {
     let server = mock_server().await;
     let client = executor_models_client(server.uri());
