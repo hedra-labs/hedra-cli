@@ -173,7 +173,11 @@ async fn openapi_path_sends_user_agent() {
     let _ = client.get(format!("{}/models", server.uri())).send().await;
 
     let req = capture_one(&server).await;
-    assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
+    assert_header(
+        &req,
+        "user-agent",
+        &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")),
+    );
 }
 
 /// A configured suffix is appended after the CLI's own product token.
@@ -209,7 +213,11 @@ async fn openapi_path_ignores_blank_user_agent_suffix() {
     let _ = client.get(format!("{}/models", server.uri())).send().await;
 
     let req = capture_one(&server).await;
-    assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
+    assert_header(
+        &req,
+        "user-agent",
+        &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")),
+    );
 }
 
 /// A suffix that is not valid header content is ignored, not sent raw.
@@ -225,7 +233,11 @@ async fn openapi_path_ignores_header_invalid_user_agent_suffix() {
     let _ = client.get(format!("{}/models", server.uri())).send().await;
 
     let req = capture_one(&server).await;
-    assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
+    assert_header(
+        &req,
+        "user-agent",
+        &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")),
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -235,7 +247,10 @@ async fn openapi_path_ignores_header_invalid_user_agent_suffix() {
 /// Build a `ModelsClient` that talks straight to `base_url` with no executor,
 /// so the SDK applies its own headers.
 fn direct_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
-    let config = hedra_sdk::ClientConfig { base_url, ..Default::default() };
+    let config = hedra_sdk::ClientConfig {
+        base_url,
+        ..Default::default()
+    };
     hedra_sdk::api::ModelsClient::new(config).expect("ModelsClient::new")
 }
 
@@ -343,9 +358,11 @@ fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
         cli_global_headers(),
         Some(base_url.clone()),
     ));
-    let adapter =
-        Arc::new(CliExecutorAdapter(executor)) as Arc<dyn hedra_sdk::RequestExecutor>;
-    let config = hedra_sdk::ClientConfig { base_url, ..Default::default() };
+    let adapter = Arc::new(CliExecutorAdapter(executor)) as Arc<dyn hedra_sdk::RequestExecutor>;
+    let config = hedra_sdk::ClientConfig {
+        base_url,
+        ..Default::default()
+    };
     let http_client = hedra_sdk::HttpClient::with_executor(adapter, config);
     hedra_sdk::api::ModelsClient { http_client }
 }
@@ -454,5 +471,9 @@ async fn executor_path_still_sends_user_agent() {
         .await;
 
     let req = capture_one(&server).await;
-    assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
+    assert_header(
+        &req,
+        "user-agent",
+        &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")),
+    );
 }
