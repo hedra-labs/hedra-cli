@@ -41,7 +41,7 @@ Task ordering is deliberate: Task 1 delivers a **fully green** scenario first. I
 
 **Interfaces:**
 - Consumes: `fern_cli_sdk::http::HttpConfig` (`src/http.rs:127` `new`, `:178` `with_user_agent_suffix_override`, `:333` `build_client`).
-- Produces: helpers `header_value(&wiremock::Request, &str) -> Option<String>`, `assert_header(&wiremock::Request, &str, &str)`, `assert_header_absent(&wiremock::Request, &str)`, `spec_version() -> String`, and `async fn capture_one(&MockServer) -> wiremock::Request`. Tasks 2 and 3 use all five.
+- Produces: helpers `header_value(&wiremock::Request, &str) -> Option<String>`, `assert_header(&wiremock::Request, &str, &str)`, `spec_version() -> String`, `async fn mock_server() -> MockServer`, and `async fn capture_one(&MockServer) -> wiremock::Request`. Tasks 2 and 3 use all five.
 
 - [ ] **Step 1: Add the `.fernignore` entry**
 
@@ -94,16 +94,6 @@ fn assert_header(req: &Request, name: &str, expected: &str) {
             "header `{name}`: expected `{expected}`, server received `{actual}`"
         ),
         None => panic!("header `{name}`: expected `{expected}`, server received nothing"),
-    }
-}
-
-/// Unused today: the suite asserts the intended contract, so absences show up
-/// as failing presence assertions. Kept for the fix ticket, which will want to
-/// assert deliberate negatives.
-#[allow(dead_code)]
-fn assert_header_absent(req: &Request, name: &str) {
-    if let Some(actual) = header_value(req, name) {
-        panic!("header `{name}`: expected absent, server received `{actual}`");
     }
 }
 
@@ -559,6 +549,6 @@ Note the separate second defect: the `X-Fern-SDK-Version` literal needs a channe
 
 **Placeholders.** None: every step carries runnable code or an exact command.
 
-**Type consistency.** `header_value` / `assert_header` / `assert_header_absent` / `spec_version` / `mock_server` / `capture_one` are defined once in Task 1 and used with identical signatures in Tasks 2 and 3. `ModelsClient` is constructed two ways — `ModelsClient::new(config)` (Task 2, no executor) and the struct literal `ModelsClient { http_client }` (Task 3, executor injected) — matching `hedra-sdk/src/api/resources/models/models.rs:6-11` and `cli/hedra/sdk.rs:56-66`.
+**Type consistency.** `header_value` / `assert_header` / `spec_version` / `mock_server` / `capture_one` are defined once in Task 1 and used with identical signatures in Tasks 2 and 3. `ModelsClient` is constructed two ways — `ModelsClient::new(config)` (Task 2, no executor) and the struct literal `ModelsClient { http_client }` (Task 3, executor injected) — matching `hedra-sdk/src/api/resources/models/models.rs:6-11` and `cli/hedra/sdk.rs:56-66`.
 
-**Known gap.** `assert_header_absent` is defined in Task 1 but never called: the suite asserts the *intended* contract, so absences are expressed as failing presence assertions. It carries `#[allow(dead_code)]` and is kept because the fix ticket will want it when converting any assertion to a deliberate negative.
+**No unused helpers.** The suite asserts the *intended* contract, so absences are expressed as failing presence assertions and no negative-assertion helper is needed. One was drafted and removed in the pre-flight scan: every helper defined in Task 1 is called by Tasks 1-3.
