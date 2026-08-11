@@ -33,3 +33,9 @@ dist-workspace.toml
 # load-bearing, not redundant; only a file that is both unemitted and absent is
 # safe to un-ignore.
 .gitattributes
+
+# The wire-contract harness. The generator never emits `tests/`, which is
+# exactly why this entry is load-bearing: for a file that exists but is not
+# emitted, .fernignore is the only thing stopping regeneration from DELETING
+# it (see the .gitattributes entry above and PR #29).
+tests/
