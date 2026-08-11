@@ -144,8 +144,10 @@ optional hardening step.
 
 ## Verification
 
-No local Rust toolchain, so verification runs in a `rust:latest` container,
-matching the practice established by #40:
+Verification runs in a `rust:latest` container, matching the practice
+established by #40 — it tracks CI's `ubuntu-latest` + unpinned toolchain more
+closely than the macOS host. A local `cargo` (1.97.1) is available for a quick
+inner loop, but the container run is the authoritative one:
 
 ```
 cargo test --locked --test wire_contract
@@ -170,8 +172,11 @@ failure for any *other* reason means the harness is wrong, not the code.
 
 ## Risks
 
-- **Cannot compile locally.** The API surface was verified by reading public
-  signatures, not by building. First container run may need import fixes.
+- ~~**Cannot compile locally.** The API surface was verified by reading public
+  signatures, not by building. First container run may need import fixes.~~
+  Retired: this rested on a false premise (a local toolchain does exist), and
+  the risk did not materialise anyway — all three scenarios compiled on the
+  first attempt with no signature or import adjustments.
 - **Red CI on a draft PR** is deliberate and must be stated in the PR body, or
   a reviewer will read it as broken work.
 - **Scenario 2 replicates `cli/hedra/sdk.rs` rather than calling it**, because

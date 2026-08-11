@@ -16,8 +16,11 @@
 - **Do not modify generator-owned files.** `hedra-sdk/**`, `src/**`, and `cli/hedra/sdk.rs` are absent from `.fernignore` and are reverted by the next regeneration. This change touches only `tests/`, `.fernignore`, and `docs/`.
 - **Never assert a frozen version literal.** Compare against `env!("CARGO_PKG_VERSION")` and the embedded spec's `info.version`. A test hardcoding `"1.0.0-dev"` would need editing every release and would not catch the drift it exists to catch.
 - **`tests/` must be added to `.fernignore`.** A file that exists but is not emitted is *deleted* by regeneration otherwise — see the `.gitattributes` entry and PR #29.
-- **No local Rust toolchain.** Every verification step runs in a container:
-  `docker run --rm -v "$PWD":/w -w /w rust:latest cargo test --locked --test wire_contract`
+- **Verify in a container.** Every verification step runs as
+  `docker run --rm -v "$PWD":/w -w /w rust:latest cargo test --locked --test wire_contract`,
+  which matches CI's `ubuntu-latest` + unpinned toolchain more closely than the
+  macOS host does. A local `cargo` is also available (1.97.1) and is fine for a
+  quick inner loop, but the container run is the one that counts.
 - **Red is the deliverable.** Three assertions are expected to fail. A *compile* error or a failure with a different message means the harness is wrong; a failure with the stated message is success.
 
 ---
