@@ -50,6 +50,29 @@ jobs:
           fi
           echo "::warning::Workspace crate versions are not aligned with the root ($version) — $hint"
 
+      # Same backstop, for the ENG-10226 header patches: refresh-lockfile.yml
+      # only fires on fern-bot/** branches, so a hand-made regeneration PR
+      # would otherwise reach the Test step with the X-Fern-* headers dropped
+      # and fail tests/wire_contract.rs with a far less legible message.
+      #
+      # Advisory off pull_request for the same release-sdks.yml reason as
+      # above — though on such a tree the Test step goes red regardless; this
+      # step's job is the diagnosis, not the gate. Delete it together with
+      # patch-sdk-headers.py when ENG-10234 lands upstream.
+      - name: Check the SDK header patches are applied
+        run: |
+          version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
+          if python3 .github/scripts/patch-sdk-headers.py --check "$version" \
+              hedra-sdk/src/config.rs src/sdk_executor.rs; then
+            exit 0
+          fi
+          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/src/config.rs src/sdk_executor.rs"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::error::The ENG-10226 SDK header patches are not applied — $hint"
+            exit 1
+          fi
+          echo "::warning::The ENG-10226 SDK header patches are not applied — $hint"
+
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
