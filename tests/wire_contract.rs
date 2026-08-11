@@ -198,3 +198,118 @@ async fn sdk_direct_reports_the_real_crate_version() {
     let req = capture_one(&server).await;
     assert_header(&req, "x-fern-sdk-version", env!("CARGO_PKG_VERSION"));
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 2 — the SDK with the CLI's executor injected
+// ---------------------------------------------------------------------------
+
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::Arc;
+
+/// Mirror of `CliExecutorAdapter` in `cli/hedra/sdk.rs:19-37`.
+///
+/// Replicated rather than imported: that file is part of the `hedra` binary,
+/// not the `fern_cli_sdk` lib, so an integration test cannot reach it. If the
+/// generated bridge changes shape, update this to match.
+struct CliExecutorAdapter(Arc<fern_cli_sdk::sdk_executor::CliExecutor>);
+
+impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
+    fn execute(
+        &self,
+        request: reqwest::Request,
+    ) -> Pin<
+        Box<
+            dyn Future<Output = Result<reqwest::Response, Box<dyn std::error::Error + Send + Sync>>>
+                + Send
+                + '_,
+        >,
+    > {
+        Box::pin(async move {
+            fern_cli_sdk::sdk_executor::SdkRequestExecutor::execute(&*self.0, request)
+                .await
+                .map_err(|e| Box::new(e) as Box<dyn std::error::Error + Send + Sync>)
+        })
+    }
+}
+
+/// Mirror of `client()` in `cli/hedra/sdk.rs:48-66`, pointed at the mock server.
+fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
+    let http_config = fern_cli_sdk::http::HttpConfig::new("hedra").expect("HttpConfig::new");
+    let auth: fern_cli_sdk::auth::provider::DynAuthProvider =
+        Arc::new(fern_cli_sdk::auth::provider::NoAuthProvider);
+    let executor = Arc::new(fern_cli_sdk::sdk_executor::CliExecutor::new(
+        http_config,
+        auth,
+        Vec::new(),
+        Some(base_url.clone()),
+    ));
+    let adapter =
+        Arc::new(CliExecutorAdapter(executor)) as Arc<dyn hedra_sdk::RequestExecutor>;
+    let config = hedra_sdk::ClientConfig { base_url, ..Default::default() };
+    let http_client = hedra_sdk::HttpClient::with_executor(adapter, config);
+    hedra_sdk::api::ModelsClient { http_client }
+}
+
+/// Config-level identity headers must survive the CLI's executor.
+///
+/// DEFECT — fails today. `cli/hedra/sdk.rs` always builds the client with
+/// `HttpClient::with_executor`, and `send_request`
+/// (`hedra-sdk/src/core/http_client.rs:498-511`) takes the executor branch,
+/// which calls `executor.execute(req)` without ever calling
+/// `apply_custom_headers`. So `ClientConfig::custom_headers` is built and
+/// discarded.
+#[tokio::test]
+async fn executor_path_preserves_config_identity_headers() {
+    let server = mock_server().await;
+    let client = executor_models_client(server.uri());
+
+    let _ = client
+        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-fern-language", "Rust");
+    assert_header(&req, "x-fern-sdk-name", "hedra_sdk");
+}
+
+/// The spec-version header must survive the CLI's executor.
+///
+/// DEFECT — fails today, and this is an ENG-10092 regression. That ticket added
+/// X-Hedra-Spec-Version to the CLI surface and verified it by grepping the
+/// GENERATED TREE, which cannot distinguish "emitted" from "delivered". The
+/// generated methods inject it into `options.additional_headers`
+/// (`hedra-sdk/src/api/resources/models/models.rs:45-51`), but request-level
+/// headers are applied only inside `apply_custom_headers` — which the executor
+/// branch skips. Asserted separately from the config-level headers because a
+/// partial fix could restore one channel and not the other.
+#[tokio::test]
+async fn executor_path_preserves_spec_version_header() {
+    let server = mock_server().await;
+    let client = executor_models_client(server.uri());
+
+    let _ = client
+        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-hedra-spec-version", &spec_version());
+}
+
+/// The executor path still identifies the CLI, even while dropping SDK headers.
+/// Passes today: the User-Agent is a default header on the reqwest client that
+/// `HttpConfig::build_client` produces, so it does not travel through
+/// `apply_custom_headers`. This is what confirms the executor is sending the
+/// request at all, rather than the scenario silently not firing.
+#[tokio::test]
+async fn executor_path_still_sends_user_agent() {
+    let server = mock_server().await;
+    let client = executor_models_client(server.uri());
+
+    let _ = client
+        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
+}
