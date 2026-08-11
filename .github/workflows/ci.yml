@@ -23,7 +23,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repo
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # Backstop for the regeneration path refresh-lockfile.yml cannot see: it
       # only fires on fern-bot/** branches, so a hand-made PR from someone
@@ -96,7 +96,7 @@ jobs:
   regen-shape:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           fetch-depth: 0
