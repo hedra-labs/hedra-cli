@@ -1,7 +1,17 @@
 # Repair a fern-bot regeneration branch so it can land green: align the
-# workspace crate versions (ENG-10219), then refresh Cargo.lock (ENG-10202).
-# Both fixes go out in ONE commit — see "Gating" below for why that is not
-# negotiable.
+# workspace crate versions (ENG-10219), re-apply the SDK header patches
+# (ENG-10226), then refresh Cargo.lock (ENG-10202). All fixes go out in ONE
+# commit — see "Gating" below for why that is not negotiable.
+#
+# --- SDK header patches ---
+#
+# Regeneration resets hedra-sdk/src/config.rs to an X-Fern-SDK-Version of
+# "0.1.0" and emits a CliExecutor that drops the SDK's X-Fern-* identity
+# headers. Neither file can be .fernignore'd (both must keep receiving real
+# generator changes), so patch-sdk-headers.py re-applies both fixes after
+# every regeneration — the same design as the version aligner. The script's
+# docstring carries the full rationale, the patch anchors, and the removal
+# condition (delete the step when ENG-10234 lands upstream).
 #
 # --- Cargo.lock ---
 #
@@ -148,6 +158,14 @@ jobs:
           python3 .github/scripts/set-version.py "$version" \
             hedra-sdk/Cargo.toml hedra-types/Cargo.toml
 
+      # Source-only, so it cannot invalidate the lockfile; grouped with the
+      # aligner so every tree fix precedes the staleness gate and the commit.
+      - name: Re-apply the SDK header patches
+        run: |
+          version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
+          python3 .github/scripts/patch-sdk-headers.py "$version" \
+            hedra-sdk/src/config.rs src/sdk_executor.rs
+
       - name: Check whether Cargo.lock is stale
         id: staleness
         run: |
@@ -192,23 +210,28 @@ jobs:
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          # A set check, not a string compare: up to three files can legitimately
+          # A set check, not a string compare: up to five files can legitimately
           # be dirty now, in any combination.
-          unexpected="$(git status --porcelain | grep -vE '^ M (Cargo\.lock|hedra-sdk/Cargo\.toml|hedra-types/Cargo\.toml)$' || true)"
+          unexpected="$(git status --porcelain | grep -vE '^ M (Cargo\.lock|hedra-sdk/Cargo\.toml|hedra-types/Cargo\.toml|hedra-sdk/src/config\.rs|src/sdk_executor\.rs)$' || true)"
           if [ -n "$unexpected" ]; then
-            echo "::error::Refresh touched something outside {Cargo.lock, hedra-sdk/Cargo.toml, hedra-types/Cargo.toml} — refusing to commit."
+            echo "::error::Refresh touched something outside {Cargo.lock, hedra-sdk/Cargo.toml, hedra-types/Cargo.toml, hedra-sdk/src/config.rs, src/sdk_executor.rs} — refusing to commit."
             git status --porcelain
             exit 1
           fi
-          git add Cargo.lock hedra-sdk/Cargo.toml hedra-types/Cargo.toml
-          # Name only what actually changed; all three combinations occur.
-          if git diff --cached --quiet -- Cargo.lock; then
-            message="build: align workspace crate versions after regeneration"
-          elif git diff --cached --quiet -- hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
-            message="build: refresh Cargo.lock after regeneration"
-          else
-            message="build: align workspace crate versions and refresh Cargo.lock after regeneration"
+          git add Cargo.lock hedra-sdk/Cargo.toml hedra-types/Cargo.toml hedra-sdk/src/config.rs src/sdk_executor.rs
+          # Name only what actually changed; the three fix groups occur in any
+          # combination.
+          parts=""
+          if ! git diff --cached --quiet -- hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+            parts="align workspace crate versions"
           fi
+          if ! git diff --cached --quiet -- hedra-sdk/src/config.rs src/sdk_executor.rs; then
+            parts="${parts:+$parts and }re-apply the SDK header patches"
+          fi
+          if ! git diff --cached --quiet -- Cargo.lock; then
+            parts="${parts:+$parts and }refresh Cargo.lock"
+          fi
+          message="build: $parts after regeneration"
           # Attribute the commit to whichever identity is doing the push.
           if [ -n "$APP_SLUG" ]; then
             git config user.name "${APP_SLUG}[bot]"
