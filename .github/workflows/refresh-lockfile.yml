@@ -1,4 +1,9 @@
-# Auto-refresh Cargo.lock on fern-bot regeneration branches (ENG-10202).
+# Repair a fern-bot regeneration branch so it can land green: align the
+# workspace crate versions (ENG-10219), then refresh Cargo.lock (ENG-10202).
+# Both fixes go out in ONE commit — see "Gating" below for why that is not
+# negotiable.
+#
+# --- Cargo.lock ---
 #
 # Cargo.toml and hedra-sdk/Cargo.toml are generator-owned, but Cargo.lock is
 # hand-owned (.fernignore'd — see the comment on that entry). Two kinds of
@@ -6,11 +11,69 @@
 # `cargo check --locked` red: a root [package].version bump, and a dependency
 # change in a generated manifest. This workflow re-syncs the lockfile minimally
 # (`cargo fetch` keeps every pin that still satisfies the manifests) and pushes
-# the fix onto the bot branch as a Cargo.lock-only commit.
+# the fix onto the bot branch.
 #
-# Idempotence: the run gates on `cargo metadata --locked` and exits without
-# committing when the lockfile is already in sync, so the refresh commit's own
-# push (which re-fires this workflow) terminates the loop.
+# --- Version alignment ---
+#
+# The three crates dist-workspace.toml lists as members are supposed to share a
+# version, but the generator has no way to keep them that way: fern-config's
+# `packageIdentity` upserts seven keys inside the *root* [package] table and
+# version is not one of them, and `fern generate --version` stamps the root
+# crate alone. So every regeneration resets hedra-sdk to 0.1.0 and hedra-types
+# to 0.0.0 while the root keeps its real version, and only a post-generation
+# fixup can repair it.
+#
+# Fencing the two member manifests in .fernignore instead was tried and
+# rejected (ENG-10112 §2, PR #21, never merged): it would freeze real
+# dependency changes, which is the ENG-10048 trap the Cargo.lock entry already
+# documents. The alignment is inert for resolution — neither path dependency
+# carries a version requirement — so it cannot change what gets built.
+#
+# Running the aligner here, before the staleness gate, is what makes it run
+# "before rust": the push re-fires the PR's required `rust` check against an
+# already-aligned tree.
+#
+# --- Gating ---
+#
+# Alignment and the lockfile refresh must land in one commit. Aligning the
+# members invalidates `--locked`, so an intermediate commit carrying aligned
+# manifests and an unrefreshed lock is precisely the state where
+# `cargo check --locked` is red. That also rules out doing this in a second
+# workflow: two workflows pushing the same bot branch race and re-fire each
+# other.
+#
+# The gates are deliberately NOT all `stale`. Gating the commit on staleness
+# deadlocks in the case that becomes the most common one once alignment has
+# landed once. Steady state: main is aligned, so the .fernignore'd Cargo.lock
+# already records the aligned versions and regeneration resets only the
+# manifests. The aligner then *restores* lock/manifest agreement:
+#
+#   post-regen (members reset, lock still aligned):   stale would be true
+#   after the aligner has run:                        stale is false
+#
+# A commit step gated on `stale` is therefore skipped, both manifest edits are
+# discarded, and the branch stays misaligned and red on every re-run, forever.
+# So the gates are split:
+#
+#   stale          gates `cargo fetch` and nothing else
+#   a dirty tree   gates the commit, the push, and the CI re-trigger
+#   unconditional  the pre-push `cargo metadata --locked` check, which is what
+#                  catches "aligned manifests, unrefreshed lock" before it can
+#                  be pushed. It subsumes the old "stale but `cargo fetch`
+#                  changed nothing" error, since dirtiness can now come from
+#                  alignment rather than from the refresh.
+#
+# Idempotence: the aligner rewrites nothing when the versions already agree and
+# `cargo fetch` changes nothing when the lockfile is in sync, so a re-run
+# leaves the worktree clean, the commit is skipped, and the refresh commit's
+# own push (which re-fires this workflow) terminates the loop.
+#
+# Not covered here: release-sdks.yml (fern-config#44) regenerates and commits
+# straight to main with no bot branch, so this workflow never fires and a
+# release commit lands with the members at 0.1.0/0.0.0. Harmless — cargo-dist
+# reads the root crate's version alone — and the next regeneration PR
+# re-aligns. ci.yml's alignment step warns rather than fails off pull_request
+# so that commit does not leave main red in the meantime.
 #
 # Force-push race: the Fern app force-pushes regeneration branches, which can
 # drop a refresh commit — but that push re-fires this workflow, which re-adds
@@ -75,12 +138,22 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
+      # Must precede the staleness check: aligning the members is itself one of
+      # the things that can invalidate the lockfile, and the refresh below has
+      # to see the aligned tree.
+      - name: Align the member crate versions with the root
+        run: |
+          version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
+          echo "Root crate is at $version."
+          python3 .github/scripts/set-version.py "$version" \
+            hedra-sdk/Cargo.toml hedra-types/Cargo.toml
+
       - name: Check whether Cargo.lock is stale
         id: staleness
         run: |
           if cargo metadata --locked --format-version 1 > /dev/null 2> "$RUNNER_TEMP/stale.err"; then
             echo "stale=false" >> "$GITHUB_OUTPUT"
-            echo "Cargo.lock is in sync with the manifests; nothing to do."
+            echo "Cargo.lock is in sync with the manifests; no refresh needed."
           else
             echo "stale=true" >> "$GITHUB_OUTPUT"
             cat "$RUNNER_TEMP/stale.err"
@@ -90,24 +163,52 @@ jobs:
         if: steps.staleness.outputs.stale == 'true'
         run: cargo fetch
 
-      - name: Commit and push (Cargo.lock only)
-        if: steps.staleness.outputs.stale == 'true'
+      # Unconditional on purpose: this is the gate that stops a commit with
+      # aligned manifests and an unrefreshed lockfile from ever being pushed.
+      - name: Verify the lockfile resolves
+        run: |
+          if cargo metadata --locked --format-version 1 > /dev/null 2> "$RUNNER_TEMP/verify.err"; then
+            echo "Cargo.lock resolves against the manifests."
+            exit 0
+          fi
+          cat "$RUNNER_TEMP/verify.err"
+          echo "::error::Cargo.lock still does not resolve after alignment and 'cargo fetch' — this is staleness the refresh cannot fix; see the log above."
+          exit 1
+
+      - name: Look for pending fixes
+        id: pending
+        run: |
+          if [ -n "$(git status --porcelain)" ]; then
+            echo "dirty=true" >> "$GITHUB_OUTPUT"
+            git status --porcelain
+          else
+            echo "dirty=false" >> "$GITHUB_OUTPUT"
+            echo "Versions aligned and Cargo.lock in sync; nothing to commit."
+          fi
+
+      - name: Commit and push the fixes
+        if: steps.pending.outputs.dirty == 'true'
         env:
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
-          status="$(git status --porcelain)"
-          if [ -z "$status" ]; then
-            echo "::error::Cargo.lock is stale but 'cargo fetch' changed nothing — this is staleness the refresh cannot fix; see the log above."
-            exit 1
-          fi
-          if [ "$status" != " M Cargo.lock" ]; then
-            echo "::error::Refresh touched more than Cargo.lock — refusing to commit."
+          # A set check, not a string compare: up to three files can legitimately
+          # be dirty now, in any combination.
+          unexpected="$(git status --porcelain | grep -vE '^ M (Cargo\.lock|hedra-sdk/Cargo\.toml|hedra-types/Cargo\.toml)$' || true)"
+          if [ -n "$unexpected" ]; then
+            echo "::error::Refresh touched something outside {Cargo.lock, hedra-sdk/Cargo.toml, hedra-types/Cargo.toml} — refusing to commit."
             git status --porcelain
             exit 1
           fi
-          # The refreshed lockfile must fully resolve before we push it.
-          cargo metadata --locked --format-version 1 > /dev/null
+          git add Cargo.lock hedra-sdk/Cargo.toml hedra-types/Cargo.toml
+          # Name only what actually changed; all three combinations occur.
+          if git diff --cached --quiet -- Cargo.lock; then
+            message="build: align workspace crate versions after regeneration"
+          elif git diff --cached --quiet -- hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+            message="build: refresh Cargo.lock after regeneration"
+          else
+            message="build: align workspace crate versions and refresh Cargo.lock after regeneration"
+          fi
           # Attribute the commit to whichever identity is doing the push.
           if [ -n "$APP_SLUG" ]; then
             git config user.name "${APP_SLUG}[bot]"
@@ -116,12 +217,11 @@ jobs:
             git config user.name "github-actions[bot]"
             git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           fi
-          git add Cargo.lock
-          git commit -m "build: refresh Cargo.lock after regeneration"
+          git commit -m "$message"
           git push origin "HEAD:${{ github.ref_name }}"
 
       - name: Re-trigger CI when pushed with the fallback token
-        if: steps.staleness.outputs.stale == 'true'
+        if: steps.pending.outputs.dirty == 'true'
         env:
           APP_TOKEN: ${{ steps.app-token.outputs.token }}
           REFRESH_TOKEN: ${{ secrets.LOCKFILE_REFRESH_TOKEN }}

@@ -25,6 +25,31 @@ jobs:
       - name: Checkout repo
         uses: actions/checkout@v6
 
+      # Backstop for the regeneration path refresh-lockfile.yml cannot see: it
+      # only fires on fern-bot/** branches, so a hand-made PR from someone
+      # running `fern generate` locally would otherwise reach `cargo check`
+      # with hedra-sdk at 0.1.0 and hedra-types at 0.0.0 (ENG-10219). A step
+      # inside the already-required `rust` job rather than a job of its own, so
+      # it needs no branch-protection change.
+      #
+      # Advisory off pull_request: release-sdks.yml commits a regenerated tree
+      # straight to main, where the members do land misaligned until the next
+      # regeneration PR re-aligns them. That is harmless (cargo-dist reads the
+      # root crate's version alone) and must not leave main red.
+      - name: Check the workspace crate versions are aligned
+        run: |
+          version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
+          if python3 .github/scripts/set-version.py --check "$version" \
+              hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+            exit 0
+          fi
+          hint="run: python3 .github/scripts/set-version.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/Cargo.toml hedra-types/Cargo.toml && cargo fetch"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::error::Workspace crate versions are not aligned with the root ($version) — $hint"
+            exit 1
+          fi
+          echo "::warning::Workspace crate versions are not aligned with the root ($version) — $hint"
+
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
