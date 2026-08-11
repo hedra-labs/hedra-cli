@@ -5,3 +5,4 @@
 *.iml
 /.agents/scheduled_tasks.lock
 /.agents/worktrees/
+/.idea
