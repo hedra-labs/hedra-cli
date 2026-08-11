@@ -148,3 +148,53 @@ async fn openapi_path_ignores_header_invalid_user_agent_suffix() {
     let req = capture_one(&server).await;
     assert_header(&req, "user-agent", &format!("hedra-cli/{}", env!("CARGO_PKG_VERSION")));
 }
+
+// ---------------------------------------------------------------------------
+// Scenario 3 — the SDK with no executor injected
+// ---------------------------------------------------------------------------
+
+/// Build a `ModelsClient` that talks straight to `base_url` with no executor,
+/// so the SDK applies its own headers.
+fn direct_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
+    let config = hedra_sdk::ClientConfig { base_url, ..Default::default() };
+    hedra_sdk::api::ModelsClient::new(config).expect("ModelsClient::new")
+}
+
+/// Without an executor the SDK applies its own headers, so all four arrive.
+/// This passing is what makes scenario 2's failure attributable to the executor.
+#[tokio::test]
+async fn sdk_direct_sends_identity_headers() {
+    let server = mock_server().await;
+    let client = direct_models_client(server.uri());
+
+    let _ = client
+        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-fern-language", "Rust");
+    assert_header(&req, "x-fern-sdk-name", "hedra_sdk");
+    assert_header(&req, "x-hedra-spec-version", &spec_version());
+}
+
+/// The SDK version header must report the crate's real version.
+///
+/// DEFECT — fails today. `hedra-sdk/src/config.rs:38` hardcodes the literal
+/// "0.1.0". It has not moved since the first commit, surviving 0.2.0 → 0.9.9 →
+/// 1.0.0-dev and every regeneration: `fern generate --version` stamps the root
+/// manifest and has no channel to this constant. Since #52 (ENG-10219) aligned
+/// all three manifests, this is the last place in the repo still saying 0.1.0.
+///
+/// Comparing against CARGO_PKG_VERSION also transitively guards that alignment.
+#[tokio::test]
+async fn sdk_direct_reports_the_real_crate_version() {
+    let server = mock_server().await;
+    let client = direct_models_client(server.uri());
+
+    let _ = client
+        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-fern-sdk-version", env!("CARGO_PKG_VERSION"));
+}
