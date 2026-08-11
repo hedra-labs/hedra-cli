@@ -59,7 +59,7 @@ impl FilesClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
