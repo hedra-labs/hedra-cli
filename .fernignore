@@ -2,33 +2,11 @@
 cli/hedra/custom.rs
 README.md
 
-# NOTE: src/pager.rs is deliberately NOT listed (ENG-10250).
-#
-# It used to be, to hold a hand-carried `#[serial]` fix that serializes the PAGER
-# env-var tests (flaky in CI when run in parallel). The entry's comment claimed
-# "the fern-cli-generator runtime doesn't carry this fix yet" long after that
-# stopped being true: at 0.30.2 — the version fern-config's generators.yml pins,
-# so the one every regeneration actually runs — the emitted file is byte-identical
-# to the committed one (md5 7d23aa378face3da7cd6a33ded50eff8), `serial_test` import
-# and all five `#[serial]` attributes included. ENG-10093 measured this first;
-# ENG-10112 §3 meant to act on it but died with PR #21.
-#
-# Freezing a file that already matches its generated form buys nothing and costs
-# the usual .fernignore tax: the next upstream runtime fix would be silently
-# reverted on every generation, and nobody would notice because the file never
-# appears in a regeneration diff. Un-ignored, it just tracks upstream.
-#
-# Do NOT re-add this entry to restore a local deviation. If the generated pager
-# is wrong, fix it upstream in fern-cli-generator. If you re-add it for any other
-# reason, re-measure first and say what actually differs. The entry was written
-# against 0.19.4 on 2026-07-08 and was still asserting "not upstream yet" on
-# 2026-08-11, four days after ENG-10093 measured otherwise and a day after the
-# repo started generating with 0.30.2 — a comment nobody re-checks outlives the
-# fact it describes.
-#
-# Note this is safe only because the generator DOES emit src/pager.rs
-# (/dist/sdk/src/pager.rs in the image). Un-ignoring an *unemitted* file is the
-# PR #29 hazard — see the .gitattributes entry below.
+# NOTE: src/pager.rs is deliberately NOT listed (ENG-10250). It held a hand-carried
+# `#[serial]` fix for the flaky PAGER env-var tests; at the pinned generator (0.30.2)
+# the emitted file is byte-identical, so the entry only risked silently reverting the
+# next upstream fix. Safe to un-ignore because the generator DOES emit it — unlike
+# .gitattributes below. Re-measure before re-adding.
 
 # Cargo.toml stays generator-owned (#25) — fern-config sets `packageIdentity`, so
 # regeneration writes hedra-cli's crate identity. Cargo.lock does NOT: the
