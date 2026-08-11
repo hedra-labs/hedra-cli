@@ -25,37 +25,7 @@ generations:
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
 current_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
-patches:
-  - id: patch-eeb99c81
-    content_hash: sha256:e4b6b7544dbe5bbc82fe18ece5a4578b2924e812b8d24e0308e63393718f35c0
-    original_commit: eeb99c818c7087356bca86e7d1950870b96a8e63
-    original_message: Update gitignore (#46)
-    original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 13977635cd12d66d7e733e5d13cb2dd005666026
-    files:
-      - .gitignore
-    patch_content: |
-      diff --git a/.gitignore b/.gitignore
-      index 1bb66c2..5f872d4 100644
-      --- a/.gitignore
-      +++ b/.gitignore
-      @@ -2,3 +2,6 @@
-       **/*.rs.bk
-       .DS_Store
-       *.swp
-      +*.iml
-      +/.agents/scheduled_tasks.lock
-      +/.agents/worktrees/
-    theirs_snapshot:
-      .gitignore: |
-        /target
-        **/*.rs.bk
-        .DS_Store
-        *.swp
-        *.iml
-        /.agents/scheduled_tasks.lock
-        /.agents/worktrees/
-    user_owned: true
+patches: []
 dismissals:
   - patch_id: patch-6c702a15
     original_commit: 6c702a15979c075c6307bb1d932eb7bfa4f78912
