@@ -2,10 +2,11 @@
 cli/hedra/custom.rs
 README.md
 
-# Hand-fixed runtime file: serializes the PAGER env-var tests (flaky in CI).
-# The fern-cli-generator runtime doesn't carry this fix yet; regeneration
-# must not revert it. Drop this entry once the fix lands upstream.
-src/pager.rs
+# NOTE: src/pager.rs is deliberately NOT listed (ENG-10250). It held a hand-carried
+# `#[serial]` fix for the flaky PAGER env-var tests; at the pinned generator (0.30.2)
+# the emitted file is byte-identical, so the entry only risked silently reverting the
+# next upstream fix. Safe to un-ignore because the generator DOES emit it — unlike
+# .gitattributes below. Re-measure before re-adding.
 
 # Cargo.toml stays generator-owned (#25) — fern-config sets `packageIdentity`, so
 # regeneration writes hedra-cli's crate identity. Cargo.lock does NOT: the
