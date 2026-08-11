@@ -30,7 +30,13 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
-current_generation: c5a8e7a287f274f206e2339000a26da93a97a358
+  - commit_sha: 495818397a73c6111ce97ef59758bc2d4afe4f5d
+    tree_hash: b557bf0f494d1adcae1ccf4af1f1f8b22cc51a24
+    timestamp: 2026-08-11T22:37:58.454Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.30.2
+current_generation: 495818397a73c6111ce97ef59758bc2d4afe4f5d
 patches:
   - id: patch-ed9886b4
     content_hash: sha256:2da1cf244c2717c387a9a4f93c62ffecd67830217f938586d67da91edc906c65
@@ -125,7 +131,7 @@ patches:
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: c5a8e7a287f274f206e2339000a26da93a97a358
+    base_generation: 495818397a73c6111ce97ef59758bc2d4afe4f5d
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -1975,7 +1981,7 @@ patches:
     original_commit: d06b3c36b975382679e6fa65a1c80d30bfa6073a
     original_message: "fix: re-supply the X-Fern-* identity headers the CLI executor drops (#57)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: c5a8e7a287f274f206e2339000a26da93a97a358
+    base_generation: 495818397a73c6111ce97ef59758bc2d4afe4f5d
     files:
       - hedra-sdk/src/config.rs
       - src/sdk_executor.rs
@@ -2832,12 +2838,13 @@ patches:
                 // verifying the request was never sent (fail-closed).
             }
         }
+    user_owned: true
   - id: patch-fc264e80
     content_hash: sha256:dc91611f4253159909d83b923072c7f97d2ddbaa8d1c2dd97b5387f3f6db88eb
     original_commit: fc264e8085cc77f7c978f4d51f069682dd31c2bf
     original_message: update dist configuration to not trip dependabot (#60)
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: c5a8e7a287f274f206e2339000a26da93a97a358
+    base_generation: 495818397a73c6111ce97ef59758bc2d4afe4f5d
     files:
       - hedra-types/.gitignore
     patch_content: |
