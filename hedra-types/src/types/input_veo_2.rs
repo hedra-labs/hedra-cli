@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `veo-2`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: prompt, start_image; must omit: negative_prompt, seed
-/// (2) requires: prompt; must omit: start_image
+/// (1) requires: prompt; must omit: start_image
+/// (2) requires: prompt, start_image; must omit: negative_prompt, seed
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputVeo2 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -24,15 +24,15 @@ pub struct InputVeo2 {
     /// Duration in ms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// Start frame (image-to-video).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_image: Option<InputVeo2StartImage>,
     /// What to avoid in the generated video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
+    /// Start frame (image-to-video).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_image: Option<InputVeo2StartImage>,
 }
 
 impl InputVeo2 {
@@ -49,9 +49,9 @@ pub struct InputVeo2Builder {
     aspect_ratio: Option<InputVeo2AspectRatio>,
     resolution: Option<InputVeo2Resolution>,
     duration_ms: Option<i64>,
-    start_image: Option<InputVeo2StartImage>,
     negative_prompt: Option<String>,
     seed: Option<i64>,
+    start_image: Option<InputVeo2StartImage>,
 }
 
 impl InputVeo2Builder {
@@ -80,11 +80,6 @@ impl InputVeo2Builder {
         self
     }
 
-    pub fn start_image(mut self, value: InputVeo2StartImage) -> Self {
-        self.start_image = Some(value);
-        self
-    }
-
     pub fn negative_prompt(mut self, value: impl Into<String>) -> Self {
         self.negative_prompt = Some(value.into());
         self
@@ -92,6 +87,11 @@ impl InputVeo2Builder {
 
     pub fn seed(mut self, value: i64) -> Self {
         self.seed = Some(value);
+        self
+    }
+
+    pub fn start_image(mut self, value: InputVeo2StartImage) -> Self {
+        self.start_image = Some(value);
         self
     }
 
@@ -105,9 +105,9 @@ impl InputVeo2Builder {
             aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
             duration_ms: self.duration_ms,
-            start_image: self.start_image,
             negative_prompt: self.negative_prompt,
             seed: self.seed,
+            start_image: self.start_image,
         })
     }
 }

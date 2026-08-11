@@ -46,7 +46,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
@@ -86,7 +86,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
@@ -134,7 +134,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
@@ -151,7 +151,7 @@ impl ModelsClient {
             .await
     }
 
-    /// Voices this model accepts — scoped to the model's voice provider.
+    /// Voices this model accepts — scoped to the model's voice provider. fern-config end-to-end regeneration probe 20260811-000134.
     ///
     /// # Arguments
     ///
@@ -186,7 +186,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
@@ -235,7 +235,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client
@@ -283,7 +283,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.2.2".to_string());
+                .or_insert_with(|| "3.2.3".to_string());
             Some(o)
         };
         self.http_client

@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `kling-26-pro`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, start_image; must omit: cfg_scale
-/// (2) requires: aspect_ratio, duration_ms, prompt; must omit: start_image
+/// (1) requires: aspect_ratio, duration_ms, prompt; must omit: start_image
+/// (2) requires: aspect_ratio, duration_ms, prompt, start_image; must omit: cfg_scale
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKling26Pro {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -26,9 +26,6 @@ pub struct InputKling26Pro {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_image: Option<InputKling26ProStartImage>,
     /// What to avoid in the generated video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
@@ -37,6 +34,9 @@ pub struct InputKling26Pro {
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub cfg_scale: Option<f64>,
+    /// Start frame (image-to-video).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_image: Option<InputKling26ProStartImage>,
 }
 
 impl InputKling26Pro {
@@ -54,9 +54,9 @@ pub struct InputKling26ProBuilder {
     resolution: Option<InputKling26ProResolution>,
     duration_ms: Option<i64>,
     generate_audio: Option<bool>,
-    start_image: Option<InputKling26ProStartImage>,
     negative_prompt: Option<String>,
     cfg_scale: Option<f64>,
+    start_image: Option<InputKling26ProStartImage>,
 }
 
 impl InputKling26ProBuilder {
@@ -90,11 +90,6 @@ impl InputKling26ProBuilder {
         self
     }
 
-    pub fn start_image(mut self, value: InputKling26ProStartImage) -> Self {
-        self.start_image = Some(value);
-        self
-    }
-
     pub fn negative_prompt(mut self, value: impl Into<String>) -> Self {
         self.negative_prompt = Some(value.into());
         self
@@ -102,6 +97,11 @@ impl InputKling26ProBuilder {
 
     pub fn cfg_scale(mut self, value: f64) -> Self {
         self.cfg_scale = Some(value);
+        self
+    }
+
+    pub fn start_image(mut self, value: InputKling26ProStartImage) -> Self {
+        self.start_image = Some(value);
         self
     }
 
@@ -118,9 +118,9 @@ impl InputKling26ProBuilder {
             resolution: self.resolution,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             generate_audio: self.generate_audio,
-            start_image: self.start_image,
             negative_prompt: self.negative_prompt,
             cfg_scale: self.cfg_scale,
+            start_image: self.start_image,
         })
     }
 }

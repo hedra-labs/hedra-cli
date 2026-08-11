@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `flux-kontext-max`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: images, prompt; must omit: aspect_ratio, resolution
-/// (2) requires: aspect_ratio, prompt; must omit: images
+/// (1) requires: aspect_ratio, prompt; must omit: images
+/// (2) requires: images, prompt; must omit: aspect_ratio, resolution
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputFluxKontextMax {
     /// Generation prompt.
@@ -18,21 +18,21 @@ pub struct InputFluxKontextMax {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// The single source image to edit.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<Vec<InputFluxKontextMaxImagesItem>>,
-    /// Output image format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<InputFluxKontextMaxOutputFormat>,
-    /// Seed for reproducible output; omit for a random seed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputFluxKontextMaxAspectRatio>,
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputFluxKontextMaxResolution>,
+    /// Output image format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<InputFluxKontextMaxOutputFormat>,
+    /// Seed for reproducible output; omit for a random seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
+    /// The single source image to edit.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<InputFluxKontextMaxImagesItem>>,
 }
 
 impl InputFluxKontextMax {
@@ -47,11 +47,11 @@ pub struct InputFluxKontextMaxBuilder {
     prompt: Option<String>,
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
-    images: Option<Vec<InputFluxKontextMaxImagesItem>>,
-    output_format: Option<InputFluxKontextMaxOutputFormat>,
-    seed: Option<i64>,
     aspect_ratio: Option<InputFluxKontextMaxAspectRatio>,
     resolution: Option<InputFluxKontextMaxResolution>,
+    output_format: Option<InputFluxKontextMaxOutputFormat>,
+    seed: Option<i64>,
+    images: Option<Vec<InputFluxKontextMaxImagesItem>>,
 }
 
 impl InputFluxKontextMaxBuilder {
@@ -70,8 +70,13 @@ impl InputFluxKontextMaxBuilder {
         self
     }
 
-    pub fn images(mut self, value: Vec<InputFluxKontextMaxImagesItem>) -> Self {
-        self.images = Some(value);
+    pub fn aspect_ratio(mut self, value: InputFluxKontextMaxAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
+    pub fn resolution(mut self, value: InputFluxKontextMaxResolution) -> Self {
+        self.resolution = Some(value);
         self
     }
 
@@ -85,13 +90,8 @@ impl InputFluxKontextMaxBuilder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputFluxKontextMaxAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
-    pub fn resolution(mut self, value: InputFluxKontextMaxResolution) -> Self {
-        self.resolution = Some(value);
+    pub fn images(mut self, value: Vec<InputFluxKontextMaxImagesItem>) -> Self {
+        self.images = Some(value);
         self
     }
 
@@ -103,11 +103,11 @@ impl InputFluxKontextMaxBuilder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
-            images: self.images,
-            output_format: self.output_format,
-            seed: self.seed,
             aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
+            output_format: self.output_format,
+            seed: self.seed,
+            images: self.images,
         })
     }
 }

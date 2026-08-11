@@ -5,10 +5,10 @@ use super::*;
 /// Model-specific inputs for `minimax-h3`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, audios, end_image, images, videos
-/// (2) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio, audios, images, videos
-/// (3) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image
-/// (4) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: audios, end_image, images, start_image, videos; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16
+/// (1) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image
+/// (2) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: audios, end_image, images, start_image, videos; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16
+/// (3) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio, audios, images, videos
+/// (4) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, audios, end_image, images, videos
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputMinimaxH3 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -22,12 +22,6 @@ pub struct InputMinimaxH3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub start_image: Option<InputMinimaxH3StartImage>,
-    /// End frame (first-last-frame-to-video).
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub end_image: Option<InputMinimaxH3EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxH3AspectRatio>,
@@ -40,6 +34,12 @@ pub struct InputMinimaxH3 {
     /// Reference audios.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputMinimaxH3AudiosItem>>,
+    /// Start frame (image-to-video).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub start_image: Option<InputMinimaxH3StartImage>,
+    /// End frame (first-last-frame-to-video).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub end_image: Option<InputMinimaxH3EndImage>,
 }
 
 impl InputMinimaxH3 {
@@ -55,12 +55,12 @@ pub struct InputMinimaxH3Builder {
     prompt: Option<String>,
     resolution: Option<InputMinimaxH3Resolution>,
     duration_ms: Option<i64>,
-    start_image: Option<InputMinimaxH3StartImage>,
-    end_image: Option<InputMinimaxH3EndImage>,
     aspect_ratio: Option<InputMinimaxH3AspectRatio>,
     images: Option<Vec<InputMinimaxH3ImagesItem>>,
     videos: Option<Vec<InputMinimaxH3VideosItem>>,
     audios: Option<Vec<InputMinimaxH3AudiosItem>>,
+    start_image: Option<InputMinimaxH3StartImage>,
+    end_image: Option<InputMinimaxH3EndImage>,
 }
 
 impl InputMinimaxH3Builder {
@@ -84,16 +84,6 @@ impl InputMinimaxH3Builder {
         self
     }
 
-    pub fn start_image(mut self, value: InputMinimaxH3StartImage) -> Self {
-        self.start_image = Some(value);
-        self
-    }
-
-    pub fn end_image(mut self, value: InputMinimaxH3EndImage) -> Self {
-        self.end_image = Some(value);
-        self
-    }
-
     pub fn aspect_ratio(mut self, value: InputMinimaxH3AspectRatio) -> Self {
         self.aspect_ratio = Some(value);
         self
@@ -114,6 +104,16 @@ impl InputMinimaxH3Builder {
         self
     }
 
+    pub fn start_image(mut self, value: InputMinimaxH3StartImage) -> Self {
+        self.start_image = Some(value);
+        self
+    }
+
+    pub fn end_image(mut self, value: InputMinimaxH3EndImage) -> Self {
+        self.end_image = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputMinimaxH3`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMinimaxH3Builder::prompt)
@@ -125,12 +125,12 @@ impl InputMinimaxH3Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
-            start_image: self.start_image,
-            end_image: self.end_image,
             aspect_ratio: self.aspect_ratio,
             images: self.images,
             videos: self.videos,
             audios: self.audios,
+            start_image: self.start_image,
+            end_image: self.end_image,
         })
     }
 }

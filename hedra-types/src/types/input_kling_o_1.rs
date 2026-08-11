@@ -5,8 +5,8 @@ use super::*;
 /// Model-specific inputs for `kling-o1`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, start_image
-/// (2) requires: aspect_ratio, duration_ms, images, prompt
+/// (1) requires: aspect_ratio, duration_ms, images, prompt
+/// (2) requires: aspect_ratio, duration_ms, prompt, start_image
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKlingO1 {
     /// Number of outputs generated per job. Only 1 is supported.

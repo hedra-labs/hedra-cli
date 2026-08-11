@@ -5,12 +5,12 @@ use super::*;
 /// Model-specific inputs for `minimax-hailuo-02`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: prompt, start_image; must omit: aspect_ratio, end_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
-/// (2) requires: end_image, prompt, start_image; must omit: aspect_ratio; accepts duration_ms: 6000; quality: pro; resolution: 1080p
-/// (3) requires: prompt; must omit: end_image, start_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
-/// (4) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, end_image; accepts quality: standard; resolution: 768p
-/// (5) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio; accepts quality: standard; resolution: 768p
-/// (6) requires: duration_ms, prompt; must omit: end_image, start_image; accepts quality: standard; resolution: 768p
+/// (1) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio; accepts quality: standard; resolution: 768p
+/// (2) requires: duration_ms, prompt; must omit: end_image, start_image; accepts quality: standard; resolution: 768p
+/// (3) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, end_image; accepts quality: standard; resolution: 768p
+/// (4) requires: end_image, prompt, start_image; must omit: aspect_ratio; accepts duration_ms: 6000; quality: pro; resolution: 1080p
+/// (5) requires: prompt; must omit: end_image, start_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
+/// (6) requires: prompt, start_image; must omit: aspect_ratio, end_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputMinimaxHailuo02 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -19,6 +19,9 @@ pub struct InputMinimaxHailuo02 {
     /// Generation prompt.
     #[serde(default)]
     pub prompt: String,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputMinimaxHailuo02AspectRatio>,
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputMinimaxHailuo02Resolution>,
@@ -31,9 +34,6 @@ pub struct InputMinimaxHailuo02 {
     /// End frame (first-last-frame-to-video).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxHailuo02EndImage>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputMinimaxHailuo02AspectRatio>,
     /// Quality level to generate at.
     pub quality: InputMinimaxHailuo02Quality,
 }
@@ -49,11 +49,11 @@ impl InputMinimaxHailuo02 {
 pub struct InputMinimaxHailuo02Builder {
     num_outputs: Option<i64>,
     prompt: Option<String>,
+    aspect_ratio: Option<InputMinimaxHailuo02AspectRatio>,
     resolution: Option<InputMinimaxHailuo02Resolution>,
     duration_ms: Option<i64>,
     start_image: Option<InputMinimaxHailuo02StartImage>,
     end_image: Option<InputMinimaxHailuo02EndImage>,
-    aspect_ratio: Option<InputMinimaxHailuo02AspectRatio>,
     quality: Option<InputMinimaxHailuo02Quality>,
 }
 
@@ -65,6 +65,11 @@ impl InputMinimaxHailuo02Builder {
 
     pub fn prompt(mut self, value: impl Into<String>) -> Self {
         self.prompt = Some(value.into());
+        self
+    }
+
+    pub fn aspect_ratio(mut self, value: InputMinimaxHailuo02AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
         self
     }
 
@@ -88,11 +93,6 @@ impl InputMinimaxHailuo02Builder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputMinimaxHailuo02AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
     pub fn quality(mut self, value: InputMinimaxHailuo02Quality) -> Self {
         self.quality = Some(value);
         self
@@ -107,11 +107,11 @@ impl InputMinimaxHailuo02Builder {
         Ok(InputMinimaxHailuo02 {
             num_outputs: self.num_outputs,
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
+            aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
         })
     }

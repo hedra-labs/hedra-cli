@@ -15,7 +15,8 @@ pub struct InputOmnihuman15 {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputOmnihuman15AspectRatio>,
     /// Output resolution.
-    pub resolution: InputOmnihuman15Resolution,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<InputOmnihuman15Resolution>,
     /// Start frame (image-to-video).
     pub start_image: InputOmnihuman15StartImage,
     /// Driving audio.
@@ -72,7 +73,6 @@ impl InputOmnihuman15Builder {
 
     /// Consumes the builder and constructs a [`InputOmnihuman15`].
     /// This method will fail if any of the following fields are not set:
-    /// - [`resolution`](InputOmnihuman15Builder::resolution)
     /// - [`start_image`](InputOmnihuman15Builder::start_image)
     /// - [`audio`](InputOmnihuman15Builder::audio)
     pub fn build(self) -> Result<InputOmnihuman15, BuildError> {
@@ -80,7 +80,7 @@ impl InputOmnihuman15Builder {
             num_outputs: self.num_outputs,
             prompt: self.prompt,
             aspect_ratio: self.aspect_ratio,
-            resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
+            resolution: self.resolution,
             start_image: self.start_image.ok_or_else(|| BuildError::missing_field("start_image"))?,
             audio: self.audio.ok_or_else(|| BuildError::missing_field("audio"))?,
         })
