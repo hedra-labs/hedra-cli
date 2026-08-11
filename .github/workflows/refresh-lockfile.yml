@@ -86,10 +86,10 @@
 # `rust` check unsatisfied. The push identity is a chain, best available first
 # (ENG-10210):
 #   1. GitHub App installation token, minted at runtime from the repo variable
-#      LOCKFILE_REFRESH_APP_CLIENT_ID plus the repo secret
-#      LOCKFILE_REFRESH_APP_PRIVATE_KEY (an org-owned app with contents:
-#      read/write, installed on this repo). App-token pushes re-trigger
-#      ci.yml's pull_request run natively.
+#      SDK_BOT_APP_CLIENT_ID plus the repo secret SDK_BOT_APP_PRIVATE_KEY (an
+#      org-owned app with contents: read/write and pull-requests: write,
+#      installed on this repo -- shared with autoland-regen.yml). App-token
+#      pushes re-trigger ci.yml's pull_request run natively.
 #   2. LOCKFILE_REFRESH_TOKEN, a fine-grained PAT with contents: read/write on
 #      this repo — same native re-trigger, but a personal credential.
 #   3. GITHUB_TOKEN, whose push fires no workflows: the last step then
@@ -123,11 +123,11 @@ jobs:
     steps:
       - name: Mint app token
         id: app-token
-        if: vars.LOCKFILE_REFRESH_APP_CLIENT_ID != ''
+        if: vars.SDK_BOT_APP_CLIENT_ID != ''
         uses: actions/create-github-app-token@v3
         with:
-          client-id: ${{ vars.LOCKFILE_REFRESH_APP_CLIENT_ID }}
-          private-key: ${{ secrets.LOCKFILE_REFRESH_APP_PRIVATE_KEY }}
+          client-id: ${{ vars.SDK_BOT_APP_CLIENT_ID }}
+          private-key: ${{ secrets.SDK_BOT_APP_PRIVATE_KEY }}
 
       - name: Checkout branch head
         uses: actions/checkout@v6
