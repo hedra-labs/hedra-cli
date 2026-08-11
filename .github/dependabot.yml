@@ -8,8 +8,21 @@ updates:
           - "*"
     schedule:
       interval: "weekly"
+  # Cargo version updates are disabled: Cargo.toml is generator-owned (see
+  # .fernignore), so `fern generate` rewrites any dependency bump Dependabot
+  # lands here. The PRs are unmergeable in practice rather than merely noisy.
+  #
+  # `open-pull-requests-limit: 0` disables *version* updates only. Security
+  # updates are explicitly exempt from this limit, so a CVE in a crate still
+  # opens a PR — which a blanket `ignore: "*"` would not reliably preserve.
+  # The scheduled run still executes, so the Dependabot job logs continue to
+  # show the bumps it wanted to make.
+  #
+  # Delete the limit line to restore grouped weekly cargo PRs; the `groups`
+  # block below is kept dormant so re-enabling is exactly that one deletion.
   - package-ecosystem: "cargo"
     directory: "/"
+    open-pull-requests-limit: 0
     groups:
       cargo:
         patterns:
