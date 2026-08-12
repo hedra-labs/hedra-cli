@@ -16,7 +16,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -24,7 +24,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.webhooks.get_public_key(None).await;
     /// }
     /// ```
@@ -47,7 +47,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -55,7 +55,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.webhooks.get_default(None).await;
     /// }
     /// ```
@@ -78,7 +78,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -86,7 +86,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .webhooks
     ///         .put_default(
@@ -125,7 +125,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -133,7 +133,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.webhooks.delete_default(None).await;
     /// }
     /// ```
@@ -153,7 +153,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -161,7 +161,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.webhooks.test_default(None).await;
     /// }
     /// ```
@@ -184,7 +184,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -192,7 +192,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .webhooks
     ///         .list_deliveries(
@@ -255,7 +255,7 @@ impl WebhooksClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -263,7 +263,7 @@ impl WebhooksClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.webhooks.redeliver(&"job_id".to_string(), None).await;
     /// }
     /// ```

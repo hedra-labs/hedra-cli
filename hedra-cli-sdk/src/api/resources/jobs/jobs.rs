@@ -16,7 +16,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -24,7 +24,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .list(
@@ -65,7 +65,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -73,7 +73,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.jobs.get(&"job_id".to_string(), None).await;
     /// }
     /// ```
@@ -103,7 +103,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -111,7 +111,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .get_status(
@@ -153,7 +153,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -161,7 +161,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .list_job_logs(
@@ -204,7 +204,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -212,7 +212,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.jobs.stream(&"job_id".to_string(), None).await;
     /// }
     /// ```
@@ -255,7 +255,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -263,7 +263,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_dreamina31(
@@ -320,7 +320,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -328,7 +328,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_elevenlabs_flash_multilingual_v2(
@@ -382,7 +382,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -390,7 +390,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_elevenlabs_flash_v2(
@@ -444,7 +444,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -452,7 +452,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_elevenlabs_multilingual_v2(
@@ -508,7 +508,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -516,7 +516,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_elevenlabs_v3(
@@ -572,7 +572,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -580,7 +580,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux11pro(
@@ -640,7 +640,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -648,7 +648,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux11ultra(
@@ -708,7 +708,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -716,7 +716,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux3(
@@ -777,7 +777,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -785,7 +785,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux_dev(
@@ -847,7 +847,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -855,7 +855,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux_kontext_max(
@@ -910,7 +910,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -918,7 +918,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux_kontext_pro(
@@ -973,7 +973,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -981,7 +981,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux2flex(
@@ -1043,7 +1043,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1051,7 +1051,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux2klein9b(
@@ -1114,7 +1114,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1122,7 +1122,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux2max(
@@ -1182,7 +1182,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1190,7 +1190,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_flux2pro(
@@ -1250,7 +1250,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1258,7 +1258,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_gemini_omni_flash(
@@ -1320,7 +1320,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1328,7 +1328,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_gpt_image15(
@@ -1388,7 +1388,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1396,7 +1396,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_gpt_image2(
@@ -1457,7 +1457,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1465,7 +1465,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_grok_imagine(
@@ -1520,7 +1520,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1528,7 +1528,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_grok_video(
@@ -1587,7 +1587,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1595,7 +1595,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_happy_horse(
@@ -1656,7 +1656,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1664,7 +1664,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_hedra_avatar(
@@ -1737,7 +1737,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1745,7 +1745,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_hedra_character3(
@@ -1818,7 +1818,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1826,7 +1826,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_hidream_o1image(
@@ -1890,7 +1890,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1898,7 +1898,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_ideogram_v2(
@@ -1958,7 +1958,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -1966,7 +1966,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_ideogram_v4(
@@ -2027,7 +2027,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2035,7 +2035,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_imagen3(
@@ -2093,7 +2093,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2101,7 +2101,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_imagen4(
@@ -2157,7 +2157,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2165,7 +2165,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling16(
@@ -2220,7 +2220,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2228,7 +2228,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling21master(
@@ -2289,7 +2289,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2297,7 +2297,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling25turbo(
@@ -2358,7 +2358,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2366,7 +2366,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling26motion_control(
@@ -2435,7 +2435,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2443,7 +2443,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling26pro(
@@ -2505,7 +2505,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2513,7 +2513,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_ai_avatar_v2(
@@ -2583,7 +2583,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2591,7 +2591,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_o1(
@@ -2652,7 +2652,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2660,7 +2660,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_o3(
@@ -2723,7 +2723,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2731,7 +2731,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_o3edit(
@@ -2794,7 +2794,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2802,7 +2802,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_o3reference(
@@ -2865,7 +2865,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2873,7 +2873,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_v3(
@@ -2937,7 +2937,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -2945,7 +2945,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_kling_v3motion_control(
@@ -3014,7 +3014,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3022,7 +3022,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_ltx23(
@@ -3084,7 +3084,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3092,7 +3092,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_luma_ray32(
@@ -3150,7 +3150,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3158,7 +3158,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_mai_image25(
@@ -3218,7 +3218,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3226,7 +3226,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_minimax_h3(
@@ -3289,7 +3289,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3297,7 +3297,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_minimax_hailuo02(
@@ -3358,7 +3358,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3366,7 +3366,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_minimax_hailuo23(
@@ -3426,7 +3426,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3434,7 +3434,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_minimax_speech25hd_preview(
@@ -3490,7 +3490,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3498,7 +3498,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_minimax_speech25turbo_preview(
@@ -3554,7 +3554,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3562,7 +3562,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_nano_banana(
@@ -3622,7 +3622,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3630,7 +3630,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_nano_banana2(
@@ -3690,7 +3690,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3698,7 +3698,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_nano_banana_pro(
@@ -3758,7 +3758,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3766,7 +3766,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_omnihuman15(
@@ -3835,7 +3835,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3843,7 +3843,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_pixverse_v6(
@@ -3905,7 +3905,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3913,7 +3913,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_qwen_image2(
@@ -3976,7 +3976,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -3984,7 +3984,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_recraft_v3(
@@ -4042,7 +4042,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4050,7 +4050,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_reve21(
@@ -4108,7 +4108,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4116,7 +4116,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_reve21edit(
@@ -4180,7 +4180,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4188,7 +4188,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_reve21remix(
@@ -4252,7 +4252,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4260,7 +4260,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_sana(
@@ -4323,7 +4323,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4331,7 +4331,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedance15pro(
@@ -4393,7 +4393,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4401,7 +4401,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedance20(
@@ -4466,7 +4466,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4474,7 +4474,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedance20mini(
@@ -4537,7 +4537,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4545,7 +4545,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedance25(
@@ -4609,7 +4609,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4617,7 +4617,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedream40(
@@ -4676,7 +4676,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4684,7 +4684,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedream45(
@@ -4743,7 +4743,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4751,7 +4751,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedream50lite(
@@ -4810,7 +4810,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4818,7 +4818,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_seedream50pro(
@@ -4877,7 +4877,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4885,7 +4885,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_sora2pro(
@@ -4944,7 +4944,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -4952,7 +4952,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_veed_fabric10(
@@ -5021,7 +5021,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5029,7 +5029,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_veo2(
@@ -5084,7 +5084,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5092,7 +5092,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_veo3(
@@ -5155,7 +5155,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5163,7 +5163,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_veo31(
@@ -5229,7 +5229,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5237,7 +5237,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_vidu_q3(
@@ -5299,7 +5299,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5307,7 +5307,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_vidu_q3reference(
@@ -5372,7 +5372,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5380,7 +5380,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit_wan27(
@@ -5446,7 +5446,7 @@ impl JobsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -5454,7 +5454,7 @@ impl JobsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .jobs
     ///         .submit(

@@ -1,6 +1,6 @@
 [package]
-name = "hedra_types"
-version = "2.0.0-dev"
+name = "hedra_cli_types"
+version = "2.0.1-dev"
 edition = "2021"
 
 [lib]

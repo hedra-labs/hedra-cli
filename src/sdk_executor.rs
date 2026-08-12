@@ -92,7 +92,7 @@ impl CliExecutor {
         // channel that does reach the wire. Entries the caller already
         // supplies win over the SDK defaults.
         let mut global_headers = global_headers;
-        let mut identity: Vec<(String, String)> = hedra_sdk::ClientConfig::default()
+        let mut identity: Vec<(String, String)> = hedra_cli_sdk::ClientConfig::default()
             .custom_headers
             .into_iter()
             .filter(|(name, _)| {

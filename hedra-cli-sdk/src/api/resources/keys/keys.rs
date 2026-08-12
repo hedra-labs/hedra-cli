@@ -16,7 +16,7 @@ impl KeysClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -24,7 +24,7 @@ impl KeysClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .keys
     ///         .list(
@@ -64,7 +64,7 @@ impl KeysClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -72,7 +72,7 @@ impl KeysClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .keys
     ///         .create(
@@ -110,7 +110,7 @@ impl KeysClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -118,7 +118,7 @@ impl KeysClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
     ///         .keys
     ///         .rotate(
@@ -158,7 +158,7 @@ impl KeysClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -166,7 +166,7 @@ impl KeysClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client.keys.revoke(&"key_id".to_string(), None).await;
     /// }
     /// ```
