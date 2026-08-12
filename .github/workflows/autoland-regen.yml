@@ -198,6 +198,18 @@ jobs:
             echo "#${pr} rebased and force-pushed; fresh checks will run."
           fi
 
+          # The squash below is why every regeneration logs "Base generation
+          # <sha> is unreachable" (ENG-10280). Fern records the SHA of the
+          # commit it makes on THIS branch; the squash writes a different commit
+          # to main, the branch is deleted, and the recorded SHA — and the
+          # generation tree with it — is orphaned. Replay's fallback is
+          # conservative about content but persists the guess as
+          # `user_owned: true` in replay.lock, which is not reversible. The
+          # measurement, and why this was NOT changed to --merge (the repo
+          # allows squash only), is in .fern/replay.yml. Do not "fix" the
+          # warning by fetching deeper: the clone is complete, the object is
+          # gone.
+          #
           # Auto-merge BEFORE approving. The PR is still BLOCKED for want of a
           # review here, so --auto always has something to wait for and attaches
           # reliably. enablePullRequestAutoMerge refuses ("unstable status") on a

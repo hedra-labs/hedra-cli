@@ -40,6 +40,90 @@
 # repaired on bot branches by .github/scripts/patch-sdk-headers.py, and the only
 # clean fix is to re-record #57 as two commits. Surfaced on ENG-10241; it needs
 # its own ticket before anyone reaches for an exclude here.
+#
+# "BASE GENERATION <sha> IS UNREACHABLE" (ENG-10280). Every regeneration logs:
+#
+#     Pipeline replay warning: Base generation c5a8e7a is unreachable (shallow
+#     clone or pruned history). Treating affected files as user-owned to avoid
+#     silent data loss. Run `git fetch --unshallow` ...
+#
+# The remedy in that text is a misdiagnosis — do not chase clone depth. The
+# clone is complete; the object does not exist. Measured against a full clone,
+# 7 of the 8 SHAs in replay.lock's `generations:` are absent, and only 2 of the
+# 8 `tree_hash`es are reachable from a ref: generation 1 (Replay bootstrap
+# recorded an existing main commit, ea579349 = "#18", so its commit survives
+# too) and generation 2 (947dd86e is the root tree of eae75ca, still on main).
+#
+# Measure with `git rev-list --objects --all`, not `git cat-file -t`. Two more
+# generation trees answer "tree" to cat-file in a long-lived local clone —
+# dangling objects left by fetches of bot branches that have since been deleted,
+# pending gc. They are not reachable from any ref and a fresh CI clone does not
+# have them; cat-file alone will tell you this is less broken than it is.
+#
+# Cause: autoland squash-merges every regeneration PR and the branch is then
+# deleted (delete_branch_on_merge). Fern records the SHA of the commit it makes
+# ON THE BOT BRANCH; the squash writes a different commit to main and nothing
+# ever references the original. Verified on #69 — generation 864f7979
+# ("[fern-generated] Update SDK", tree b2aa4c43, parent 4fc95f2) is orphaned;
+# main got 3283727 (tree 56a5a9b5, the PR HEAD's tree). The generation tree is
+# not merely renamed, it never lands: Replay commits the generated output
+# BEFORE re-applying customizations, so that intermediate tree is not the tree
+# the squash preserves.
+#
+# What the fallback actually does, read off fern-api 5.94.0's cli.cjs (and
+# byte-identical in 5.95.0 modulo minifier renames — the logic did not change):
+# FileOwnership.resolveCanonical() cannot read the base tree, so it returns
+# "user-owned" for every file in the patch. That is conservative in the safe
+# direction — nothing is frozen, nothing is re-detected, and `user_owned` is
+# never consulted on the merge/apply path, so customization CONTENT is
+# preserved. It is not benign, though, because rebasePatches() PERSISTS that
+# guess: on the all-files-user-owned branch it writes `user_owned: true` into
+# replay.lock and repoints `base_generation` to the current generation.
+#
+# So a transient reachability failure becomes a permanent ownership fact, and a
+# self-perpetuating one — resolveCanonical() short-circuits on `user_owned`
+# before it ever re-tests reachability, so the patch can never go back to
+# generator-tracked even once the base is reachable again.
+#
+# This already happened here, to the patch this note is about. Reconstructing
+# the ledger at each regeneration commit:
+#
+#     #63  patch-d06b3c36  base=c5a8e7a2  user_owned=(unset)
+#     #66  patch-d06b3c36  base=49581839  user_owned=true      <- flipped
+#
+# #63's squash orphaned c5a8e7a2; #66 was the first run to find it unreachable.
+# patch-d06b3c36 touches hedra-sdk/src/config.rs and src/sdk_executor.rs, both
+# generator-emitted and neither .fernignore'd — it is not user-owned in any
+# sense the word normally carries. The cost is that the two cleanup paths gated
+# on ownership are now disabled for it forever: trimAbsorbedFiles() returns
+# early, and a patch whose diff has gone empty is kept instead of retired. The
+# day Fern plumbs a real version through to config.rs (ENG-10234), this patch
+# will not be absorbed — it will keep re-asserting "1.0.0-dev" on top.
+#
+# The warning names c5a8e7a2 specifically because patch-ed9886b4 is the only
+# patch whose `base_generation` still differs from `current_generation`, and the
+# `exclude:` below is what keeps it that way — excluded patches are skipped
+# before the rebase that would repoint them. Expect the warning every run until
+# that patch is retired; the SHA it names will not advance on its own.
+#
+# Not fixed here, and deliberately:
+#   - "Stop squashing" is not a workflow edit. hedra-labs/hedra-cli allows ONLY
+#     squash (allow_merge_commit=false, allow_rebase_merge=false), so it is a
+#     repo-policy change affecting every PR, not just regeneration ones. It
+#     would restore commit reachability (#69's generation commit had a main
+#     commit as its parent — no rebase was needed), but autoland also rebases
+#     and force-pushes when a PR is behind, which rewrites the SHA under ANY
+#     merge strategy. Generation 2 is that case preserved in amber: SHA gone,
+#     tree still on main.
+#   - Resolving generations by `tree_hash` does not rescue this on its own
+#     either, contrary to the first reading of ENG-10280. Under squash the tree
+#     is as orphaned as the commit. It only helps once merges stop squashing.
+#     Fern already has the lookup — Detector.resolveDiffBase() prefers
+#     commit_sha and falls back to tree_hash — it just is not the lookup the
+#     three unreachable-base checks use; they test the bare `base_generation`
+#     and never consult the generation record beside it.
+#   - The fix that would help hedra-cli as it stands is upstream and narrower:
+#     do not persist a reachability failure as `user_owned`. Filed on ENG-10280.
 
 exclude:
   # Machine-owned version stamps (ENG-10241).
