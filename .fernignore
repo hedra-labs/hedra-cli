@@ -66,7 +66,15 @@ tests/
 # commit has ever touched the directory — so this is load-bearing for the same
 # reason tests/ above is. Until now the files' only protection was Replay
 # re-adding them through patch-d871322c on every generation, which is also why
-# that patch parks ~1.8k lines of markdown in replay.lock. This entry fixes both:
-# Replay cleanses a patch whose files ALL match .fernignore, exactly as it did to
-# patch-eeb99c81 (root .gitignore) once #60 added that entry.
+# that patch parks ~1.8k lines of markdown in replay.lock.
+#
+# This entry protects them but does NOT retire that patch, contrary to what this
+# note first claimed: across #66/#67/#69 the ledger is unchanged. Cleansing is
+# real — patch-eeb99c81 went at #63 once #60 added .gitignore — but at fern-api
+# 5.94.0 the cleanse matcher, unlike the protection matcher, does not strip a
+# trailing slash before testing `file.startsWith(pattern + "/")`, so `docs/`
+# tests as `docs//` and never matches; `.gitignore` cleansed because it is an
+# exact filename. Dropping the slash here would cleanse the patch and protects
+# identically — untested against a live regeneration, so left as-is. The same
+# gap applies to .github/ and tests/ above.
 docs/
