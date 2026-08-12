@@ -84,7 +84,7 @@ exclude:
   # files are hand-written and the generator emits nothing under docs/, so
   # Replay re-adding them was the only thing keeping them in the tree; an
   # exclude here drops that without replacing it, which is precisely the #27 →
-  # #29 sequence that deleted .gitattributes. The ledger noise is real, but
-  # .fernignore is the lever for it — see the docs/ entry there, which both
-  # protects the files and retires the patch (Replay cleanses a patch whose
-  # files all match .fernignore).
+  # #29 sequence that deleted .gitattributes. .fernignore is the lever, and the
+  # docs/ entry there is now in place — but it has NOT retired the patch, as
+  # this note used to claim. The trailing slash defeats Replay's cleanse matcher
+  # at 5.94.0; the docs/ entry in .fernignore carries the measurement.
