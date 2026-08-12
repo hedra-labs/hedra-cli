@@ -38,12 +38,13 @@ jobs:
       # root crate's version alone) and must not leave main red.
       - name: Check the workspace crate versions are aligned
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           if python3 .github/scripts/set-version.py --check "$version" \
-              hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+              "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then
             exit 0
           fi
-          hint="run: python3 .github/scripts/set-version.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/Cargo.toml hedra-types/Cargo.toml && cargo fetch"
+          hint="run: python3 .github/scripts/set-version.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/Cargo.toml $TYPES_DIR/Cargo.toml && cargo fetch"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "::error::Workspace crate versions are not aligned with the root ($version) — $hint"
             exit 1
@@ -61,12 +62,13 @@ jobs:
       # patch-sdk-headers.py when ENG-10234 lands upstream.
       - name: Check the SDK header patches are applied
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           if python3 .github/scripts/patch-sdk-headers.py --check "$version" \
-              hedra-sdk/src/config.rs src/sdk_executor.rs; then
+              "$SDK_DIR/src/config.rs" src/sdk_executor.rs; then
             exit 0
           fi
-          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/src/config.rs src/sdk_executor.rs"
+          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/src/config.rs src/sdk_executor.rs"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "::error::The ENG-10226 SDK header patches are not applied — $hint"
             exit 1
