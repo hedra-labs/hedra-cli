@@ -153,18 +153,20 @@ jobs:
       # to see the aligned tree.
       - name: Align the member crate versions with the root
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           echo "Root crate is at $version."
           python3 .github/scripts/set-version.py "$version" \
-            hedra-sdk/Cargo.toml hedra-types/Cargo.toml
+            "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"
 
       # Source-only, so it cannot invalidate the lockfile; grouped with the
       # aligner so every tree fix precedes the staleness gate and the commit.
       - name: Re-apply the SDK header patches
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           python3 .github/scripts/patch-sdk-headers.py "$version" \
-            hedra-sdk/src/config.rs src/sdk_executor.rs
+            "$SDK_DIR/src/config.rs" src/sdk_executor.rs
 
       - name: Check whether Cargo.lock is stale
         id: staleness
@@ -210,22 +212,37 @@ jobs:
           APP_SLUG: ${{ steps.app-token.outputs.app-slug }}
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
+          . .github/scripts/crate-layout.sh
           # A set check, not a string compare: up to five files can legitimately
           # be dirty now, in any combination.
-          unexpected="$(git status --porcelain | grep -vE '^ M (Cargo\.lock|hedra-sdk/Cargo\.toml|hedra-types/Cargo\.toml|hedra-sdk/src/config\.rs|src/sdk_executor\.rs)$' || true)"
+          #
+          # The allowlist and the message it prints are built from one list, so
+          # they cannot drift apart. That matters more than it looks: the two
+          # used to name the crate paths independently, and a mechanical rename
+          # that updated the message but not the regex — or vice versa — would
+          # leave a guard that either passes on ANYTHING or rejects everything,
+          # while still reading correctly in review. Widening this to `.*` is
+          # strictly worse than the loud failure it replaces.
+          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/sdk_executor.rs)
+          # Escape the dots so `config.rs` cannot also match `configXrs`; the
+          # crate directory names themselves carry no regex metacharacters.
+          escaped="$(printf '%s\n' "${allowed[@]}" | sed 's/\./\\./g' | paste -sd '|' -)"
+          pattern="^ M ($escaped)\$"
+          unexpected="$(git status --porcelain | grep -vE "$pattern" || true)"
           if [ -n "$unexpected" ]; then
-            echo "::error::Refresh touched something outside {Cargo.lock, hedra-sdk/Cargo.toml, hedra-types/Cargo.toml, hedra-sdk/src/config.rs, src/sdk_executor.rs} — refusing to commit."
+            printf -v joined '%s, ' "${allowed[@]}"
+            echo "::error::Refresh touched something outside {${joined%, }} — refusing to commit."
             git status --porcelain
             exit 1
           fi
-          git add Cargo.lock hedra-sdk/Cargo.toml hedra-types/Cargo.toml hedra-sdk/src/config.rs src/sdk_executor.rs
+          git add "${allowed[@]}"
           # Name only what actually changed; the three fix groups occur in any
           # combination.
           parts=""
-          if ! git diff --cached --quiet -- hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+          if ! git diff --cached --quiet -- "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then
             parts="align workspace crate versions"
           fi
-          if ! git diff --cached --quiet -- hedra-sdk/src/config.rs src/sdk_executor.rs; then
+          if ! git diff --cached --quiet -- "$SDK_DIR/src/config.rs" src/sdk_executor.rs; then
             parts="${parts:+$parts and }re-apply the SDK header patches"
           fi
           if ! git diff --cached --quiet -- Cargo.lock; then
