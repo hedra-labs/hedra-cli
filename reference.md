@@ -1,29 +1,29 @@
 # Hedra API v3 CLI Reference
 
-Full command reference for `hedra`.
+Full command reference for `hedra-cli`.
 
 ## Commands
 
-- [`hedra billing`](#hedra-billing)
-- [`hedra files`](#hedra-files)
-- [`hedra jobs`](#hedra-jobs)
-- [`hedra keys`](#hedra-keys)
-- [`hedra log-drains`](#hedra-log-drains)
-- [`hedra models`](#hedra-models)
-- [`hedra tokens`](#hedra-tokens)
-- [`hedra webhooks`](#hedra-webhooks)
+- [`hedra-cli billing`](#hedra-cli-billing)
+- [`hedra-cli files`](#hedra-cli-files)
+- [`hedra-cli jobs`](#hedra-cli-jobs)
+- [`hedra-cli keys`](#hedra-cli-keys)
+- [`hedra-cli log-drains`](#hedra-cli-log-drains)
+- [`hedra-cli models`](#hedra-cli-models)
+- [`hedra-cli tokens`](#hedra-cli-tokens)
+- [`hedra-cli webhooks`](#hedra-cli-webhooks)
 
 ---
 
-### `hedra billing`
+### `hedra-cli billing`
 
-#### `hedra billing get-balance`
+#### `hedra-cli billing get-balance`
 
 Get Balance
 
 `GET /balance`
 
-#### `hedra billing get-usage`
+#### `hedra-cli billing get-usage`
 
 Get Usage
 
@@ -37,9 +37,9 @@ Get Usage
 
 ---
 
-### `hedra files`
+### `hedra-cli files`
 
-#### `hedra files upload`
+#### `hedra-cli files upload`
 
 Store a file and return a short-lived URL to pass in a model's `input`.
 
@@ -55,9 +55,9 @@ reports what the wallet holds.
 
 ---
 
-### `hedra jobs`
+### `hedra-cli jobs`
 
-#### `hedra jobs get`
+#### `hedra-cli jobs get`
 
 Get Job
 
@@ -67,7 +67,7 @@ Get Job
 |------|------|----------|-------------|
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 
-#### `hedra jobs get-status`
+#### `hedra-cli jobs get-status`
 
 Get Job Status
 
@@ -78,7 +78,7 @@ Get Job Status
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 | `--logs-after` | `string` | No | Tail this job's lifecycle events incrementally: returns only events newer than this cursor, plus `logs_next_cursor` to send on the next poll. Pass `start` to begin from the job's first event. Omit it and the response carries no events at all — the default polling shape is unchanged. |
 
-#### `hedra jobs list`
+#### `hedra-cli jobs list`
 
 List Jobs
 
@@ -89,7 +89,7 @@ List Jobs
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
-#### `hedra jobs list-job-logs`
+#### `hedra-cli jobs list-job-logs`
 
 List Job Logs
 
@@ -101,7 +101,7 @@ List Job Logs
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
-#### `hedra jobs stream`
+#### `hedra-cli jobs stream`
 
 Stream Job
 
@@ -112,7 +112,7 @@ Stream Job
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 | `--last-event-id` | `string` | No | Resume after this event id — the standard SSE reconnect header; browsers' EventSource sends it automatically. |
 
-#### `hedra jobs submit`
+#### `hedra-cli jobs submit`
 
 Runs any model in the catalog by its public id, with `input` passed through untyped — the same call the typed operations below make, minus the compile-time schema.
 
@@ -127,7 +127,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-dreamina-31`
+#### `hedra-cli jobs submit-dreamina-31`
 
 Ultra high quality generations for professional grade images.
 
@@ -139,7 +139,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-elevenlabs-flash-multilingual-v2`
+#### `hedra-cli jobs submit-elevenlabs-flash-multilingual-v2`
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -149,7 +149,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-elevenlabs-flash-v2`
+#### `hedra-cli jobs submit-elevenlabs-flash-v2`
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -159,7 +159,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-elevenlabs-multilingual-v2`
+#### `hedra-cli jobs submit-elevenlabs-multilingual-v2`
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -169,7 +169,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-elevenlabs-v3`
+#### `hedra-cli jobs submit-elevenlabs-v3`
 
 ElevenLabs V3
 
@@ -181,7 +181,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-11-pro`
+#### `hedra-cli jobs submit-flux-11-pro`
 
 Premium color depth and clarity when you want campaign-ready art that feels handcrafted.
 
@@ -193,7 +193,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-11-ultra`
+#### `hedra-cli jobs submit-flux-11-ultra`
 
 The big-canvas choice for ultra-high-res images and flagship visuals.
 
@@ -205,7 +205,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-3`
+#### `hedra-cli jobs submit-flux-3`
 
 Black Forest Labs FLUX.3 text-to-video with native audio.
 
@@ -217,7 +217,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-dev`
+#### `hedra-cli jobs submit-flux-dev`
 
 Fast and light for quick concepts or high-volume social posts on a budget.
 
@@ -229,7 +229,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-kontext-max`
+#### `hedra-cli jobs submit-flux-kontext-max`
 
 Highest-fidelity reference-image support for complex, multi-element scenes and perfectly matched branded visuals.
 
@@ -241,7 +241,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux-kontext-pro`
+#### `hedra-cli jobs submit-flux-kontext-pro`
 
 Reference-image support for character, brand, or style consistency.
 
@@ -253,7 +253,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux2-flex`
+#### `hedra-cli jobs submit-flux2-flex`
 
 Image creation and editing with FLUX.2 [flex] from Black Forest Labs.
 
@@ -265,7 +265,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux2-klein-9b`
+#### `hedra-cli jobs submit-flux2-klein-9b`
 
 Flux.2 [klein] 9B model from Black Forest Labs.
 
@@ -277,7 +277,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux2-max`
+#### `hedra-cli jobs submit-flux2-max`
 
 FLUX.2 [max] delivers state-of-the-art image generation and advanced image editing with exceptional realism, precision, and consistency.
 
@@ -289,7 +289,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-flux2-pro`
+#### `hedra-cli jobs submit-flux2-pro`
 
 Image creation and editing with FLUX.2 [pro] from Black Forest Labs. Ideal for high-quality image manipulation, style transfer, and sequential editing workflows
 
@@ -301,7 +301,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-gemini-omni-flash`
+#### `hedra-cli jobs submit-gemini-omni-flash`
 
 Gemini's fast multimodal video model — cinematic clips with native audio from a prompt, a keyframe, or reference images.
 
@@ -313,7 +313,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-gpt-image-15`
+#### `hedra-cli jobs submit-gpt-image-15`
 
 OpenAI-powered image generation with exceptional prompt understanding and versatile editing capabilities.
 
@@ -325,7 +325,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-gpt-image-2`
+#### `hedra-cli jobs submit-gpt-image-2`
 
 OpenAI's balanced tier; moderate cost and fidelity, ideal for iterative refinement and everyday generation.
 
@@ -337,7 +337,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-grok-imagine`
+#### `hedra-cli jobs submit-grok-imagine`
 
 xAI's Grok Imagine image generation model
 
@@ -349,7 +349,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-grok-video`
+#### `hedra-cli jobs submit-grok-video`
 
 xAI's text-to-video generation model.
 
@@ -361,7 +361,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-happy-horse`
+#### `hedra-cli jobs submit-happy-horse`
 
 Generate video from text with Alibaba Happy Horse 1.0.
 
@@ -373,7 +373,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-hedra-avatar`
+#### `hedra-cli jobs submit-hedra-avatar`
 
 Hedra's latest longform avatar model, audio to video will full multi-language support. Perfect for talking and singing video with speaker selection up to 10 minutes long.
 
@@ -385,7 +385,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-hedra-character-3`
+#### `hedra-cli jobs submit-hedra-character-3`
 
 Hedra's latest longform avatar model, audio to video will full multi-language support. Perfect for talking and singing video with speaker selection up to 10 minutes long.
 
@@ -397,7 +397,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-hidream-o1-image`
+#### `hedra-cli jobs submit-hidream-o1-image`
 
 HiDream.ai's open-weights HiDream-O1-Image (8B): one pixel-native model that generates, edits, and personalizes without a VAE or a separate text encoder.
 
@@ -409,7 +409,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-ideogram-v2`
+#### `hedra-cli jobs submit-ideogram-v2`
 
 Best in class for poster-ready images and spot-on text rendering in social graphics.
 
@@ -421,7 +421,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-ideogram-v4`
+#### `hedra-cli jobs submit-ideogram-v4`
 
 Ideogram V4 renders poster-ready text and layout; the required quality parameter picks turbo, balanced or quality, which sets both the render effort and the price.
 
@@ -433,7 +433,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-imagen3`
+#### `hedra-cli jobs submit-imagen3`
 
 The latest text to image model from Google
 
@@ -445,7 +445,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-imagen4`
+#### `hedra-cli jobs submit-imagen4`
 
 Google's photoreal model—natural lighting, lifelike skin, and pro-grade sharpness in every shot.
 
@@ -457,7 +457,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-16`
+#### `hedra-cli jobs submit-kling-16`
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -467,7 +467,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-21-master`
+#### `hedra-cli jobs submit-kling-21-master`
 
 Cinema-grade video with striking textures and rich depth.
 
@@ -479,7 +479,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-25-turbo`
+#### `hedra-cli jobs submit-kling-25-turbo`
 
 Fast, high-quality video generation.
 
@@ -491,7 +491,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-26-motion-control`
+#### `hedra-cli jobs submit-kling-26-motion-control`
 
 Transfer movements from a reference video to any character image. Cost-effective mode for motion transfer, perfect for portraits and simple animations.
 
@@ -503,7 +503,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-26-pro`
+#### `hedra-cli jobs submit-kling-26-pro`
 
 Cinematic visuals, fluid motion, and native audio generation.
 
@@ -515,7 +515,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-ai-avatar-v2`
+#### `hedra-cli jobs submit-kling-ai-avatar-v2`
 
 Create avatar videos with realistic humans, animals, cartoons, or stylized characters from an image and audio input.
 
@@ -527,7 +527,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-o1`
+#### `hedra-cli jobs submit-kling-o1`
 
 Generate from a single image with text-driven style and scene guidance.
 
@@ -539,7 +539,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-o3`
+#### `hedra-cli jobs submit-kling-o3`
 
 Text-to-video model with up to 15-second generations and native audio.
 
@@ -551,7 +551,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-o3-edit`
+#### `hedra-cli jobs submit-kling-o3-edit`
 
 Edit videos using natural language.
 
@@ -563,7 +563,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-o3-reference`
+#### `hedra-cli jobs submit-kling-o3-reference`
 
 Input a reference video and preserve motion and camera style.
 
@@ -575,7 +575,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-v3`
+#### `hedra-cli jobs submit-kling-v3`
 
 Text-to-video with ultra-high-definition storyboards and native audio.
 
@@ -587,7 +587,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-kling-v3-motion-control`
+#### `hedra-cli jobs submit-kling-v3-motion-control`
 
 Animate a character image to match the motion of a reference video. Standard tier for cost-effective generation.
 
@@ -599,7 +599,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-ltx-2-3`
+#### `hedra-cli jobs submit-ltx-2-3`
 
 Lightricks LTX-2.3 text-to-video at up to 4K, with synchronized native audio
 
@@ -611,7 +611,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-luma-ray-32`
+#### `hedra-cli jobs submit-luma-ray-32`
 
 Luma Ray 3.2 text-to-video with cinematic motion and camera control
 
@@ -623,7 +623,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-mai-image-2-5`
+#### `hedra-cli jobs submit-mai-image-2-5`
 
 Microsoft AI's MAI-Image-2.5: photorealistic generation and editing with strong in-image typography and design-ready output.
 
@@ -635,7 +635,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-minimax-h3`
+#### `hedra-cli jobs submit-minimax-h3`
 
 MiniMax H3 video generation from text, frames, or references.
 
@@ -647,7 +647,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-minimax-hailuo-02`
+#### `hedra-cli jobs submit-minimax-hailuo-02`
 
 Everyday 1080p video with natural movement.
 
@@ -659,7 +659,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-minimax-hailuo-23`
+#### `hedra-cli jobs submit-minimax-hailuo-23`
 
 Everyday 1080p video with natural movement.
 
@@ -671,7 +671,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-minimax-speech-25-hd-preview`
+#### `hedra-cli jobs submit-minimax-speech-25-hd-preview`
 
 The brand new HD model. Ultimate Similarity, Ultra-High Quality. Supports 40+ languages including Tamil, Hebrew, Swedish, etc.
 
@@ -683,7 +683,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-minimax-speech-25-turbo-preview`
+#### `hedra-cli jobs submit-minimax-speech-25-turbo-preview`
 
 The brand new Turbo model. Ultimate Value, 40 Languages. Major improvements to natural English expression.
 
@@ -695,7 +695,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-nano-banana`
+#### `hedra-cli jobs submit-nano-banana`
 
 Best in class image model with reference image support and ultra high quality generations for professional grade images.
 
@@ -707,7 +707,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-nano-banana-2`
+#### `hedra-cli jobs submit-nano-banana-2`
 
 Gemini 3.1 Flash native image generation with improved quality and advanced features including multi-subject reference and high-fidelity style transfer
 
@@ -719,7 +719,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-nano-banana-pro`
+#### `hedra-cli jobs submit-nano-banana-pro`
 
 Gemini 3 Pro native image generation with advanced multimodal understanding and richer visuals
 
@@ -731,7 +731,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-omnihuman-15`
+#### `hedra-cli jobs submit-omnihuman-15`
 
 Creates vivid, emotional character videos driven entirely by your audio.
 
@@ -743,7 +743,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-pixverse-v6`
+#### `hedra-cli jobs submit-pixverse-v6`
 
 PixVerse V6 text-to-video with native audio and 1080p output up to 15 seconds
 
@@ -755,7 +755,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-qwen-image-2`
+#### `hedra-cli jobs submit-qwen-image-2`
 
 Alibaba's Qwen-Image-2.0, tuned for speed. Native 2K output with professional in-image text rendering, for rapid iteration.
 
@@ -767,7 +767,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-recraft-v3`
+#### `hedra-cli jobs submit-recraft-v3`
 
 Vector-clean graphics and crisp logos on demand.
 
@@ -779,7 +779,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-reve-21`
+#### `hedra-cli jobs submit-reve-21`
 
 Generate images from a text prompt with strong prompt adherence, layout intelligence, and accurate text rendering
 
@@ -791,7 +791,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-reve-21-edit`
+#### `hedra-cli jobs submit-reve-21-edit`
 
 Edit one source image from a natural-language instruction, keeping the rest of the image intact
 
@@ -803,7 +803,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-reve-21-remix`
+#### `hedra-cli jobs submit-reve-21-remix`
 
 Compose up to eight reference images into a new image from a text prompt
 
@@ -815,7 +815,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-sana`
+#### `hedra-cli jobs submit-sana`
 
 Lightning-fast and cheap for simple product shots or everyday content.
 
@@ -827,7 +827,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedance-15-pro`
+#### `hedra-cli jobs submit-seedance-15-pro`
 
 ByteDance Seedance 1.5 Pro video generation model
 
@@ -839,7 +839,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedance-20`
+#### `hedra-cli jobs submit-seedance-20`
 
 ByteDance Seedance 2.0 video generation model
 
@@ -851,7 +851,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedance-20-mini`
+#### `hedra-cli jobs submit-seedance-20-mini`
 
 ByteDance Seedance 2.0 Mini video generation model
 
@@ -863,7 +863,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedance-25`
+#### `hedra-cli jobs submit-seedance-25`
 
 ByteDance Seedance 2.5 video generation model
 
@@ -875,7 +875,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedream-40`
+#### `hedra-cli jobs submit-seedream-40`
 
 Ultra-fast pro grade image model, pairing reference image support with high quality output for professional visuals
 
@@ -887,7 +887,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedream-45`
+#### `hedra-cli jobs submit-seedream-45`
 
 Latest Seedream with enhanced detail, refined composition, and multi-reference image support for professional visuals.
 
@@ -899,7 +899,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedream-50-lite`
+#### `hedra-cli jobs submit-seedream-50-lite`
 
 ByteDance Seedream 5.0 Lite Text-to-Image
 
@@ -911,7 +911,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-seedream-50-pro`
+#### `hedra-cli jobs submit-seedream-50-pro`
 
 ByteDance Seedream 5.0 Pro Text-to-Image
 
@@ -923,7 +923,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-sora-2-pro`
+#### `hedra-cli jobs submit-sora-2-pro`
 
 For complex, narrative-driven videos with remarkable consistency and realistic character-world interaction.
 
@@ -935,7 +935,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-veed-fabric-10`
+#### `hedra-cli jobs submit-veed-fabric-10`
 
 Talking video with natural lip-sync and expressive animation.
 
@@ -947,7 +947,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-veo-2`
+#### `hedra-cli jobs submit-veo-2`
 
 The current state of the art in video generation
 
@@ -959,7 +959,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-veo-3`
+#### `hedra-cli jobs submit-veo-3`
 
 Hollywood-grade, cinematic video straight from text—your go-to for hero campaigns.
 
@@ -971,7 +971,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-veo-31`
+#### `hedra-cli jobs submit-veo-31`
 
 For unparalleled detail and nuance, perfect for when your vision requires the best possible quality.
 
@@ -983,7 +983,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-vidu-q3`
+#### `hedra-cli jobs submit-vidu-q3`
 
 Vidu Q3 video with native dialogue and sound, up to 16 seconds — from a text prompt, from a start frame, or between a start and end frame
 
@@ -995,7 +995,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-vidu-q3-reference`
+#### `hedra-cli jobs submit-vidu-q3-reference`
 
 Vidu Q3 reference-to-video keeping up to four subjects consistent
 
@@ -1007,7 +1007,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra jobs submit-wan-2-7`
+#### `hedra-cli jobs submit-wan-2-7`
 
 Wan 2.7 video with native audio — from a text prompt, from a first frame with an optional last frame, or from reference images that keep subjects consistent
 
@@ -1021,9 +1021,9 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 ---
 
-### `hedra keys`
+### `hedra-cli keys`
 
-#### `hedra keys create`
+#### `hedra-cli keys create`
 
 Create Key
 
@@ -1033,7 +1033,7 @@ Create Key
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra keys list`
+#### `hedra-cli keys list`
 
 List Keys
 
@@ -1043,7 +1043,7 @@ List Keys
 |------|------|----------|-------------|
 | `--workspace-id` | `string` | No | List keys of this workspace; omitted means the authenticating key's workspace. |
 
-#### `hedra keys revoke`
+#### `hedra-cli keys revoke`
 
 Revoke Key
 
@@ -1053,7 +1053,7 @@ Revoke Key
 |------|------|----------|-------------|
 | `--key-id` | `string` | Yes | The key's public identifier. |
 
-#### `hedra keys rotate`
+#### `hedra-cli keys rotate`
 
 Rotate Key
 
@@ -1066,9 +1066,9 @@ Rotate Key
 
 ---
 
-### `hedra log-drains`
+### `hedra-cli log-drains`
 
-#### `hedra log-drains create-log-drain`
+#### `hedra-cli log-drains create-log-drain`
 
 Create Log Drain
 
@@ -1078,7 +1078,7 @@ Create Log Drain
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra log-drains delete-log-drain`
+#### `hedra-cli log-drains delete-log-drain`
 
 Delete Log Drain
 
@@ -1088,7 +1088,7 @@ Delete Log Drain
 |------|------|----------|-------------|
 | `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
-#### `hedra log-drains get-log-drain`
+#### `hedra-cli log-drains get-log-drain`
 
 Get Log Drain
 
@@ -1098,13 +1098,13 @@ Get Log Drain
 |------|------|----------|-------------|
 | `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
-#### `hedra log-drains list-log-drains`
+#### `hedra-cli log-drains list-log-drains`
 
 List Log Drains
 
 `GET /log-drains`
 
-#### `hedra log-drains test-log-drain`
+#### `hedra-cli log-drains test-log-drain`
 
 Test Log Drain
 
@@ -1114,7 +1114,7 @@ Test Log Drain
 |------|------|----------|-------------|
 | `--drain-id` | `string` | Yes | The drain's id (`drain_<uuid>`). |
 
-#### `hedra log-drains update-log-drain`
+#### `hedra-cli log-drains update-log-drain`
 
 Update Log Drain
 
@@ -1127,9 +1127,9 @@ Update Log Drain
 
 ---
 
-### `hedra models`
+### `hedra-cli models`
 
-#### `hedra models estimate`
+#### `hedra-cli models estimate`
 
 Estimate
 
@@ -1140,7 +1140,7 @@ Estimate
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra models get`
+#### `hedra-cli models get`
 
 Get Model
 
@@ -1150,7 +1150,7 @@ Get Model
 |------|------|----------|-------------|
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 
-#### `hedra models get-openapi`
+#### `hedra-cli models get-openapi`
 
 A standalone one-operation OpenAPI spec for this model's submit call.
 
@@ -1160,7 +1160,7 @@ A standalone one-operation OpenAPI spec for this model's submit call.
 |------|------|----------|-------------|
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 
-#### `hedra models list`
+#### `hedra-cli models list`
 
 List Models
 
@@ -1170,7 +1170,7 @@ List Models
 |------|------|----------|-------------|
 | `--modality` | `string` | No | Only models with this modality, matching `modality` on each returned model. |
 
-#### `hedra models list-model-jobs`
+#### `hedra-cli models list-model-jobs`
 
 List Model Jobs
 
@@ -1182,7 +1182,7 @@ List Model Jobs
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
-#### `hedra models list-voices`
+#### `hedra-cli models list-voices`
 
 Voices this model accepts — scoped to the model's voice provider.
 
@@ -1194,9 +1194,9 @@ Voices this model accepts — scoped to the model's voice provider.
 
 ---
 
-### `hedra tokens`
+### `hedra-cli tokens`
 
-#### `hedra tokens create`
+#### `hedra-cli tokens create`
 
 Create Token
 
@@ -1208,27 +1208,27 @@ Create Token
 
 ---
 
-### `hedra webhooks`
+### `hedra-cli webhooks`
 
-#### `hedra webhooks delete-default`
+#### `hedra-cli webhooks delete-default`
 
 Delete Default
 
 `DELETE /webhooks/default`
 
-#### `hedra webhooks get-default`
+#### `hedra-cli webhooks get-default`
 
 Get Default
 
 `GET /webhooks/default`
 
-#### `hedra webhooks get-public-key`
+#### `hedra-cli webhooks get-public-key`
 
 Public Key
 
 `GET /webhooks/public-key`
 
-#### `hedra webhooks list-deliveries`
+#### `hedra-cli webhooks list-deliveries`
 
 List Deliveries
 
@@ -1239,7 +1239,7 @@ List Deliveries
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 
-#### `hedra webhooks put-default`
+#### `hedra-cli webhooks put-default`
 
 Put Default
 
@@ -1249,7 +1249,7 @@ Put Default
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra webhooks redeliver`
+#### `hedra-cli webhooks redeliver`
 
 Replay a finished delivery: reset it to PENDING and re-fire the signed POST.
 
@@ -1270,7 +1270,7 @@ the one case where the duplicate is the point.
 |------|------|----------|-------------|
 | `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 
-#### `hedra webhooks test-default`
+#### `hedra-cli webhooks test-default`
 
 Test Default
 
