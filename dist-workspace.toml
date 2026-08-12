@@ -28,10 +28,11 @@ github-build-setup = "../build-setup.yml"
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # Which actions to run on pull requests
 pr-run-mode = "plan"
-# Publish stable Homebrew releases after GitHub artifacts are available. The
-# first npm package must be published interactively with 2FA; once it exists,
-# configure npm Trusted Publishing and add an OIDC-based custom publish job.
-publish-jobs = ["homebrew"]
+# Publish stable Homebrew and npm releases after GitHub artifacts are available.
+# The 2FA-gated first publish is done: `@hedra/cli` 0.2.0 went to npm on
+# 2026-08-01, so the scope exists and CI can take over from here. The generated
+# publish job authenticates with the `NPM_TOKEN` secret.
+publish-jobs = ["homebrew", "npm"]
 # Homebrew tap backing `brew install hedra-labs/tap/hedra-cli`.
 tap = "hedra-labs/homebrew-tap"
 # Keep package-manager names explicit: both install the `hedra` binary.
