@@ -76,8 +76,23 @@ exclude:
   # freezes real generated dependency changes, the ENG-10048 trap the Cargo.lock
   # entry in .fernignore documents. Excluding here leaves both files fully
   # generator-owned and only stops Replay putting yesterday's stamp back on top.
+  #
+  # Four paths, two layouts (ENG-10291). The recorded patch this exists to skip,
+  # patch-ed9886b4, names hedra-sdk/Cargo.toml and hedra-types/Cargo.toml — the
+  # paths are baked into the patch, so those two entries keep matching it after
+  # the rename and must stay. The two below are for the patch that replaces it:
+  # once release-sdks.yml has re-cut this branch, refresh-lockfile.yml's next
+  # alignment commit is recorded against hedra-cli-sdk/Cargo.toml and
+  # hedra-cli-types/Cargo.toml, and an exclude list naming only the old paths
+  # would not match it — putting the stale stamp back exactly as described
+  # above. Entries matching no patch are inert, so listing all four is safe on
+  # either layout, the same reasoning .fernignore uses for the two custom.rs
+  # paths. main has the same two-entry gap; it is harmless there because a
+  # regeneration on main is not what strips a `-dev` suffix.
   - hedra-sdk/Cargo.toml
   - hedra-types/Cargo.toml
+  - hedra-cli-sdk/Cargo.toml
+  - hedra-cli-types/Cargo.toml
 
   # NOT excluded, deliberately: docs/superpowers/** (patch-d871322c, ~1.8k lines
   # of markdown in the ledger). Excluding it would be actively unsafe. Those
