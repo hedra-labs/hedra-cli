@@ -14,7 +14,7 @@ pub struct InputLtx23 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. From 1 to 5000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output resolution.
@@ -27,10 +27,10 @@ pub struct InputLtx23 {
     pub duration_ms: i64,
     /// Output aspect ratio.
     pub aspect_ratio: InputLtx23AspectRatio,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputLtx23StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputLtx23EndImage>,
     /// Quality level to generate at.

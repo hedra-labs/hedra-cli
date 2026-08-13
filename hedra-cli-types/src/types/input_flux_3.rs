@@ -26,10 +26,10 @@ pub struct InputFlux3 {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputFlux3StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputFlux3EndImage>,
 }

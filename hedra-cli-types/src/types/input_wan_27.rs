@@ -13,13 +13,13 @@ pub struct InputWan27 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 5000 characters.
     #[serde(default)]
     pub prompt: String,
-    /// What to avoid in the generated video.
+    /// What to avoid in the generated video. At most 500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// Seed for reproducible output; omit for a random seed.
+    /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
     /// Output resolution.
@@ -27,16 +27,16 @@ pub struct InputWan27 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputWan27StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputWan27EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputWan27AspectRatio>,
-    /// Reference images.
+    /// Reference images. 1 to 4 images, each at most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputWan27ImagesItem>>,
 }

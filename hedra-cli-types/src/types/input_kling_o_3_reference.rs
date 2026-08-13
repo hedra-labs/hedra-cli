@@ -8,12 +8,12 @@ pub struct InputKlingO3Reference {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2500 characters.
     #[serde(default)]
     pub prompt: String,
-    /// Source video (video-to-video).
+    /// Source video (video-to-video). From 3s to 15s and at most 524.2 MB.
     pub source_video: InputKlingO3ReferenceSourceVideo,
-    /// Reference images.
+    /// Reference images. 1 to 4 images, each at least 300px on each side and at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputKlingO3ReferenceImagesItem>>,
     /// Output resolution to generate at.

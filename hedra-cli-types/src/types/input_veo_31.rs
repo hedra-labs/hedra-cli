@@ -24,19 +24,19 @@ pub struct InputVeo31 {
     /// What to avoid in the generated video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputVeo31StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputVeo31EndImage>,
-    /// Source video (video-to-video).
+    /// Source video (video-to-video). From 1s to 30s and at most 524.2 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_video: Option<InputVeo31SourceVideo>,
-    /// Reference images.
+    /// Reference images. 1 to 3 images, each at most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputVeo31ImagesItem>>,
-    /// Seed for reproducible output; omit for a random seed.
+    /// Seed for reproducible output; omit for a random seed. From 0 to 4294967295.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
     /// Quality level to generate at.

@@ -8,7 +8,7 @@ pub struct InputViduQ3Reference {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Seed for reproducible output; omit for a random seed.
@@ -21,7 +21,7 @@ pub struct InputViduQ3Reference {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Reference images.
+    /// Reference images. 1 to 4 images, each at most 10.4 MB.
     #[serde(default)]
     pub images: Vec<InputViduQ3ReferenceImagesItem>,
 }

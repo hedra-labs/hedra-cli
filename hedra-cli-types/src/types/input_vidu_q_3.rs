@@ -13,7 +13,7 @@ pub struct InputViduQ3 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Seed for reproducible output; omit for a random seed.
@@ -24,10 +24,10 @@ pub struct InputViduQ3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputViduQ3StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputViduQ3EndImage>,
     /// Output aspect ratio.

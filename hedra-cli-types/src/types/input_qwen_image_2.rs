@@ -9,7 +9,7 @@ use super::*;
 /// (2) requires: aspect_ratio, prompt, resolution; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputQwenImage2 {
-    /// Generation prompt.
+    /// Generation prompt. At least 1 character.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.
@@ -25,13 +25,13 @@ pub struct InputQwenImage2 {
     /// Output image format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<InputQwenImage2OutputFormat>,
-    /// What to avoid in the generated image.
+    /// What to avoid in the generated image. At most 500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 3 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputQwenImage2ImagesItem>>,
-    /// Seed for reproducible output; omit for a random seed.
+    /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
     /// Quality level to generate at.

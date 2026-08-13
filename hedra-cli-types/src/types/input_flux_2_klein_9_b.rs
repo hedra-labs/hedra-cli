@@ -20,7 +20,7 @@ pub struct InputFlux2Klein9B {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputFlux2Klein9BAspectRatio,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 4 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFlux2Klein9BImagesItem>>,
     /// Output image format.
@@ -32,12 +32,12 @@ pub struct InputFlux2Klein9B {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// How closely the model follows the prompt.
+    /// How closely the model follows the prompt. From 0 to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub guidance_scale: Option<f64>,
-    /// Denoising steps to run.
+    /// Denoising steps to run. From 4 to 50.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_inference_steps: Option<i64>,
 }

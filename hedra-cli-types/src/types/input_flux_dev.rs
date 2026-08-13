@@ -24,12 +24,12 @@ pub struct InputFluxDev {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// How closely the model follows the prompt.
+    /// How closely the model follows the prompt. From 1 to 20.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub guidance_scale: Option<f64>,
-    /// Denoising steps to run.
+    /// Denoising steps to run. From 1 to 50.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_inference_steps: Option<i64>,
 }

@@ -15,9 +15,9 @@ pub struct InputVeedFabric10 {
     pub aspect_ratio: InputVeedFabric10AspectRatio,
     /// Output resolution.
     pub resolution: InputVeedFabric10Resolution,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     pub start_image: InputVeedFabric10StartImage,
-    /// Driving audio.
+    /// Driving audio. At most 104.8 MB.
     pub audio: InputVeedFabric10Audio,
 }
 

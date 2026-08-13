@@ -22,7 +22,7 @@ pub struct InputSeedream40 {
     pub aspect_ratio: InputSeedream40AspectRatio,
     /// Output resolution.
     pub resolution: InputSeedream40Resolution,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 14 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputSeedream40ImagesItem>>,
 }
