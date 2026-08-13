@@ -14,4 +14,4 @@ pub use resources::{
     TokensClient, WebhooksClient,
 };
 
-pub use hedra_types::*;
+pub use hedra_cli_types::*;
