@@ -18,7 +18,7 @@ use fern_cli_sdk::sdk_executor::{CliExecutor, SdkError, SdkRequestExecutor};
 
 struct CliExecutorAdapter(Arc<CliExecutor>);
 
-impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
+impl hedra_cli_sdk::RequestExecutor for CliExecutorAdapter {
     fn execute(
         &self,
         request: reqwest::Request,
@@ -45,24 +45,24 @@ impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
 ///
 /// The returned client routes all HTTP through the CLI's executor, so
 /// it inherits auth, retries, TLS, and global headers automatically.
-pub fn client(ctx: &AppContext) -> hedra_sdk::api::ApiClient {
+pub fn client(ctx: &AppContext) -> hedra_cli_sdk::api::ApiClient {
     let executor = ctx.build_sdk_executor();
     let adapter = Arc::new(CliExecutorAdapter(executor));
-    let config = hedra_sdk::ClientConfig::default();
-    let http_client = hedra_sdk::HttpClient::with_executor(
-        adapter as Arc<dyn hedra_sdk::RequestExecutor>,
+    let config = hedra_cli_sdk::ClientConfig::default();
+    let http_client = hedra_cli_sdk::HttpClient::with_executor(
+        adapter as Arc<dyn hedra_cli_sdk::RequestExecutor>,
         config.clone(),
     );
-    hedra_sdk::api::ApiClient {
+    hedra_cli_sdk::api::ApiClient {
         config,
-        jobs: hedra_sdk::api::JobsClient { http_client: http_client.clone() },
-        models: hedra_sdk::api::ModelsClient { http_client: http_client.clone() },
-        keys: hedra_sdk::api::KeysClient { http_client: http_client.clone() },
-        tokens: hedra_sdk::api::TokensClient { http_client: http_client.clone() },
-        files: hedra_sdk::api::FilesClient { http_client: http_client.clone() },
-        billing: hedra_sdk::api::BillingClient { http_client: http_client.clone() },
-        webhooks: hedra_sdk::api::WebhooksClient { http_client: http_client.clone() },
-        log_drains: hedra_sdk::api::LogDrainsClient { http_client: http_client.clone() },
+        jobs: hedra_cli_sdk::api::JobsClient { http_client: http_client.clone() },
+        models: hedra_cli_sdk::api::ModelsClient { http_client: http_client.clone() },
+        keys: hedra_cli_sdk::api::KeysClient { http_client: http_client.clone() },
+        tokens: hedra_cli_sdk::api::TokensClient { http_client: http_client.clone() },
+        files: hedra_cli_sdk::api::FilesClient { http_client: http_client.clone() },
+        billing: hedra_cli_sdk::api::BillingClient { http_client: http_client.clone() },
+        webhooks: hedra_cli_sdk::api::WebhooksClient { http_client: http_client.clone() },
+        log_drains: hedra_cli_sdk::api::LogDrainsClient { http_client: http_client.clone() },
     }
 }
 
@@ -76,7 +76,7 @@ pub fn client(ctx: &AppContext) -> hedra_sdk::api::ApiClient {
 /// naturally in handler bodies.
 pub fn block_on<F, T>(future: F) -> Result<T, CliError>
 where
-    F: Future<Output = Result<T, hedra_sdk::ApiError>>,
+    F: Future<Output = Result<T, hedra_cli_sdk::ApiError>>,
 {
     tokio::task::block_in_place(|| {
         let handle = tokio::runtime::Handle::current();
@@ -84,17 +84,17 @@ where
     })
 }
 
-fn convert_api_error(e: hedra_sdk::ApiError) -> CliError {
+fn convert_api_error(e: hedra_cli_sdk::ApiError) -> CliError {
     match e {
-        hedra_sdk::ApiError::Http { status, message } => CliError::Api {
+        hedra_cli_sdk::ApiError::Http { status, message } => CliError::Api {
             code: status,
             message,
             reason: http_status_reason(status).to_string(),
         },
-        hedra_sdk::ApiError::Network(err) => {
+        hedra_cli_sdk::ApiError::Network(err) => {
             CliError::Other(anyhow::anyhow!("SDK network error: {err}"))
         }
-        hedra_sdk::ApiError::Executor(boxed) => match boxed.downcast::<SdkError>() {
+        hedra_cli_sdk::ApiError::Executor(boxed) => match boxed.downcast::<SdkError>() {
             Ok(sdk_error) => sdk_error.into_cli_error(),
             Err(other) => CliError::Other(anyhow::anyhow!("SDK executor error: {other}")),
         },

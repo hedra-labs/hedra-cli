@@ -2,21 +2,35 @@ use crate::api::*;
 use crate::{ApiError, ClientConfig, HttpClient, RequestOptions};
 use reqwest::Method;
 
-pub struct TokensClient {
+pub struct FilesClient {
     pub http_client: HttpClient,
 }
 
-impl TokensClient {
+impl FilesClient {
     pub fn new(config: ClientConfig) -> Result<Self, ApiError> {
         Ok(Self {
             http_client: HttpClient::new(config.clone())?,
         })
     }
 
+    /// Store a file and return a short-lived URL to pass in a model's `input`.
+    ///
+    /// Free, and available on an empty API wallet — funding is enforced when you
+    /// submit a generation, not when you upload its inputs. `GET /v3/balance`
+    /// reports what the wallet holds.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -24,23 +38,23 @@ impl TokensClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
-    ///         .tokens
-    ///         .create(
-    ///             &TokenCreateRequest {
-    ///                 ..Default::default()
+    ///         .files
+    ///         .upload(
+    ///             &UploadRequest {
+    ///                 file: b"test file content".to_vec(),
     ///             },
     ///             None,
     ///         )
     ///         .await;
     /// }
     /// ```
-    pub async fn create(
+    pub async fn upload(
         &self,
-        request: &TokenCreateRequest,
+        request: &UploadRequest,
         options: Option<RequestOptions>,
-    ) -> Result<TokenCreateResponse, ApiError> {
+    ) -> Result<FileUploadResponse, ApiError> {
         let options = {
             let mut o = options.unwrap_or_default();
             o.additional_headers
@@ -49,10 +63,10 @@ impl TokensClient {
             Some(o)
         };
         self.http_client
-            .execute_request(
+            .execute_multipart_request(
                 Method::POST,
-                "tokens",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
+                "files",
+                request.clone().to_multipart(),
                 None,
                 options,
             )

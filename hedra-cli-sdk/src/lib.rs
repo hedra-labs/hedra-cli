@@ -5,7 +5,7 @@
 //! ## Getting Started
 //!
 //! ```rust
-//! use hedra_sdk::prelude::*;
+//! use hedra_cli_sdk::prelude::*;
 //!
 //! #[tokio::main]
 //! async fn main() {
@@ -13,7 +13,7 @@
 //!         token: Some("<token>".to_string()),
 //!         ..Default::default()
 //!     };
-//!     let client = HedraClient::new(config).expect("Failed to build client");
+//!     let client = HedraCliClient::new(config).expect("Failed to build client");
 //!     client
 //!         .jobs
 //!         .list(

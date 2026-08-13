@@ -9,7 +9,7 @@ use fern_cli_sdk::openapi::OpenApiBinding;
 use fern_cli_sdk::auth::{BearerAuth};
 
 fn main() {
-    let app = CliApp::new("hedra")
+    let app = CliApp::new("hedra-cli")
         .auth(BearerAuth::new("KeyAuth").env("HEDRA_API_KEY"))
         .binding(
             OpenApiBinding::new()

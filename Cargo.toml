@@ -1,6 +1,6 @@
 [package]
 name = "hedra-cli"
-version = "2.0.0-dev"
+version = "2.0.0"
 edition = "2021"
 description = "Command-line interface for the Hedra Web API — API spec 3.3.0"
 license = "Apache-2.0"
@@ -15,8 +15,8 @@ name = "fern_cli_sdk"
 path = "src/lib.rs"
 
 [[bin]]
-name = "hedra"
-path = "cli/hedra/main.rs"
+name = "hedra-cli"
+path = "cli/hedra-cli/main.rs"
 
 [features]
 # TLS backend selection.
@@ -75,8 +75,8 @@ jmespath = "0.3"
 dist = true
 
 # The profile that 'cargo dist' will build with
-[dependencies.hedra_sdk]
-path = "hedra-sdk"
+[dependencies.hedra_cli_sdk]
+path = "hedra-cli-sdk"
 
 [profile.dist]
 inherits = "release"
