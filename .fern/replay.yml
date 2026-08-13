@@ -10,10 +10,11 @@
 # "customization" and replays it onto each new generation. Entries here tell it
 # not to, so the listed files always land as pure generated output.
 #
-# Verified semantics, fern-api 5.94.0 — the version generate-sdks.yml actually
-# ran on 2026-08-11 ("Installed Fern CLI version 5.94.0"). It installs via
-# fern-api/setup-fern-cli with version: latest and pins nothing, so this floats;
-# re-read the applicator rather than trusting this note after a CLI bump.
+# Verified semantics, fern-api 5.95.1 — the version generate-sdks.yml actually
+# ran on 2026-08-13 ("Installed Fern CLI version 5.95.1"), re-read from the
+# published bundle at that exact version. It installs via fern-api/setup-fern-cli
+# with version: latest and pins nothing, so this floats; re-read the applicator
+# rather than trusting this note after a CLI bump.
 #
 #   - `exclude` suppresses patch APPLICATION, not detection.
 #     ReplayApplicator.applyPatches() tests isExcluded(patch) at the top of the
@@ -21,25 +22,19 @@
 #     excluded patch can never conflict or go "unresolved" ("Action required"
 #     on a regeneration PR). Detection still records it in replay.lock's
 #     `patches:` ledger — the entry just stays inert there.
-#   - Entries are minimatch globs against repo-relative paths.
+#   - Entries are minimatch globs against repo-relative paths, read from THIS
+#     file: LockManager.getCustomizationsConfig() YAML-parses
+#     <outputDir>/.fern/replay.yml on every call and returns {} if it is absent.
 #
 # WHOLE-PATCH SEMANTICS: isExcluded() is `patch.files.some(f => ...)` — a patch
 # is skipped ENTIRELY if ANY of its files matches. Keep version bumps in
 # dedicated commits, or a mixed commit will drag real customizations into the
 # skip along with the bump.
 #
-# There is already one commit we cannot clean up for exactly that reason.
-# patch-d06b3c36 ("fix: re-supply the X-Fern-* identity headers the CLI executor
-# drops (#57)") carries the same stale-stamp defect as the entry below —
-#
-#     hedra-sdk/src/config.rs  -("X-Fern-SDK-Version", "0.1.0")
-#                              +("X-Fern-SDK-Version", "1.0.0-dev")
-#
-# — but it also carries the real src/sdk_executor.rs fix, so excluding
-# hedra-sdk/src/config.rs would skip both. Leave it alone for now: the stamp is
-# repaired on bot branches by .github/scripts/patch-sdk-headers.py, and the only
-# clean fix is to re-record #57 as two commits. Surfaced on ENG-10241; it needs
-# its own ticket before anyone reaches for an exclude here.
+# That hazard used to block the src/sdk_executor.rs entry below, and no longer
+# does: patch-d06b3c36 was recorded against two files, but the generator stopped
+# emitting one of them, so only the half we want skipped is left. The entry
+# carries the details.
 
 exclude:
   # Machine-owned version stamps (ENG-10241).
@@ -93,6 +88,53 @@ exclude:
   - hedra-types/Cargo.toml
   - hedra-cli-sdk/Cargo.toml
   - hedra-cli-types/Cargo.toml
+
+  # The ENG-10226 identity-header merge in CliExecutor::new (ENG-10241, and the
+  # 2026-08-13 regenerations that forced the issue). Backported from main's #88;
+  # the reasoning is branch-independent, only the incident numbers differ.
+  #
+  # src/sdk_executor.rs is generated, and the one deviation it carries from
+  # generated output is machine-owned: .github/scripts/patch-sdk-headers.py
+  # re-derives the merge and re-inserts it after every regeneration, naming the
+  # SDK crate from the config.rs path it is handed. Replay replaying a *recorded*
+  # copy of that same fixup is therefore never useful — and it is actively
+  # harmful, because the recorded copy is frozen while the tree is not:
+  #
+  #     patch-d06b3c36 ("fix: re-supply the X-Fern-* identity headers the CLI
+  #     executor drops (#57)") records the pre-ENG-10291 body, which calls
+  #     `hedra_sdk::ClientConfig::default()`. The crate is `hedra_cli_sdk` now.
+  #     Replay puts the old body back over the freshly generated file; the result
+  #     is neither the generated nor the patched shape, so patch-sdk-headers.py
+  #     refuses to guess and refresh-lockfile.yml aborts BEFORE the version
+  #     alignment — which is why `rust` then also reports the member crates at
+  #     0.1.0/0.0.0. This branch hit it on #85 and main hit it on #87; both
+  #     needed the same hand fix pushed onto the bot branch.
+  #
+  # This cannot age out on its own. A regeneration rebases a patch's
+  # `base_generation` and drops snapshots for files that no longer exist, but
+  # `patch_content` is frozen at detection — verified by diffing .fern/replay.lock
+  # across the #87 regeneration, where d06b3c36's body is byte-for-byte the #57
+  # diff from 2026-08-10.
+  #
+  # One entry retires the whole patch: isExcluded() is `files.some(...)` and
+  # d06b3c36's file list is [hedra-sdk/src/config.rs, src/sdk_executor.rs].
+  # Nothing is lost with it. That was the objection when this was first raised
+  # (the config.rs half carried a real X-Fern-SDK-Version fix), and the ENG-10291
+  # rename settled it: the generator no longer emits hedra-sdk/src/config.rs, so
+  # the regeneration that brought the rename dropped that hunk from
+  # `patch_content` and the next one dropped its snapshot. What is left in the
+  # patch is only the stale executor body. The X-Fern-SDK-Version literal is
+  # still repaired every regeneration by patch-sdk-headers.py's first patch,
+  # which is where it belongs.
+  #
+  # The entry also covers what comes next: the hand fix pushed onto a bot branch
+  # to repair a regeneration reaches this branch under its own SHA (autoland
+  # lands regeneration PRs with a merge commit now, #75) and Replay's commit
+  # filter skips only fern-api[bot]'s own commits and `[fern-generated]` /
+  # `[fern-replay]` subjects. So it is detected as a customization itself — a
+  # one-line diff against a line that, with d06b3c36 skipped, no longer exists.
+  # Its file list is [src/sdk_executor.rs], so this entry skips it too.
+  - src/sdk_executor.rs
 
   # NOT excluded, deliberately: docs/superpowers/** (patch-d871322c, ~1.8k lines
   # of markdown in the ledger). Excluding it would be actively unsafe. Those
