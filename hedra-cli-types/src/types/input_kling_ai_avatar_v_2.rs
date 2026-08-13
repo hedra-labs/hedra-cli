@@ -8,7 +8,7 @@ pub struct InputKlingAiAvatarV2 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     /// Output aspect ratio.
@@ -16,9 +16,9 @@ pub struct InputKlingAiAvatarV2 {
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputKlingAiAvatarV2Resolution>,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     pub start_image: InputKlingAiAvatarV2StartImage,
-    /// Driving audio.
+    /// Driving audio. At most 104.8 MB.
     pub audio: InputKlingAiAvatarV2Audio,
     /// Quality level to generate at.
     pub quality: InputKlingAiAvatarV2Quality,

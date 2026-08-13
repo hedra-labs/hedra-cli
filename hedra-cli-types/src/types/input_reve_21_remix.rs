@@ -5,7 +5,7 @@ use super::*;
 /// Model-specific inputs for `reve-21-remix`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputReve21Remix {
-    /// Generation prompt.
+    /// Generation prompt. From 1 to 4000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.
@@ -16,7 +16,7 @@ pub struct InputReve21Remix {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputReve21RemixAspectRatio,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 8 images, each at most 30 MB.
     #[serde(default)]
     pub images: Vec<InputReve21RemixImagesItem>,
     /// Output image format.

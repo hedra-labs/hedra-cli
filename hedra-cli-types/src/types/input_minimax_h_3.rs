@@ -14,7 +14,7 @@ pub struct InputMinimaxH3 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. From 1 to 7000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output resolution.
@@ -22,22 +22,22 @@ pub struct InputMinimaxH3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3StartImage>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxH3AspectRatio>,
-    /// Reference images.
+    /// Reference images. 1 to 5 images, each at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMinimaxH3ImagesItem>>,
-    /// Reference videos.
+    /// Reference videos. 1 to 3 videos, each from 2s to 15s and at most 524.2 MB, at most 15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub videos: Option<Vec<InputMinimaxH3VideosItem>>,
-    /// Reference audios.
+    /// Reference audios. 1 to 3 audio files, each from 2s to 15s and at most 104.8 MB, at most 15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputMinimaxH3AudiosItem>>,
 }

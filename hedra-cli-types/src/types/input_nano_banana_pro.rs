@@ -18,7 +18,7 @@ pub struct InputNanoBananaPro {
     pub aspect_ratio: InputNanoBananaProAspectRatio,
     /// Output resolution.
     pub resolution: InputNanoBananaProResolution,
-    /// Images to edit or blend, up to 14 in total (6 high-fidelity objects, 5 characters, 3 style references).
+    /// Images to edit or blend, at most 6 high-fidelity objects, 5 characters and 3 style references. 1 to 14 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputNanoBananaProImagesItem>>,
     /// Seed for reproducible output; omit for a random seed.

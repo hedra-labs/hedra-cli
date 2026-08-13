@@ -14,7 +14,7 @@ pub struct InputMinimaxHailuo23 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output resolution.
@@ -23,7 +23,7 @@ pub struct InputMinimaxHailuo23 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). The output video follows this image's aspect ratio.
+    /// Start frame (image-to-video). The output video follows this image's aspect ratio. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxHailuo23StartImage>,
     /// Output aspect ratio.

@@ -9,7 +9,7 @@ use super::*;
 /// (2) requires: aspect_ratio, prompt; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputMaiImage25 {
-    /// Generation prompt.
+    /// Generation prompt. From 3 to 5000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.
@@ -20,7 +20,7 @@ pub struct InputMaiImage25 {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputMaiImage25AspectRatio,
-    /// The single source image to edit.
+    /// The single source image to edit. Exactly 1 image, at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMaiImage25ImagesItem>>,
     /// Output image format.

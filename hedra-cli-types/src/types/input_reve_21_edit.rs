@@ -5,7 +5,7 @@ use super::*;
 /// Model-specific inputs for `reve-21-edit`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputReve21Edit {
-    /// Generation prompt.
+    /// Generation prompt. From 1 to 4000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.
@@ -16,7 +16,7 @@ pub struct InputReve21Edit {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputReve21EditAspectRatio,
-    /// The single source image to edit.
+    /// The single source image to edit. Exactly 1 image, at most 30 MB.
     #[serde(default)]
     pub images: Vec<InputReve21EditImagesItem>,
     /// Output image format.

@@ -12,7 +12,7 @@ pub struct InputGrokVideo {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 4096 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output aspect ratio.
@@ -22,7 +22,7 @@ pub struct InputGrokVideo {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputGrokVideoStartImage>,
 }

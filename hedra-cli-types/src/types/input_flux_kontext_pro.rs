@@ -18,7 +18,7 @@ pub struct InputFluxKontextPro {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// The single source image to edit.
+    /// The single source image to edit. Exactly 1 image, at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFluxKontextProImagesItem>>,
     /// Output image format.
