@@ -13,7 +13,9 @@ name: Publish the Homebrew formula by pull request
 #
 # So: commit the formula onto a branch and open a pull request instead. Landing
 # it is the tap's own `autoland-formula.yml`, which approves and merges PRs from
-# this identity that touch nothing but `Formula/*.rb`.
+# this identity that touch nothing but `Formula/*.rb`. The PR is opened as
+# `secrets.HOMEBREW_TAP_TOKEN` and approved there as hedra-sdk-ci-app[bot];
+# see the IDENTITY comment on the checkout step for why round that way.
 #
 # A side benefit worth stating: the tap's `ruby -c Formula/*.rb` CI runs only on
 # `pull_request`, so every formula published by the old direct-push path went in
@@ -47,35 +49,36 @@ jobs:
       PLAN: ${{ inputs.plan }}
       TAP: hedra-labs/homebrew-tap
     steps:
-      # Identity: the hedra-sdk-ci-app App, not `secrets.HOMEBREW_TAP_TOKEN`.
-      # Both can write to the tap, but the tap's autoland has to gate on the PR
-      # author's immutable numeric account ID, and HOMEBREW_TAP_TOKEN is a
-      # personal access token belonging to a human (account 13316262 — the
-      # pusher of the 0.2.0 commit). Gating on that would grant every PR that
-      # human opens touching Formula/*.rb an automatic approve-and-merge, which
-      # is a standing privilege on a human account in exchange for a job that
-      # runs a few times a year. This App's token is minted per run, scoped to
-      # this one repository, and expires in an hour.
-      - name: Mint an installation token for the tap
-        id: tap-token
-        uses: actions/create-github-app-token@v3
-        with:
-          client-id: ${{ vars.SDK_BOT_APP_CLIENT_ID }}
-          private-key: ${{ secrets.SDK_BOT_APP_PRIVATE_KEY }}
-          # The App is installed on hedra-cli; minting for a *different* repo
-          # needs owner+repositories, and needs the App installed there too. If
-          # this step fails with "not installed", that is the org-admin action:
-          # add hedra-labs/homebrew-tap to the hedra-sdk-ci-app installation
-          # with Contents: write and Pull requests: write.
-          owner: hedra-labs
-          repositories: homebrew-tap
-
+      # IDENTITY. This opens the PR as `secrets.HOMEBREW_TAP_TOKEN`, and the tap
+      # approves it as hedra-sdk-ci-app[bot]. #80 had those two the other way
+      # round — the App here, the tap's own GITHUB_TOKEN approving — which
+      # cannot work: the hedra-labs org disallows Actions creating or approving
+      # pull requests, so a GITHUB_TOKEN approval is refused
+      # ("The organization does not allow GitHub Actions to create or approve
+      # pull requests", HTTP 409 even when *enabling* the repo-level setting).
+      # Both sibling autolands already avoid that trap by approving with an App
+      # token — hedra-cli's own autoland-regen.yml (fern-api[bot] authors,
+      # hedra-sdk-ci-app approves) and deployments' deploy-pr-approve.yml
+      # (recorder authors, auto-approver approves). This now matches them:
+      # a non-App author, an App approver.
+      #
+      # GitHub refuses self-approval, so the App cannot hold both roles, and
+      # approving is where it is worth more — an App token there needs no
+      # org-wide policy change. The cost is that the tap's autoland gate is a
+      # human's account ID (13316262, the pusher of the 0.2.0 commit) rather
+      # than a bot's. That gate is narrowed by branch prefix and file pattern,
+      # so what it grants is "PRs from that account, on formula/**, touching
+      # only Formula/*.rb" — not that account's pull requests at large.
+      #
+      # Note this token is a long-lived PAT: if it is rotated or its owner
+      # leaves, releases stop opening tap PRs, and the tap's gate has to be
+      # repointed at the new account ID.
       - name: Check out the tap
         uses: actions/checkout@v7
         with:
           repository: hedra-labs/homebrew-tap
           ref: main
-          token: ${{ steps.tap-token.outputs.token }}
+          token: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           persist-credentials: true
 
       # So we have access to the formula
@@ -89,13 +92,17 @@ jobs:
       - name: Commit the formulae onto a branch
         id: commit
         env:
-          APP_SLUG: ${{ steps.tap-token.outputs.app-slug }}
-          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
         run: |
           set -euo pipefail
 
-          git config user.name "${APP_SLUG}[bot]"
-          git config user.email "$(gh api "/users/${APP_SLUG}[bot]" --jq .id)+${APP_SLUG}[bot]@users.noreply.github.com"
+          # Name the automation, not the token's owner. Whoever
+          # HOMEBREW_TAP_TOKEN belongs to is the *pusher* either way — that is
+          # what the tap's autoland gates on — but the commit should read as a
+          # release artifact, the way the tap's history already does. A static
+          # identity, like the generated job's "axo bot"; no lookup to get wrong.
+          git config user.name "hedra-cli release"
+          git config user.email "noreply@hedra.com"
 
           tag="$(jq --raw-output '.announcement_tag' <<<"$PLAN")"
           branch="formula/${tag}"
@@ -157,7 +164,7 @@ jobs:
       - name: Open the tap pull request
         if: steps.commit.outputs.publish == 'true'
         env:
-          GH_TOKEN: ${{ steps.tap-token.outputs.token }}
+          GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
           BRANCH: ${{ steps.commit.outputs.branch }}
           TITLE: ${{ steps.commit.outputs.title }}
           TAG: ${{ steps.commit.outputs.tag }}
