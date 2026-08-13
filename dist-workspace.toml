@@ -28,11 +28,20 @@ github-build-setup = "../build-setup.yml"
 targets = ["aarch64-apple-darwin", "aarch64-unknown-linux-gnu", "aarch64-unknown-linux-musl", "x86_64-apple-darwin", "x86_64-unknown-linux-gnu", "x86_64-unknown-linux-musl", "x86_64-pc-windows-msvc"]
 # Which actions to run on pull requests
 pr-run-mode = "plan"
-# Publish stable Homebrew and npm releases after GitHub artifacts are available.
+# Publish stable npm releases after GitHub artifacts are available.
 # The 2FA-gated first publish is done: `@hedra/cli` 0.2.0 went to npm on
 # 2026-08-01, so the scope exists and CI can take over from here. The generated
 # publish job authenticates with the `NPM_TOKEN` secret.
-publish-jobs = ["homebrew", "npm"]
+#
+# "homebrew" is deliberately absent, and this is interim. The generated
+# `publish-homebrew-formula` job commits straight onto the tap's default branch,
+# which is protected; ENG-10303 replaces it with a PR into the tap plus
+# autoland on that side, and re-enables this entry once that is proven.
+# `installers`, `tap` and `formula` below stay exactly as they are: the formula
+# must keep being generated and attached to each GitHub Release. That artifact
+# is what the tap is updated from by hand in the meantime, and what ENG-10303's
+# mechanism takes as its input.
+publish-jobs = ["npm"]
 # Homebrew tap backing `brew install hedra-labs/tap/hedra-cli`.
 tap = "hedra-labs/homebrew-tap"
 # Keep package-manager names explicit: both install the `hedra` binary.
