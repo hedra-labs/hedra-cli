@@ -12,11 +12,16 @@
 # The repair cannot land in one commit. The workflows here live under .github/,
 # and regen-shape refuses any fern-bot/** PR whose diff touches .github/ — so
 # the rename lands on a regeneration branch while these checks must already
-# work on both the pre-rename `main` and the post-rename branch. Hence two
-# layouts, selected rather than guessed.
+# work on both the pre-rename tree and the post-rename one. Hence two layouts,
+# selected rather than guessed.
 #
-# TRANSITIONAL. Delete the hedra-sdk/hedra-types arm once the rename has landed
-# on main; nothing outside this file needs to change when it goes.
+# TRANSITIONAL, and on this branch not yet spent — do not backport #76 here.
+# `main` deleted the second arm once its own regeneration had landed; here the
+# tree is still pre-rename, and the rename arrives only when release-sdks.yml
+# cuts the release onto this branch, which has not been dispatched yet. Both
+# arms are therefore live: the checks run against the old layout today and the
+# new one after that regeneration merges. Delete the hedra-sdk/hedra-types arm
+# then, not before; nothing outside this file needs to change when it goes.
 #
 # Both names are hardcoded on purpose. Deriving them (`cargo metadata`) was
 # considered and rejected: the root Cargo.toml has no [workspace] table at all,
