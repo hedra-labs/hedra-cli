@@ -1,12 +1,13 @@
 use crate::api::*;
-use crate::{ApiError, ClientConfig, HttpClient, RequestOptions};
+use crate::{ApiError, ClientConfig, HttpClient, QueryBuilder, RequestOptions};
 use reqwest::Method;
+use std::collections::HashMap;
 
-pub struct LogDrainsClient {
+pub struct ModelsClient {
     pub http_client: HttpClient,
 }
 
-impl LogDrainsClient {
+impl ModelsClient {
     pub fn new(config: ClientConfig) -> Result<Self, ApiError> {
         Ok(Self {
             http_client: HttpClient::new(config.clone())?,
@@ -16,7 +17,7 @@ impl LogDrainsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -24,101 +25,23 @@ impl LogDrainsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
-    ///     client.log_drains.list_log_drains(None).await;
-    /// }
-    /// ```
-    pub async fn list_log_drains(
-        &self,
-        options: Option<RequestOptions>,
-    ) -> Result<LogDrainListResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.3.0".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(Method::GET, "log-drains", None, None, options)
-            .await
-    }
-
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
-    ///         .log_drains
-    ///         .create_log_drain(
-    ///             &LogDrainCreate {
-    ///                 name: "name".to_string(),
-    ///                 url: "url".to_string(),
-    ///                 format: None,
-    ///                 secret: None,
-    ///                 headers: None,
-    ///                 enabled: None,
-    ///                 batch_size: None,
+    ///         .models
+    ///         .list(
+    ///             &ModelsListQueryRequest {
+    ///                 ..Default::default()
     ///             },
     ///             None,
     ///         )
     ///         .await;
     /// }
     /// ```
-    pub async fn create_log_drain(
+    pub async fn list(
         &self,
-        request: &LogDrainCreate,
+        request: &ModelsListQueryRequest,
         options: Option<RequestOptions>,
-    ) -> Result<LogDrainConfig, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.3.0".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "log-drains",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .log_drains
-    ///         .get_log_drain(&"drain_id".to_string(), None)
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn get_log_drain(
-        &self,
-        drain_id: &str,
-        options: Option<RequestOptions>,
-    ) -> Result<LogDrainConfig, ApiError> {
+    ) -> Result<ModelListResponse, ApiError> {
         let options = {
             let mut o = options.unwrap_or_default();
             o.additional_headers
@@ -129,9 +52,11 @@ impl LogDrainsClient {
         self.http_client
             .execute_request(
                 Method::GET,
-                &format!("log-drains/{}", drain_id),
+                "models",
                 None,
-                None,
+                QueryBuilder::new()
+                    .serialize("modality", request.modality.clone())
+                    .build(),
                 options,
             )
             .await
@@ -140,7 +65,7 @@ impl LogDrainsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -148,18 +73,15 @@ impl LogDrainsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .log_drains
-    ///         .delete_log_drain(&"drain_id".to_string(), None)
-    ///         .await;
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client.models.get(&"model".to_string(), None).await;
     /// }
     /// ```
-    pub async fn delete_log_drain(
+    pub async fn get(
         &self,
-        drain_id: &str,
+        model: &str,
         options: Option<RequestOptions>,
-    ) -> Result<(), ApiError> {
+    ) -> Result<ModelDetail, ApiError> {
         let options = {
             let mut o = options.unwrap_or_default();
             o.additional_headers
@@ -169,8 +91,8 @@ impl LogDrainsClient {
         };
         self.http_client
             .execute_request(
-                Method::DELETE,
-                &format!("log-drains/{}", drain_id),
+                Method::GET,
+                &format!("models/{}", model),
                 None,
                 None,
                 options,
@@ -181,7 +103,7 @@ impl LogDrainsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -189,12 +111,12 @@ impl LogDrainsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
-    ///         .log_drains
-    ///         .update_log_drain(
-    ///             &"drain_id".to_string(),
-    ///             &LogDrainUpdate {
+    ///         .models
+    ///         .list_model_jobs(
+    ///             &"model".to_string(),
+    ///             &ListModelJobsQueryRequest {
     ///                 ..Default::default()
     ///             },
     ///             None,
@@ -202,12 +124,12 @@ impl LogDrainsClient {
     ///         .await;
     /// }
     /// ```
-    pub async fn update_log_drain(
+    pub async fn list_model_jobs(
         &self,
-        drain_id: &str,
-        request: &LogDrainUpdate,
+        model: &str,
+        request: &ListModelJobsQueryRequest,
         options: Option<RequestOptions>,
-    ) -> Result<LogDrainConfig, ApiError> {
+    ) -> Result<JobListResponse, ApiError> {
         let options = {
             let mut o = options.unwrap_or_default();
             o.additional_headers
@@ -217,9 +139,110 @@ impl LogDrainsClient {
         };
         self.http_client
             .execute_request(
-                Method::PATCH,
-                &format!("log-drains/{}", drain_id),
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
+                Method::GET,
+                &format!("models/{}/jobs", model),
+                None,
+                QueryBuilder::new()
+                    .int("limit", request.limit.clone())
+                    .serialize("cursor", request.cursor.clone())
+                    .build(),
+                options,
+            )
+            .await
+    }
+
+    /// Voices this model accepts — scoped to the model's voice provider.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model's public id (`GET /v3/models`).
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client.models.list_voices(&"model".to_string(), None).await;
+    /// }
+    /// ```
+    pub async fn list_voices(
+        &self,
+        model: &str,
+        options: Option<RequestOptions>,
+    ) -> Result<VoiceListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.3.0".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::GET,
+                &format!("models/{}/voices", model),
+                None,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// A standalone one-operation OpenAPI spec for this model's submit call.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model's public id (`GET /v3/models`).
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client.models.get_openapi(&"model".to_string(), None).await;
+    /// }
+    /// ```
+    pub async fn get_openapi(
+        &self,
+        model: &str,
+        options: Option<RequestOptions>,
+    ) -> Result<HashMap<String, serde_json::Value>, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.3.0".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::GET,
+                &format!("models/{}/openapi.json", model),
+                None,
                 None,
                 options,
             )
@@ -229,7 +252,7 @@ impl LogDrainsClient {
     /// # Examples
     ///
     /// ```no_run
-    /// use hedra_sdk::prelude::*;
+    /// use hedra_cli_sdk::prelude::*;
     ///
     /// #[tokio::main]
     /// async fn main() {
@@ -237,18 +260,25 @@ impl LogDrainsClient {
     ///         token: Some("<token>".to_string()),
     ///         ..Default::default()
     ///     };
-    ///     let client = HedraClient::new(config).expect("Failed to build client");
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
     ///     client
-    ///         .log_drains
-    ///         .test_log_drain(&"drain_id".to_string(), None)
+    ///         .models
+    ///         .estimate(
+    ///             &"model".to_string(),
+    ///             &EstimateRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
     ///         .await;
     /// }
     /// ```
-    pub async fn test_log_drain(
+    pub async fn estimate(
         &self,
-        drain_id: &str,
+        model: &str,
+        request: &EstimateRequest,
         options: Option<RequestOptions>,
-    ) -> Result<LogDrainTestResponse, ApiError> {
+    ) -> Result<EstimateResponse, ApiError> {
         let options = {
             let mut o = options.unwrap_or_default();
             o.additional_headers
@@ -259,8 +289,8 @@ impl LogDrainsClient {
         self.http_client
             .execute_request(
                 Method::POST,
-                &format!("log-drains/{}/test", drain_id),
-                None,
+                &format!("models/{}/estimate", model),
+                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
             )
