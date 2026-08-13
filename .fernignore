@@ -1,5 +1,22 @@
 # Files owned by the user — fern generate will not overwrite these.
+#
+# Both custom.rs paths are listed through the ENG-10291 rename. The generator
+# moved the bin from cli/hedra/ to cli/hedra-cli/, and an entry naming only the
+# old path left the real cli/hedra-cli/custom.rs — the one main.rs actually
+# resolves `mod custom` to — completely unprotected, while the entry guarded an
+# orphan. Per the .gitattributes note below, an entry for an absent file is
+# inert, so listing both is safe on either layout and neither tree has a window
+# where the live file is unprotected.
+#
+# TRANSITIONAL: drop cli/hedra/custom.rs once the rename has landed here, i.e.
+# once release-sdks.yml has re-cut the release onto this branch. Measured on
+# hedra-cli #81, the regeneration of this branch as it stands: cli/hedra/custom.rs
+# survives as an orphan (this entry is what protects it) while the generator
+# emits a fresh cli/hedra-cli/custom.rs. Nothing is lost either way — the two
+# differ only in the `hedra_sdk::` -> `hedra_cli_sdk::` doc-comment references,
+# so this branch's custom.rs is the untouched scaffold.
 cli/hedra/custom.rs
+cli/hedra-cli/custom.rs
 README.md
 
 # NOTE: src/pager.rs is deliberately NOT listed (ENG-10250). It held a hand-carried

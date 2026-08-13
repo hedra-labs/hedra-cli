@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import re
 import sys
+from pathlib import PurePosixPath
 
 USAGE = """usage:
   {prog} <version> <config.rs> <sdk_executor.rs>           apply both patches in place
@@ -76,6 +77,15 @@ SEMVER = re.compile(
     r"(?:\+([0-9a-zA-Z-]+(?:\.[0-9a-zA-Z-]+)*))?$"
 )
 
+# The [package] table's body, which runs until the next table header at column
+# 0 or EOF. Scoped rather than searched file-wide so a `[lib]` table's own
+# `name` key — the root manifest has one — cannot be read as the crate name.
+PACKAGE_TABLE = re.compile(r"(?ms)^\[package\][ \t]*\n(.*?)(?=^\[|\Z)")
+
+# A [package] table's `name` key, used to confirm the SDK crate's identifier
+# really is its directory name with dashes swapped for underscores.
+PACKAGE_NAME = re.compile(r'(?m)^name[ \t]*=[ \t]*"([^"]*)"[ \t]*$')
+
 # The X-Fern-SDK-Version tuple in ClientConfig::default()'s custom_headers.
 # Anchored to the full line so the Language/Name tuples above it can't match.
 VERSION_TUPLE = re.compile(
@@ -89,28 +99,73 @@ EXECUTOR_ANCHOR = (
     "        Self {"
 )
 
-EXECUTOR_PATCH = (
-    '            .expect("HttpConfig::build_client failed");\n'
-    "        // ENG-10226 (patched post-generation; delete when ENG-10234 lands\n"
-    "        // upstream): `HttpClient::with_executor` skips `apply_custom_headers`\n"
-    "        // by contract — the executor's transport stack owns those headers — so\n"
-    "        // the SDK's identity trio must be re-supplied on the global-header\n"
-    "        // channel that does reach the wire. Entries the caller already\n"
-    "        // supplies win over the SDK defaults.\n"
-    "        let mut global_headers = global_headers;\n"
-    "        let mut identity: Vec<(String, String)> = hedra_sdk::ClientConfig::default()\n"
-    "            .custom_headers\n"
-    "            .into_iter()\n"
-    "            .filter(|(name, _)| {\n"
-    "                !global_headers\n"
-    "                    .iter()\n"
-    "                    .any(|(have, _)| have.eq_ignore_ascii_case(name))\n"
-    "            })\n"
-    "            .collect();\n"
-    "        identity.sort();\n"
-    "        global_headers.extend(identity);\n"
-    "        Self {"
-)
+def sdk_crate(config_path: str) -> str:
+    """The SDK's Rust crate identifier, from the directory holding its config.rs.
+
+    The patch body names the SDK crate, so it cannot be a fixed string: the
+    ENG-10291 rename moved hedra-sdk/ -> hedra-cli-sdk/, and with it the crate
+    from `hedra_sdk` to `hedra_cli_sdk`. Taking the name from the config.rs path
+    the caller already passes keeps the inserted code and the crate it calls
+    into in lockstep by construction — one argument, not two that can disagree.
+
+    Cargo's own directory-to-crate convention (dashes become underscores) is
+    what makes this exact rather than a guess, and it is checked below against
+    the manifest.
+    """
+    parts = PurePosixPath(config_path).parts
+    if len(parts) < 2 or parts[1] != "src":
+        raise SystemExit(
+            f"{config_path}: expected <crate-dir>/src/config.rs; cannot infer the SDK crate name"
+        )
+    crate = parts[0].replace("-", "_")
+
+    # Verify rather than assume: a crate whose [package] name diverges from its
+    # directory would otherwise yield a patch that references a crate that does
+    # not exist, and the failure would surface as a Rust compile error far from
+    # here.
+    manifest = PurePosixPath(parts[0]) / "Cargo.toml"
+    try:
+        with open(manifest, encoding="utf-8") as fh:
+            table = PACKAGE_TABLE.search(fh.read())
+    except OSError as exc:
+        raise SystemExit(f"{manifest}: {exc.strerror or exc}")
+    if not table:
+        raise SystemExit(f"{manifest}: no [package] table found")
+    declared = PACKAGE_NAME.search(table.group(1))
+    if not declared:
+        raise SystemExit(f"{manifest}: no [package] name key found")
+    if declared.group(1) != crate:
+        raise SystemExit(
+            f"{manifest}: package name {declared.group(1)!r} does not match the "
+            f"directory-derived {crate!r}; refusing to guess which the patch should call"
+        )
+    return crate
+
+
+def executor_patch(crate: str) -> str:
+    """The patched `CliExecutor::new` body, calling into `crate`."""
+    return (
+        '            .expect("HttpConfig::build_client failed");\n'
+        "        // ENG-10226 (patched post-generation; delete when ENG-10234 lands\n"
+        "        // upstream): `HttpClient::with_executor` skips `apply_custom_headers`\n"
+        "        // by contract — the executor's transport stack owns those headers — so\n"
+        "        // the SDK's identity trio must be re-supplied on the global-header\n"
+        "        // channel that does reach the wire. Entries the caller already\n"
+        "        // supplies win over the SDK defaults.\n"
+        "        let mut global_headers = global_headers;\n"
+        f"        let mut identity: Vec<(String, String)> = {crate}::ClientConfig::default()\n"
+        "            .custom_headers\n"
+        "            .into_iter()\n"
+        "            .filter(|(name, _)| {\n"
+        "                !global_headers\n"
+        "                    .iter()\n"
+        "                    .any(|(have, _)| have.eq_ignore_ascii_case(name))\n"
+        "            })\n"
+        "            .collect();\n"
+        "        identity.sort();\n"
+        "        global_headers.extend(identity);\n"
+        "        Self {"
+    )
 
 
 def _version_tuple(source: str, path: str) -> re.Match:
@@ -137,14 +192,19 @@ def set_sdk_version(source: str, version: str, path: str) -> str:
     return source[: match.start()] + line + source[match.end() :]
 
 
-def executor_state(source: str, path: str) -> str:
+def executor_state(source: str, path: str, crate: str) -> str:
     """"patched" or "unpatched"; SystemExit on any shape the anchors miss.
 
     The two shapes are mutually exclusive — the patch breaks up the anchor's
     contiguous text — so anything but exactly one of them means regeneration
     moved `CliExecutor::new` and the anchors need updating by hand.
+
+    A body patched against a *different* SDK crate reads as neither shape, and
+    fails loudly here. That is the intended behaviour: after the ENG-10291
+    rename the tree briefly held a merge calling the old `hedra_sdk`, which no
+    longer compiles, and silently accepting it would have hidden a broken tree.
     """
-    patched = source.count(EXECUTOR_PATCH)
+    patched = source.count(executor_patch(crate))
     anchored = source.count(EXECUTOR_ANCHOR)
     if patched == 1 and anchored == 0:
         return "patched"
@@ -156,11 +216,11 @@ def executor_state(source: str, path: str) -> str:
     )
 
 
-def patch_executor(source: str, path: str) -> str:
+def patch_executor(source: str, path: str, crate: str) -> str:
     """`source` with the identity-header merge in place; idempotent."""
-    if executor_state(source, path) == "patched":
+    if executor_state(source, path, crate) == "patched":
         return source
-    return source.replace(EXECUTOR_ANCHOR, EXECUTOR_PATCH, 1)
+    return source.replace(EXECUTOR_ANCHOR, executor_patch(crate), 1)
 
 
 def _read(path: str) -> str:
@@ -211,8 +271,9 @@ def main(argv: list[str]) -> int:
         _write(config_path, set_sdk_version(source, version, config_path))
         print(f'{config_path}: X-Fern-SDK-Version = "{current}" -> "{version}"')
 
+    crate = sdk_crate(config_path)
     source = _read(executor_path)
-    state = executor_state(source, executor_path)
+    state = executor_state(source, executor_path, crate)
     if check:
         if state == "patched":
             print(f"{executor_path}: identity-header merge present")
@@ -222,7 +283,7 @@ def main(argv: list[str]) -> int:
     elif state == "patched":
         print(f"{executor_path}: identity-header merge already present (unchanged)")
     else:
-        _write(executor_path, patch_executor(source, executor_path))
+        _write(executor_path, patch_executor(source, executor_path, crate))
         print(f"{executor_path}: merged the identity headers into CliExecutor::new")
 
     if drift:
