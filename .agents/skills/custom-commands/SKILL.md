@@ -1,13 +1,13 @@
 ---
-name: hedra-custom-commands
-description: How to author custom commands for the hedra CLI using the co-generated SDK.
+name: hedra-cli-custom-commands
+description: How to author custom commands for the hedra-cli CLI using the co-generated SDK.
 ---
 
-# Custom Commands for `hedra`
+# Custom Commands for `hedra-cli`
 
 ## Overview
 
-The `hedra` CLI supports user-authored custom commands that are
+The `hedra-cli` CLI supports user-authored custom commands that are
 compiled into the binary alongside the auto-generated API commands.
 Custom commands get a fully-wired SDK client that inherits the CLI's
 auth, retries, TLS, base URL, and global headers — zero configuration required.
@@ -15,22 +15,22 @@ auth, retries, TLS, base URL, and global headers — zero configuration required
 ## Architecture
 
 ```
-cli/hedra/custom.rs    ← Your command handlers (protected by .fernignore)
-cli/hedra/sdk.rs       ← Generated bridge: client() + block_on()
-cli/hedra/main.rs      ← Generated entrypoint (calls custom::register)
-hedra-sdk/             ← Co-generated typed SDK crate
-hedra-types/           ← Co-generated typed model crate
+cli/hedra-cli/custom.rs    ← Your command handlers (protected by .fernignore)
+cli/hedra-cli/sdk.rs       ← Generated bridge: client() + block_on()
+cli/hedra-cli/main.rs      ← Generated entrypoint (calls custom::register)
+hedra-cli-sdk/             ← Co-generated typed SDK crate
+hedra-cli-types/           ← Co-generated typed model crate
 ```
 
 ## Adding a Custom Command
 
-### 1. Edit `cli/hedra/custom.rs`
+### 1. Edit `cli/hedra-cli/custom.rs`
 
 This file is protected by `.fernignore` — `fern generate` will never
 overwrite it. Register commands in the `register()` function:
 
 ```rust
-use hedra_sdk::api::*;
+use hedra_cli_sdk::api::*;
 
 pub fn register(app: CliApp) -> CliApp {
     let app = app.command(
@@ -55,24 +55,24 @@ pub fn register(app: CliApp) -> CliApp {
 Then build and test:
 ```bash
 cargo build
-hedra jobs-get <job_id>
+hedra-cli jobs-get <job_id>
 ```
 
 ### 2. Available SDK Clients
 
-The `super::sdk::client(ctx)` call returns a `hedra_sdk::api::Client`
+The `super::sdk::client(ctx)` call returns a `hedra_cli_sdk::api::Client`
 with the following sub-clients:
 
 | Field | Type | Description |
 |-------|------|-------------|
-| `client.jobs` | `hedra_sdk::api::JobsClient` | jobs operations |
-| `client.models` | `hedra_sdk::api::ModelsClient` | models operations |
-| `client.keys` | `hedra_sdk::api::KeysClient` | keys operations |
-| `client.tokens` | `hedra_sdk::api::TokensClient` | tokens operations |
-| `client.files` | `hedra_sdk::api::FilesClient` | files operations |
-| `client.billing` | `hedra_sdk::api::BillingClient` | billing operations |
-| `client.webhooks` | `hedra_sdk::api::WebhooksClient` | webhooks operations |
-| `client.log_drains` | `hedra_sdk::api::LogDrainsClient` | log_drains operations |
+| `client.jobs` | `hedra_cli_sdk::api::JobsClient` | jobs operations |
+| `client.models` | `hedra_cli_sdk::api::ModelsClient` | models operations |
+| `client.keys` | `hedra_cli_sdk::api::KeysClient` | keys operations |
+| `client.tokens` | `hedra_cli_sdk::api::TokensClient` | tokens operations |
+| `client.files` | `hedra_cli_sdk::api::FilesClient` | files operations |
+| `client.billing` | `hedra_cli_sdk::api::BillingClient` | billing operations |
+| `client.webhooks` | `hedra_cli_sdk::api::WebhooksClient` | webhooks operations |
+| `client.log_drains` | `hedra_cli_sdk::api::LogDrainsClient` | log_drains operations |
 
 ### 3. Key Patterns
 
@@ -90,7 +90,7 @@ let result = super::sdk::block_on(
 
 **Use typed models for request/response serialization:**
 ```rust
-use hedra_sdk::api::*;
+use hedra_cli_sdk::api::*;
 ```
 
 ### 4. Authentication
@@ -106,11 +106,11 @@ No manual auth wiring is needed in custom command handlers.
 
 | File | Regenerated? | Notes |
 |------|-------------|-------|
-| `cli/hedra/custom.rs` | **No** | Protected by `.fernignore` |
-| `cli/hedra/sdk.rs` | Yes | Bridges AppContext → SDK client |
-| `cli/hedra/main.rs` | Yes | Calls `custom::register(app)` |
-| `hedra-sdk/` | Yes | Co-generated typed SDK crate |
-| `hedra-types/` | Yes | Co-generated typed models |
+| `cli/hedra-cli/custom.rs` | **No** | Protected by `.fernignore` |
+| `cli/hedra-cli/sdk.rs` | Yes | Bridges AppContext → SDK client |
+| `cli/hedra-cli/main.rs` | Yes | Calls `custom::register(app)` |
+| `hedra-cli-sdk/` | Yes | Co-generated typed SDK crate |
+| `hedra-cli-types/` | Yes | Co-generated typed models |
 
 After running `fern generate`, your `custom.rs` is preserved. All
 generated code (SDK, types, glue, main.rs) is updated to match the
@@ -124,8 +124,8 @@ sub-clients), update your `custom.rs` to match.
 cargo build
 
 # Run your custom command
-hedra <your-command> [args]
+hedra-cli <your-command> [args]
 
 # Run with verbose output for debugging
-RUST_LOG=debug hedra <your-command> [args]
+RUST_LOG=debug hedra-cli <your-command> [args]
 ```
