@@ -1,5 +1,24 @@
+# ENG-10291: these are the post-rename crate directories, and they do not exist
+# in this branch's tree yet. That is deliberate, not an oversight.
+#
+# This branch is a base for regeneration, not something built directly. The
+# release is cut by re-dispatching fern-config's release-sdks.yml onto it with
+# binary_names=cli=hedra-cli, and that generation moves hedra-sdk/ ->
+# hedra-cli-sdk/ and hedra-types/ -> hedra-cli-types/. dist-workspace.toml is
+# .fernignore'd, so the generation cannot repair this list itself — a member
+# list naming the old directories is what makes `dist plan` fail on the release
+# PR with "Failed to find Cargo.toml in an ancestor of .../hedra-types"
+# (hedra-cli #81).
+#
+# Unlike .github/scripts/crate-layout.sh, a static member list cannot span both
+# layouts, so it has to name one of them. It names the one the release will
+# have. The cost is that `plan` stays red on this branch until that regeneration
+# merges — which is also true of tests/wire_contract.rs, updated in the same
+# commit for the same reason. On main the equivalent flip rode along inside the
+# regeneration PR itself (#72); no one is hand-pushing into a release PR, which
+# is the whole point of fixing it here.
 [workspace]
-members = ["cargo:.", "cargo:hedra-types", "cargo:hedra-sdk"]
+members = ["cargo:.", "cargo:hedra-cli-types", "cargo:hedra-cli-sdk"]
 
 # Config for 'dist'
 [dist]

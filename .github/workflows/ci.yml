@@ -38,12 +38,13 @@ jobs:
       # root crate's version alone) and must not leave main red.
       - name: Check the workspace crate versions are aligned
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           if python3 .github/scripts/set-version.py --check "$version" \
-              hedra-sdk/Cargo.toml hedra-types/Cargo.toml; then
+              "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then
             exit 0
           fi
-          hint="run: python3 .github/scripts/set-version.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/Cargo.toml hedra-types/Cargo.toml && cargo fetch"
+          hint="run: python3 .github/scripts/set-version.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/Cargo.toml $TYPES_DIR/Cargo.toml && cargo fetch"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "::error::Workspace crate versions are not aligned with the root ($version) — $hint"
             exit 1
@@ -61,12 +62,13 @@ jobs:
       # patch-sdk-headers.py when ENG-10234 lands upstream.
       - name: Check the SDK header patches are applied
         run: |
+          . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           if python3 .github/scripts/patch-sdk-headers.py --check "$version" \
-              hedra-sdk/src/config.rs src/sdk_executor.rs; then
+              "$SDK_DIR/src/config.rs" src/sdk_executor.rs; then
             exit 0
           fi
-          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" hedra-sdk/src/config.rs src/sdk_executor.rs"
+          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/src/config.rs src/sdk_executor.rs"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
             echo "::error::The ENG-10226 SDK header patches are not applied — $hint"
             exit 1
@@ -105,6 +107,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
 
@@ -117,8 +120,15 @@ jobs:
             exit 0
           fi
 
-          git fetch --no-tags origin main
-          base="$(git merge-base origin/main HEAD)"
+          # The PR's own base, not main. On a PR onto a release branch the
+          # merge-base with main predates the branch's divergence, so
+          # everything the release branch has accumulated since counts as
+          # "changed" and the check fails on files the PR never touched:
+          # hedra-cli #81 was failed by #78's edit to release.yml, while the
+          # files API reports the PR touches 551 files and none under .github/.
+          # Identical behaviour for PRs onto main, where base.ref *is* main.
+          git fetch --no-tags origin "$BASE_REF"
+          base="$(git merge-base FETCH_HEAD HEAD)"
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed files (${#changed[@]}):"
           printf '  %s\n' "${changed[@]}"
