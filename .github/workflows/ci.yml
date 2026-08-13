@@ -75,6 +75,32 @@ jobs:
           fi
           echo "::warning::The ENG-10226 SDK header patches are not applied — $hint"
 
+      # Anti-revert guard for ENG-10303. The Homebrew publish path opens a PR
+      # into the tap because the tap's main requires one; the built-in cargo-dist
+      # job pushes instead, and `dist init` or a cargo-dist bump would restore it
+      # from dist-workspace.toml without anyone touching a workflow. Fern
+      # regeneration will not do it (.github/ is .fernignore'd) and no job here
+      # runs `dist generate --check`, so this is the only thing that would notice.
+      #
+      # A step in the already-required `rust` job rather than a job of its own,
+      # so it needs no branch-protection change — same reasoning as the two
+      # above. A hard error on every event, unlike them: this is a static
+      # property of committed files, and release-sdks.yml's direct-to-main
+      # commits cannot perturb it.
+      #
+      # The guard reads workflow structure, not text, so it needs a YAML parser.
+      # PyYAML is not a documented part of the runner image but is usually
+      # present; installing it conditionally keeps the common path offline.
+      - name: Check the Homebrew publish path opens a pull request
+        run: |
+          python3 -c "import yaml" 2>/dev/null ||
+            python3 -m pip install --quiet --disable-pip-version-check --break-system-packages pyyaml
+          python3 .github/scripts/check-homebrew-publish.py
+          # The guard's own failure mode is going quiet — rules that stop
+          # matching the publish job pass forever on an unguarded repo — so its
+          # tests, which assert it still inspects one, run with it.
+          python3 -m unittest discover -s .github/scripts -p 'test_check_homebrew_publish.py'
+
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1
 
