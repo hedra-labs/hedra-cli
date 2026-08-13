@@ -107,6 +107,7 @@ jobs:
         env:
           EVENT: ${{ github.event_name }}
           HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
 
@@ -119,8 +120,15 @@ jobs:
             exit 0
           fi
 
-          git fetch --no-tags origin main
-          base="$(git merge-base origin/main HEAD)"
+          # The PR's own base, not main. On a PR onto a release branch the
+          # merge-base with main predates the branch's divergence, so
+          # everything the release branch has accumulated since counts as
+          # "changed" and the check fails on files the PR never touched:
+          # hedra-cli #81 was failed by #78's edit to release.yml, while the
+          # files API reports the PR touches 551 files and none under .github/.
+          # Identical behaviour for PRs onto main, where base.ref *is* main.
+          git fetch --no-tags origin "$BASE_REF"
+          base="$(git merge-base FETCH_HEAD HEAD)"
           mapfile -t changed < <(git diff --name-only "$base" HEAD)
           echo "Changed files (${#changed[@]}):"
           printf '  %s\n' "${changed[@]}"
