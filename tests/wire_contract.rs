@@ -3,7 +3,7 @@
 //! Three scenarios, one per way a request can leave this binary:
 //!
 //!   1. OpenAPI path      — `HttpConfig::build_client`, what real commands use today
-//!   2. SDK via executor  — replicates `cli/hedra/sdk.rs`, what a custom command hits
+//!   2. SDK via executor  — replicates `cli/hedra-cli/sdk.rs`, what a custom command hits
 //!   3. SDK direct        — `HttpClient::new`, isolates which layer drops headers
 //!
 //! Assertions state the INTENDED contract, so some fail today. Each failure is
@@ -49,7 +49,7 @@ fn assert_header(req: &Request, name: &str, expected: &str) {
 /// The spec the CLI was generated from, parsed from the copy embedded in the
 /// binary rather than fetched, so these helpers see exactly what ships.
 fn embedded_spec() -> serde_json::Value {
-    serde_json::from_str(include_str!("../cli/hedra/openapi0.json"))
+    serde_json::from_str(include_str!("../cli/hedra-cli/openapi0.json"))
         .expect("embedded spec is valid JSON")
 }
 
@@ -58,7 +58,7 @@ fn embedded_spec() -> serde_json::Value {
 ///
 /// This governs the SDK's own copy of the value: the generator bakes a literal
 /// into each resource method's `additional_headers`
-/// (`hedra-sdk/src/api/resources/models/models.rs:45-51`), and `info.version`
+/// (`hedra-cli-sdk/src/api/resources/models/models.rs:45-51`), and `info.version`
 /// is the in-repo field that literal tracks. The CLI path uses a *different*
 /// source — see [`global_header_default`].
 fn spec_version() -> String {
@@ -74,7 +74,7 @@ fn spec_version() -> String {
 /// This reproduces the real runtime chain, which the executor scenario below
 /// otherwise misses entirely:
 ///
-///   1. `cli/hedra/openapi0.json` declares `x-fern-global-headers`, each entry
+///   1. `cli/hedra-cli/openapi0.json` declares `x-fern-global-headers`, each entry
 ///      carrying an optional `default`.
 ///   2. `src/openapi/app.rs:1568-1633` registers one hidden global clap arg per
 ///      entry, with `.default_value(default)` when the spec supplies one.
@@ -246,12 +246,12 @@ async fn openapi_path_ignores_header_invalid_user_agent_suffix() {
 
 /// Build a `ModelsClient` that talks straight to `base_url` with no executor,
 /// so the SDK applies its own headers.
-fn direct_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
-    let config = hedra_sdk::ClientConfig {
+fn direct_models_client(base_url: String) -> hedra_cli_sdk::api::ModelsClient {
+    let config = hedra_cli_sdk::ClientConfig {
         base_url,
         ..Default::default()
     };
-    hedra_sdk::api::ModelsClient::new(config).expect("ModelsClient::new")
+    hedra_cli_sdk::api::ModelsClient::new(config).expect("ModelsClient::new")
 }
 
 /// Without an executor the SDK applies its own headers, so three arrive with
@@ -264,18 +264,18 @@ async fn sdk_direct_sends_identity_headers() {
     let client = direct_models_client(server.uri());
 
     let _ = client
-        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .list(&hedra_cli_sdk::api::ModelsListQueryRequest::default(), None)
         .await;
 
     let req = capture_one(&server).await;
     assert_header(&req, "x-fern-language", "Rust");
-    assert_header(&req, "x-fern-sdk-name", "hedra_sdk");
+    assert_header(&req, "x-fern-sdk-name", "hedra_cli_sdk");
     assert_header(&req, "x-hedra-spec-version", &spec_version());
 }
 
 /// The SDK version header must report the crate's real version.
 ///
-/// DEFECT — fails today. `hedra-sdk/src/config.rs:38` hardcodes the literal
+/// DEFECT — fails today. `hedra-cli-sdk/src/config.rs:38` hardcodes the literal
 /// "0.1.0". It has not moved since the first commit, surviving 0.2.0 → 0.9.9 →
 /// 1.0.0-dev and every regeneration: `fern generate --version` stamps the root
 /// manifest and has no channel to this constant. Since #52 (ENG-10219) aligned
@@ -288,7 +288,7 @@ async fn sdk_direct_reports_the_real_crate_version() {
     let client = direct_models_client(server.uri());
 
     let _ = client
-        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .list(&hedra_cli_sdk::api::ModelsListQueryRequest::default(), None)
         .await;
 
     let req = capture_one(&server).await;
@@ -299,14 +299,14 @@ async fn sdk_direct_reports_the_real_crate_version() {
 // Scenario 2 — the SDK with the CLI's executor injected
 // ---------------------------------------------------------------------------
 
-/// Mirror of `CliExecutorAdapter` in `cli/hedra/sdk.rs:19-37`.
+/// Mirror of `CliExecutorAdapter` in `cli/hedra-cli/sdk.rs:19-37`.
 ///
 /// Replicated rather than imported: that file is part of the `hedra` binary,
 /// not the `fern_cli_sdk` lib, so an integration test cannot reach it. If the
 /// generated bridge changes shape, update this to match.
 struct CliExecutorAdapter(Arc<fern_cli_sdk::sdk_executor::CliExecutor>);
 
-impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
+impl hedra_cli_sdk::RequestExecutor for CliExecutorAdapter {
     fn execute(
         &self,
         request: reqwest::Request,
@@ -325,7 +325,7 @@ impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
     }
 }
 
-/// Mirror of `client()` in `cli/hedra/sdk.rs:48-66`, pointed at the mock server.
+/// Mirror of `client()` in `cli/hedra-cli/sdk.rs:48-66`, pointed at the mock server.
 ///
 /// The real bridge calls `ctx.build_sdk_executor()`, which reads its arguments
 /// off the live `AppContext` — unreachable here, because building one requires
@@ -348,7 +348,7 @@ impl hedra_sdk::RequestExecutor for CliExecutorAdapter {
 ///   agree, so neither rewrite can send the request anywhere else.
 ///
 /// Retries are left at `RetriesConfig::default()`, matching `CliExecutor::new`.
-fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
+fn executor_models_client(base_url: String) -> hedra_cli_sdk::api::ModelsClient {
     let http_config = fern_cli_sdk::http::HttpConfig::new("hedra").expect("HttpConfig::new");
     let auth: fern_cli_sdk::auth::provider::DynAuthProvider =
         Arc::new(fern_cli_sdk::auth::provider::NoAuthProvider);
@@ -358,20 +358,20 @@ fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
         cli_global_headers(),
         Some(base_url.clone()),
     ));
-    let adapter = Arc::new(CliExecutorAdapter(executor)) as Arc<dyn hedra_sdk::RequestExecutor>;
-    let config = hedra_sdk::ClientConfig {
+    let adapter = Arc::new(CliExecutorAdapter(executor)) as Arc<dyn hedra_cli_sdk::RequestExecutor>;
+    let config = hedra_cli_sdk::ClientConfig {
         base_url,
         ..Default::default()
     };
-    let http_client = hedra_sdk::HttpClient::with_executor(adapter, config);
-    hedra_sdk::api::ModelsClient { http_client }
+    let http_client = hedra_cli_sdk::HttpClient::with_executor(adapter, config);
+    hedra_cli_sdk::api::ModelsClient { http_client }
 }
 
 /// Config-level identity headers must survive the CLI's executor.
 ///
 /// DEFECT — fails today, but not the one it first looks like. The SDK side is
 /// working as documented: `with_executor`
-/// (`hedra-sdk/src/core/http_client.rs:229-236`) states outright that "Auth
+/// (`hedra-cli-sdk/src/core/http_client.rs:229-236`) states outright that "Auth
 /// headers, custom headers, and retry logic are NOT applied by this client —
 /// the executor's transport stack is expected to handle them", to prevent
 /// double-retry and double-auth when the SDK is embedded in a CLI. So
@@ -380,9 +380,9 @@ fn executor_models_client(base_url: String) -> hedra_sdk::api::ModelsClient {
 ///
 /// The bug is the other half of that contract going unhonoured: the CLI's
 /// executor never picked up the `X-Fern-*` trio it thereby became responsible
-/// for. `ClientConfig::custom_headers` (`hedra-sdk/src/config.rs:35-39`) holds
+/// for. `ClientConfig::custom_headers` (`hedra-cli-sdk/src/config.rs:35-39`) holds
 /// `X-Fern-Language` / `X-Fern-SDK-Name` / `X-Fern-SDK-Version`, and nothing in
-/// `cli/hedra/sdk.rs` merges them into the channel that does reach the wire —
+/// `cli/hedra-cli/sdk.rs` merges them into the channel that does reach the wire —
 /// `CliExecutor`'s `global_headers`. Contrast
 /// `executor_path_preserves_spec_version_header`, where the CLI *does* supply
 /// the header through that channel and it arrives.
@@ -394,12 +394,12 @@ async fn executor_path_preserves_config_identity_headers() {
     let client = executor_models_client(server.uri());
 
     let _ = client
-        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .list(&hedra_cli_sdk::api::ModelsListQueryRequest::default(), None)
         .await;
 
     let req = capture_one(&server).await;
     assert_header(&req, "x-fern-language", "Rust");
-    assert_header(&req, "x-fern-sdk-name", "hedra_sdk");
+    assert_header(&req, "x-fern-sdk-name", "hedra_cli_sdk");
 }
 
 /// The spec-version header must survive the CLI's executor. It does — this is
@@ -418,7 +418,7 @@ async fn executor_path_preserves_config_identity_headers() {
 ///
 /// - SDK-side, dropped: the generated methods inject it into
 ///   `options.additional_headers`
-///   (`hedra-sdk/src/api/resources/models/models.rs:45-51`), which only
+///   (`hedra-cli-sdk/src/api/resources/models/models.rs:45-51`), which only
 ///   `apply_custom_headers` reads — skipped on the executor branch.
 /// - CLI-side, delivered: the spec's `x-fern-global-headers` default becomes a
 ///   global clap flag, lands in `BindingEntry::global_headers`, and
@@ -436,7 +436,7 @@ async fn executor_path_preserves_spec_version_header() {
     let client = executor_models_client(server.uri());
 
     let _ = client
-        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .list(&hedra_cli_sdk::api::ModelsListQueryRequest::default(), None)
         .await;
 
     let req = capture_one(&server).await;
@@ -467,7 +467,7 @@ async fn executor_path_still_sends_user_agent() {
     let client = executor_models_client(server.uri());
 
     let _ = client
-        .list(&hedra_sdk::api::ModelsListQueryRequest::default(), None)
+        .list(&hedra_cli_sdk::api::ModelsListQueryRequest::default(), None)
         .await;
 
     let req = capture_one(&server).await;
