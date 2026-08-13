@@ -33,15 +33,23 @@ pr-run-mode = "plan"
 # 2026-08-01, so the scope exists and CI can take over from here. The generated
 # publish job authenticates with the `NPM_TOKEN` secret.
 #
-# "homebrew" is deliberately absent, and this is interim. The generated
-# `publish-homebrew-formula` job commits straight onto the tap's default branch,
-# which is protected; ENG-10303 replaces it with a PR into the tap plus
-# autoland on that side, and re-enables this entry once that is proven.
-# `installers`, `tap` and `formula` below stay exactly as they are: the formula
-# must keep being generated and attached to each GitHub Release. That artifact
-# is what the tap is updated from by hand in the meantime, and what ENG-10303's
-# mechanism takes as its input.
-publish-jobs = ["npm"]
+# Homebrew is back, as `./publish-homebrew-pr` — a custom job, not the built-in
+# "homebrew". #77 removed the built-in because it commits straight onto the tap's
+# protected default branch; this is the ENG-10303 replacement it was waiting for,
+# and it opens a pull request into the tap instead. hedra-labs/homebrew-tap's
+# autoland-formula.yml lands that PR.
+#
+# Naming the custom workflow here rather than hand-patching the generated
+# release.yml is what makes the fix survive `dist init` and a cargo-dist bump;
+# see the header of .github/workflows/publish-homebrew-pr.yml, and the guard in
+# .github/scripts/check-homebrew-publish.py that keeps it that way.
+#
+# `installers`, `tap` and `formula` below still stay exactly as they are, for the
+# reason #77 gave: the formula must keep being generated and attached to each
+# GitHub Release. `installers` and `publish-jobs` are independent settings, so
+# that held while the publisher was off and holds now that it is back — and that
+# artifact remains the by-hand fallback if this automation is ever down.
+publish-jobs = ["./publish-homebrew-pr", "npm"]
 # Homebrew tap backing `brew install hedra-labs/tap/hedra-cli`.
 tap = "hedra-labs/homebrew-tap"
 # Keep package-manager names explicit: both install the `hedra-cli` binary.
