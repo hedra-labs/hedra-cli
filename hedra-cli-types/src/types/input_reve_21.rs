@@ -5,7 +5,7 @@ use super::*;
 /// Model-specific inputs for `reve-21`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct InputReve21 {
-    /// Generation prompt.
+    /// Generation prompt. From 1 to 4000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.

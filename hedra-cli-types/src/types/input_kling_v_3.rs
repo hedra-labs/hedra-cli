@@ -16,13 +16,13 @@ pub struct InputKlingV3 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2500 characters.
     #[serde(default)]
     pub prompt: String,
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// What to avoid in the generated video.
+    /// What to avoid in the generated video. At most 2500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
     /// Output aspect ratio.
@@ -33,15 +33,15 @@ pub struct InputKlingV3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKlingV3StartImage>,
-    /// How closely the model follows the prompt.
+    /// How closely the model follows the prompt. From 0 to 1.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub cfg_scale: Option<f64>,
-    /// End frame (first-last-frame-to-video).
+    /// End frame (first-last-frame-to-video). At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputKlingV3EndImage>,
     /// Quality level to generate at.

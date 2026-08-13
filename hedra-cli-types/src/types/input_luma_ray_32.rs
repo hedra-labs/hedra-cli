@@ -8,7 +8,7 @@ pub struct InputLumaRay32 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 6000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output aspect ratio.

@@ -5,7 +5,7 @@ use super::*;
 /// Model-specific inputs for `imagen4`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct InputImagen4 {
-    /// Generation prompt.
+    /// Generation prompt. At most 5000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.

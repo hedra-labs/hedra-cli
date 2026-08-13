@@ -5,7 +5,7 @@ use super::*;
 /// Model-specific inputs for `recraft-v3`.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct InputRecraftV3 {
-    /// Generation prompt.
+    /// Generation prompt. At most 1000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.

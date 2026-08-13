@@ -54,7 +54,13 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
-current_generation: a0942c3d712cad534472d9edf8bd51ac3428ad1f
+  - commit_sha: ce5fc81bf0761f23ac000126d4628168fb2294bb
+    tree_hash: 577474d6e5cfd19364b36a0fb5cedb691bb5866a
+    timestamp: 2026-08-13T22:39:28.012Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.30.2
+current_generation: ce5fc81bf0761f23ac000126d4628168fb2294bb
 patches:
   - id: patch-ed9886b4
     content_hash: sha256:2da1cf244c2717c387a9a4f93c62ffecd67830217f938586d67da91edc906c65
@@ -149,7 +155,7 @@ patches:
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: a0942c3d712cad534472d9edf8bd51ac3428ad1f
+    base_generation: ce5fc81bf0761f23ac000126d4628168fb2294bb
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -1999,7 +2005,7 @@ patches:
     original_commit: d06b3c36b975382679e6fa65a1c80d30bfa6073a
     original_message: "fix: re-supply the X-Fern-* identity headers the CLI executor drops (#57)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: a0942c3d712cad534472d9edf8bd51ac3428ad1f
+    base_generation: ce5fc81bf0761f23ac000126d4628168fb2294bb
     files:
       - hedra-sdk/src/config.rs
       - src/sdk_executor.rs
@@ -2034,50 +2040,6 @@ patches:
                    client,
                    auth_provider,
     theirs_snapshot:
-      hedra-sdk/src/config.rs: |
-        use crate::Environment;
-        use std::collections::HashMap;
-        use std::time::Duration;
-
-        #[derive(Debug, Clone)]
-        pub struct ClientConfig {
-            pub base_url: String,
-            pub api_key: Option<String>,
-            pub token: Option<String>,
-            pub username: Option<String>,
-            pub password: Option<String>,
-            pub client_id: Option<String>,
-            pub client_secret: Option<String>,
-            pub oauth_token_endpoint: Option<String>,
-            pub oauth_token_exchange: Option<crate::OAuthTokenExchangeConfig>,
-            pub timeout: Duration,
-            pub max_retries: u32,
-            pub custom_headers: HashMap<String, String>,
-            pub user_agent: String,
-        }
-        impl Default for ClientConfig {
-            fn default() -> Self {
-                Self {
-                    base_url: Environment::default().url().to_string(),
-                    api_key: None,
-                    token: None,
-                    username: None,
-                    password: None,
-                    client_id: None,
-                    client_secret: None,
-                    oauth_token_endpoint: None,
-                    oauth_token_exchange: None,
-                    timeout: Duration::from_secs(60),
-                    max_retries: 3,
-                    custom_headers: HashMap::from([
-                        ("X-Fern-Language".to_string(), "Rust".to_string()),
-                        ("X-Fern-SDK-Name".to_string(), "hedra_sdk".to_string()),
-                        ("X-Fern-SDK-Version".to_string(), "1.0.0-dev".to_string()),
-                    ]),
-                    user_agent: "Api Rust SDK".to_string(),
-                }
-            }
-        }
       src/sdk_executor.rs: |
         //! SDK execution bridge — implements the generated SDK's `RequestExecutor`
         //! trait by routing through the CLI's existing HTTP/auth/retry stack.
@@ -2849,7 +2811,7 @@ patches:
     original_commit: fc264e8085cc77f7c978f4d51f069682dd31c2bf
     original_message: update dist configuration to not trip dependabot (#60)
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: a0942c3d712cad534472d9edf8bd51ac3428ad1f
+    base_generation: ce5fc81bf0761f23ac000126d4628168fb2294bb
     files:
       - hedra-types/.gitignore
     patch_content: |

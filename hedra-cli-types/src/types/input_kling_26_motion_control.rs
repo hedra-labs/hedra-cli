@@ -8,15 +8,15 @@ pub struct InputKling26MotionControl {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
     /// Whether the output character's orientation follows the reference video ('video' — better for complex motion) or the character image ('image' — better for camera movement). Also caps the source video: 30s for 'video', 10s for 'image'.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_orientation: Option<InputKling26MotionControlCharacterOrientation>,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 10.4 MB.
     pub start_image: InputKling26MotionControlStartImage,
-    /// Source video (video-to-video).
+    /// Source video (video-to-video). From 3s to 30s and at most 524.2 MB.
     pub source_video: InputKling26MotionControlSourceVideo,
     /// Output resolution to generate at.
     pub resolution: InputKling26MotionControlResolution,

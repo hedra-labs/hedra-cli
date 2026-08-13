@@ -12,7 +12,7 @@ pub struct InputHappyHorse {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 2500 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output aspect ratio.
@@ -22,13 +22,13 @@ pub struct InputHappyHorse {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At least 300px on each side and at most 10 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputHappyHorseStartImage>,
-    /// Reference images.
+    /// Reference images. 1 to 9 images, each at least 400px on each side and at most 10 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputHappyHorseImagesItem>>,
-    /// Seed for reproducible output; omit for a random seed.
+    /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
 }

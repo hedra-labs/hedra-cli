@@ -12,7 +12,7 @@ pub struct InputVeo3 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt.
+    /// Generation prompt. At most 20000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output aspect ratio.
@@ -25,7 +25,7 @@ pub struct InputVeo3 {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video).
+    /// Start frame (image-to-video). At most 8 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputVeo3StartImage>,
     /// What to avoid in the generated video.

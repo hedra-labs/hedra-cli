@@ -9,7 +9,7 @@ use super::*;
 /// (2) requires: aspect_ratio, prompt, resolution; must omit: images
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputGptImage2 {
-    /// Generation prompt.
+    /// Generation prompt. At most 32000 characters.
     #[serde(default)]
     pub prompt: String,
     /// Number of outputs generated per job. Only 1 is supported.
@@ -22,7 +22,7 @@ pub struct InputGptImage2 {
     pub aspect_ratio: InputGptImage2AspectRatio,
     /// Output resolution.
     pub resolution: InputGptImage2Resolution,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 16 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputGptImage2ImagesItem>>,
     /// Output image format.

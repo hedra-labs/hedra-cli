@@ -20,7 +20,7 @@ pub struct InputFlux2Pro {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputFlux2ProAspectRatio,
-    /// Images to edit or blend.
+    /// Images to edit or blend. 1 to 8 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFlux2ProImagesItem>>,
     /// Output image format.
