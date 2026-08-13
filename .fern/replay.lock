@@ -48,7 +48,13 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.30.2
-current_generation: 864f7979250fdea5e41aacb350123d5dae35fd32
+  - commit_sha: 58b9e25a9e334a6bd669d8282a402ff52c0ba40e
+    tree_hash: b5a6849af1959f1b230dc092949d062e100ad82e
+    timestamp: 2026-08-13T20:27:24.577Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.30.2
+current_generation: 58b9e25a9e334a6bd669d8282a402ff52c0ba40e
 patches:
   - id: patch-ed9886b4
     content_hash: sha256:2da1cf244c2717c387a9a4f93c62ffecd67830217f938586d67da91edc906c65
@@ -143,7 +149,7 @@ patches:
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 864f7979250fdea5e41aacb350123d5dae35fd32
+    base_generation: 58b9e25a9e334a6bd669d8282a402ff52c0ba40e
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -1989,28 +1995,15 @@ patches:
           what the binary trace provided.
     user_owned: true
   - id: patch-d06b3c36
-    content_hash: sha256:ceeeafdb490a2f3870d6400736f44028da9a873c526564d547911070e061ea60
+    content_hash: sha256:9535b3469c76af321701d295a6fc5088dd222033ff38cd5551ca2bec19525c80
     original_commit: d06b3c36b975382679e6fa65a1c80d30bfa6073a
     original_message: "fix: re-supply the X-Fern-* identity headers the CLI executor drops (#57)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 864f7979250fdea5e41aacb350123d5dae35fd32
+    base_generation: 58b9e25a9e334a6bd669d8282a402ff52c0ba40e
     files:
       - hedra-sdk/src/config.rs
       - src/sdk_executor.rs
     patch_content: |
-      diff --git a/hedra-sdk/src/config.rs b/hedra-sdk/src/config.rs
-      index 26ba512..2cbfe4b 100644
-      --- a/hedra-sdk/src/config.rs
-      +++ b/hedra-sdk/src/config.rs
-      @@ -35,7 +35,7 @@ impl Default for ClientConfig {
-                   custom_headers: HashMap::from([
-                       ("X-Fern-Language".to_string(), "Rust".to_string()),
-                       ("X-Fern-SDK-Name".to_string(), "hedra_sdk".to_string()),
-      -                ("X-Fern-SDK-Version".to_string(), "0.1.0".to_string()),
-      +                ("X-Fern-SDK-Version".to_string(), "1.0.0-dev".to_string()),
-                   ]),
-                   user_agent: "Api Rust SDK".to_string(),
-               }
       diff --git a/src/sdk_executor.rs b/src/sdk_executor.rs
       index 44e0269..13805c0 100644
       --- a/src/sdk_executor.rs
@@ -2856,7 +2849,7 @@ patches:
     original_commit: fc264e8085cc77f7c978f4d51f069682dd31c2bf
     original_message: update dist configuration to not trip dependabot (#60)
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 864f7979250fdea5e41aacb350123d5dae35fd32
+    base_generation: 58b9e25a9e334a6bd669d8282a402ff52c0ba40e
     files:
       - hedra-types/.gitignore
     patch_content: |
