@@ -81,8 +81,13 @@ exclude:
   # freezes real generated dependency changes, the ENG-10048 trap the Cargo.lock
   # entry in .fernignore documents. Excluding here leaves both files fully
   # generator-owned and only stops Replay putting yesterday's stamp back on top.
+  #
+  # Both spellings: ENG-10291 renamed the crates, and the pre-rename patch is
+  # still in the ledger naming the old paths.
   - hedra-sdk/Cargo.toml
   - hedra-types/Cargo.toml
+  - hedra-cli-sdk/Cargo.toml
+  - hedra-cli-types/Cargo.toml
 
   # The ENG-10226 identity-header merge in CliExecutor::new (ENG-10241, and the
   # 2026-08-13 regeneration that forced the issue).
