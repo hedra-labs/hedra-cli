@@ -128,6 +128,34 @@ exclude:
   # [src/sdk_executor.rs], so this entry skips it too.
   - src/sdk_executor.rs
 
+  # The ENG-10310 identity-header seeding in HttpConfig::build_client.
+  #
+  # Same shape as the entry above, and listed for the same reason rather than by
+  # analogy: src/http.rs is generated, and its one deviation from generated
+  # output is machine-owned — patch-sdk-headers.py re-derives the seeding after
+  # every regeneration, naming the SDK crate from the config.rs path it is
+  # handed. A *recorded* copy of that same fixup is therefore never useful, and
+  # is actively harmful for the reason d06b3c36 demonstrated: patch_content is
+  # frozen at detection, so the day the crate is renamed again Replay lays the
+  # old crate name back over freshly generated code, the result matches neither
+  # the generated nor the patched shape, and patch-sdk-headers.py refuses to
+  # guess — aborting refresh-lockfile.yml before the version alignment.
+  #
+  # Excluded from the first commit rather than after the first failure: the
+  # commit that adds this file's patch touches src/http.rs, so it is detected as
+  # a customization on the very next regeneration. Without this entry that is a
+  # ~20-line replayed hunk against generator-owned code, i.e. the identical trap,
+  # and the whole point of ENG-10310 is to stop re-applying these by hand.
+  #
+  # That introducing commit is deliberately src/http.rs ALONE, per the
+  # WHOLE-PATCH SEMANTICS note at the top of this file: the rest of ENG-10310
+  # (the wire-contract lock, patch-sdk-headers.py, the workflow call sites) is a
+  # separate commit, so this entry retires a patch whose file list is exactly
+  # [src/http.rs] and drags nothing else into the skip. Everything in that second
+  # commit is .fernignore'd anyway, so neither commit depends on Replay to
+  # survive.
+  - src/http.rs
+
   # NOT excluded, deliberately: hedra-cli-sdk/Cargo.toml,
   # hedra-cli-types/Cargo.toml and hedra-cli-sdk/src/config.rs — the post-rename
   # paths of the two stamps above. release/1.0.x and release/2.0.0 do list the

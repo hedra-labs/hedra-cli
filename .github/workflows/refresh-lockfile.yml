@@ -5,11 +5,14 @@
 #
 # --- SDK header patches ---
 #
-# Regeneration resets hedra-sdk/src/config.rs to an X-Fern-SDK-Version of
-# "0.1.0" and emits a CliExecutor that drops the SDK's X-Fern-* identity
-# headers. Neither file can be .fernignore'd (both must keep receiving real
-# generator changes), so patch-sdk-headers.py re-applies both fixes after
-# every regeneration — the same design as the version aligner. The script's
+# Regeneration resets hedra-cli-sdk/src/config.rs to an X-Fern-SDK-Version of
+# "0.1.0", emits an HttpConfig::build_client that never seeds the SDK's
+# X-Fern-* identity headers (ENG-10310 — this is the path every built-in
+# command takes, so it is the one production traffic shows), and emits a
+# CliExecutor that drops the same trio on the custom-command path. None of the
+# three files can be .fernignore'd (all must keep receiving real generator
+# changes), so patch-sdk-headers.py re-applies the fixes after every
+# regeneration — the same design as the version aligner. The script's
 # docstring carries the full rationale, the patch anchors, and the removal
 # condition (delete the step when ENG-10234 lands upstream).
 #
@@ -166,7 +169,7 @@ jobs:
           . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           python3 .github/scripts/patch-sdk-headers.py "$version" \
-            "$SDK_DIR/src/config.rs" src/sdk_executor.rs
+            "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs
 
       - name: Check whether Cargo.lock is stale
         id: staleness
