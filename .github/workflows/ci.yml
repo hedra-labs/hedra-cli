@@ -51,10 +51,10 @@ jobs:
           fi
           echo "::warning::Workspace crate versions are not aligned with the root ($version) — $hint"
 
-      # Same backstop, for the ENG-10226 header patches: refresh-lockfile.yml
-      # only fires on fern-bot/** branches, so a hand-made regeneration PR
-      # would otherwise reach the Test step with the X-Fern-* headers dropped
-      # and fail tests/wire_contract.rs with a far less legible message.
+      # Same backstop, for the header patches: refresh-lockfile.yml only fires
+      # on fern-bot/** branches, so a hand-made regeneration PR would otherwise
+      # reach the Test step with the X-Fern-* headers dropped and fail
+      # tests/wire_contract.rs with a far less legible message.
       #
       # Advisory off pull_request for the same release-sdks.yml reason as
       # above — though on such a tree the Test step goes red regardless; this
@@ -65,15 +65,15 @@ jobs:
           . .github/scripts/crate-layout.sh
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           if python3 .github/scripts/patch-sdk-headers.py --check "$version" \
-              "$SDK_DIR/src/config.rs" src/sdk_executor.rs; then
+              "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs; then
             exit 0
           fi
-          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/src/config.rs src/sdk_executor.rs"
+          hint="run: python3 .github/scripts/patch-sdk-headers.py \"\$(python3 .github/scripts/set-version.py --read Cargo.toml)\" $SDK_DIR/src/config.rs src/http.rs src/sdk_executor.rs"
           if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "::error::The ENG-10226 SDK header patches are not applied — $hint"
+            echo "::error::The SDK header patches are not applied — $hint"
             exit 1
           fi
-          echo "::warning::The ENG-10226 SDK header patches are not applied — $hint"
+          echo "::warning::The SDK header patches are not applied — $hint"
 
       # Anti-revert guard for ENG-10303. The Homebrew publish path opens a PR
       # into the tap because the tap's main requires one; the built-in cargo-dist
@@ -96,10 +96,23 @@ jobs:
           python3 -c "import yaml" 2>/dev/null ||
             python3 -m pip install --quiet --disable-pip-version-check --break-system-packages pyyaml
           python3 .github/scripts/check-homebrew-publish.py
-          # The guard's own failure mode is going quiet — rules that stop
-          # matching the publish job pass forever on an unguarded repo — so its
-          # tests, which assert it still inspects one, run with it.
-          python3 -m unittest discover -s .github/scripts -p 'test_check_homebrew_publish.py'
+
+      # Every script in .github/scripts shares one failure mode: going quiet.
+      # A guard whose rules stop matching, or a patcher whose anchors stop
+      # firing, passes forever on a tree it no longer protects — so their tests
+      # run here, unfiltered.
+      #
+      # Unfiltered is the point (ENG-10310). This step used to pass
+      # -p 'test_check_homebrew_publish.py', so test_patch_sdk_headers.py had
+      # never run in CI: it sat 18-errors red on main — its fixtures predated
+      # sdk_crate() and passed flat temp paths — through the three days
+      # patch-sdk-headers.py was being repaired by hand. The tests for the
+      # mechanism that survives regeneration must themselves run.
+      #
+      # Keep this after the Homebrew step: test_check_homebrew_publish.py needs
+      # PyYAML, which that step installs when the runner image lacks it.
+      - name: Test the CI scripts
+        run: python3 -m unittest discover -s .github/scripts -v
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v1

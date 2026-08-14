@@ -240,6 +240,101 @@ async fn openapi_path_ignores_header_invalid_user_agent_suffix() {
     );
 }
 
+/// The value `ClientConfig` holds for `name`, as the SDK would send it.
+///
+/// The OpenAPI path reads this same map at client-build time, so asserting
+/// against it rather than a second copy of the literals means a rename that
+/// moves one and not the other fails here instead of on a dashboard.
+fn config_identity_header(name: &str) -> String {
+    hedra_cli_sdk::ClientConfig::default()
+        .custom_headers
+        .into_iter()
+        .find(|(header, _)| header.eq_ignore_ascii_case(name))
+        .map(|(_, value)| value)
+        .unwrap_or_else(|| panic!("ClientConfig::default() carries `{name}` in custom_headers"))
+}
+
+/// The `X-Fern-*` identity trio must reach the wire on the path real commands
+/// use. ENG-10310.
+///
+/// This is the assertion whose absence let ENG-10310 ship. Every other identity
+/// test in this file exercises the SDK — scenario 3 directly, scenario 2 through
+/// `CliExecutor` — and all of them were green for the whole window in which
+/// production logged 223 requests across four CLI versions carrying not one
+/// `X-Fern-*` header. Scenario 1, the path that traffic actually came from,
+/// asserted only the User-Agent.
+///
+/// The paths are genuinely disjoint: a built-in command never constructs an SDK
+/// client, it goes `openapi/executor.rs` → `HttpConfig::build_client`. So the
+/// ENG-10226 merge in `CliExecutor::new` — a real fix, and still the lock next
+/// door — was invisible to it. `CliExecutor` is reached only from
+/// `cli/hedra-cli/sdk.rs`, i.e. custom commands, which are effectively none of
+/// the traffic. Hence "the fix is present in the repo" and "no released binary
+/// sends the headers" were both true at once.
+#[tokio::test]
+async fn openapi_path_sends_identity_headers() {
+    let server = mock_server().await;
+    let client = fern_cli_sdk::http::HttpConfig::new("hedra")
+        .expect("HttpConfig::new")
+        .build_client()
+        .expect("build_client");
+
+    let _ = client.get(format!("{}/models", server.uri())).send().await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-fern-language", "Rust");
+    assert_header(&req, "x-fern-sdk-name", "hedra_cli_sdk");
+}
+
+/// The version on the wire must be the crate's real version, on this path too.
+///
+/// Guards ENG-10226 defect 2 where it actually ships. `CARGO_PKG_VERSION` is the
+/// root manifest's, and `X-Fern-SDK-Version` comes from the SDK crate's
+/// `config.rs` literal that patch-sdk-headers.py rewrites from that same
+/// manifest — so this compares across crates and fails if the aligner is ever
+/// dropped, leaving a `-dev` or a stale number on real requests.
+#[tokio::test]
+async fn openapi_path_reports_the_real_crate_version() {
+    let server = mock_server().await;
+    let client = fern_cli_sdk::http::HttpConfig::new("hedra")
+        .expect("HttpConfig::new")
+        .build_client()
+        .expect("build_client");
+
+    let _ = client.get(format!("{}/models", server.uri())).send().await;
+
+    let req = capture_one(&server).await;
+    assert_header(&req, "x-fern-sdk-version", env!("CARGO_PKG_VERSION"));
+}
+
+/// What the OpenAPI path sends and what the SDK declares must not drift apart.
+///
+/// The two assertions above pin literals, which is what catches a header going
+/// missing. This one pins the *link*: `build_client` populates its defaults from
+/// `ClientConfig::default().custom_headers`, so if a future rename edits the SDK
+/// config and the CLI keeps sending the old strings — the ENG-10291 failure
+/// shape, which cost a hand fix on two branches — the literals above still pass
+/// and only this fails, naming both sides.
+#[tokio::test]
+async fn openapi_path_identity_matches_the_sdk_config() {
+    let server = mock_server().await;
+    let client = fern_cli_sdk::http::HttpConfig::new("hedra")
+        .expect("HttpConfig::new")
+        .build_client()
+        .expect("build_client");
+
+    let _ = client.get(format!("{}/models", server.uri())).send().await;
+
+    let req = capture_one(&server).await;
+    for name in ["X-Fern-Language", "X-Fern-SDK-Name", "X-Fern-SDK-Version"] {
+        assert_header(
+            &req,
+            &name.to_ascii_lowercase(),
+            &config_identity_header(name),
+        );
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Scenario 3 — the SDK with no executor injected
 // ---------------------------------------------------------------------------
