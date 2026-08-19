@@ -216,7 +216,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           . .github/scripts/crate-layout.sh
-          # A set check, not a string compare: up to five files can legitimately
+          # A set check, not a string compare: up to six files can legitimately
           # be dirty now, in any combination.
           #
           # The allowlist and the message it prints are built from one list, so
@@ -226,7 +226,7 @@ jobs:
           # leave a guard that either passes on ANYTHING or rejects everything,
           # while still reading correctly in review. Widening this to `.*` is
           # strictly worse than the loud failure it replaces.
-          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/sdk_executor.rs)
+          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs)
           # Escape the dots so `config.rs` cannot also match `configXrs`; the
           # crate directory names themselves carry no regex metacharacters.
           escaped="$(printf '%s\n' "${allowed[@]}" | sed 's/\./\\./g' | paste -sd '|' -)"
@@ -245,7 +245,7 @@ jobs:
           if ! git diff --cached --quiet -- "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then
             parts="align workspace crate versions"
           fi
-          if ! git diff --cached --quiet -- "$SDK_DIR/src/config.rs" src/sdk_executor.rs; then
+          if ! git diff --cached --quiet -- "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs; then
             parts="${parts:+$parts and }re-apply the SDK header patches"
           fi
           if ! git diff --cached --quiet -- Cargo.lock; then
