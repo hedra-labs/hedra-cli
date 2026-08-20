@@ -481,11 +481,31 @@ pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let refreshed = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(refresh_token_grant(&endpoints, &refresh))
     })?;
-    // Best-effort persist: the call at hand already has its token, so a
-    // keyring hiccup must not fail it — only the next call pays.
-    if let Ok(json) = refreshed.to_keyring_value() {
-        let _ = active_store().set(cli_name, SCHEME, &json);
-    }
+
+    // The persist is NOT best-effort. The identity provider rotates the
+    // refresh token on every exchange, so the moment this grant succeeds the
+    // token still in the keyring is dead. Dropping the replacement — the old
+    // behaviour, on the reasoning that "the call at hand already has its
+    // token, only the next call pays" — silently destroys the session: the
+    // next login-plane call presents an invalidated token and is refused,
+    // and the user is sent back through a browser login for no visible
+    // reason.
+    //
+    // Failing here instead costs the current command, which the user can
+    // retry, rather than the session.
+    let json = refreshed.to_keyring_value().map_err(|e| {
+        CliError::Auth(format!(
+            "could not serialize the refreshed session: {e}. The previous refresh \
+             token has already been consumed — run `{cli_name} auth login` again."
+        ))
+    })?;
+    active_store().set(cli_name, SCHEME, &json).map_err(|e| {
+        CliError::Auth(format!(
+            "the refreshed session could not be saved: {e}. The previous refresh \
+             token has already been consumed, so the stored session is now stale — \
+             fix the credential store and run `{cli_name} auth login` again."
+        ))
+    })?;
     Ok(refreshed.access_token)
 }
 
@@ -867,23 +887,27 @@ pub(crate) fn mint_for_workspace(
     api_base: &str,
     workspace_id: &str,
 ) -> Result<MintedKey, CliError> {
-    mint_for_workspace_at(cli_name, api_base, workspace_id)
+    let jwt = fresh_login_jwt(cli_name)?;
+    mint_for_workspace_at(cli_name, api_base, &jwt, workspace_id)
 }
 
 /// The api-base-parameterized body (tests drive it against a mock server),
 /// mirroring `bootstrap_inner`'s shape.
-fn mint_for_workspace_at(
+pub(crate) fn mint_for_workspace_at(
     cli_name: &str,
     api_base: &str,
+    jwt: &str,
     workspace_id: &str,
 ) -> Result<MintedKey, CliError> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
-    // A mint is a login-plane call: it needs a token minted seconds ago,
-    // not merely an unexpired one (see `fresh_login_jwt`).
-    let jwt = fresh_login_jwt(cli_name)?;
+    // `jwt` must be login-plane fresh — minted seconds ago, not merely
+    // unexpired (see `fresh_login_jwt`). Taking it as a parameter rather
+    // than minting one here lets a caller that already refreshed reuse it:
+    // each refresh rotates the token, so two in one command is one rotation
+    // too many.
     let req = http
         .post(format!("{api_base}/v3/keys/bootstrap"))
         .bearer_auth(jwt);
@@ -1159,7 +1183,7 @@ fn iso8601_to_epoch(s: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1404,7 +1428,7 @@ mod tests {
     }
 
     /// Both halves cleared — most tests need discovery to actually run.
-    fn clear_endpoint_override() {
+    pub(crate) fn clear_endpoint_override() {
         std::env::remove_var("HEDRA_AUTH_AUTHORIZE_URL");
         std::env::remove_var("HEDRA_AUTH_TOKEN_URL");
     }
@@ -1710,7 +1734,7 @@ mod tests {
     /// caller must hold it for the length of the test, or the directory is
     /// removed and `HOME` restored the moment it drops.
     #[must_use]
-    fn seed_live_session(store: &MockKeyringStore, server_uri: &str) -> TempHome {
+    pub(crate) fn seed_live_session(store: &MockKeyringStore, server_uri: &str) -> TempHome {
         let home = seed_discovery_cache(&AuthEndpoints {
             resource: resource_base_url().to_string(),
             authorization_endpoint: format!("{server_uri}/authorize"),
@@ -1749,7 +1773,7 @@ mod tests {
     /// Points `HOME` (and `XDG_CONFIG_HOME`, which the Linux branch prefers)
     /// at a temp directory, restoring both on drop. Holding one keeps a
     /// test off the developer's real config directory.
-    struct TempHome {
+    pub(crate) struct TempHome {
         _dir: tempfile::TempDir,
         previous_home: Option<std::ffi::OsString>,
         previous_xdg: Option<std::ffi::OsString>,
@@ -1785,7 +1809,7 @@ mod tests {
 
     /// Every login-plane call mints a fresh JWT first, so a mint test needs
     /// the token leg mocked too.
-    async fn mock_token_refresh(server: &MockServer) {
+    pub(crate) async fn mock_token_refresh(server: &MockServer) {
         Mock::given(method("POST"))
             .and(path("/token"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1820,7 +1844,13 @@ mod tests {
         let _home = seed_live_session(&store, &server.uri());
         mock_token_refresh(&server).await;
 
-        let err = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap_err();
+        let err = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap_err();
         let msg = err.to_string();
 
         assert!(
@@ -1862,7 +1892,13 @@ mod tests {
         let _home = seed_live_session(&store, &server.uri());
         mock_token_refresh(&server).await;
 
-        let minted = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap();
+        let minted = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap();
 
         assert_eq!(minted.key_id, "key_w2");
         assert_eq!(minted.workspace_name.as_deref(), Some("Born Free"));
@@ -1901,7 +1937,13 @@ mod tests {
         mock_token_refresh(&server).await;
         store.set("test-cli", KEY_SCHEME, "key_held:stay").unwrap();
 
-        let err = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap_err();
+        let err = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("w1") && msg.contains("w2"),
@@ -1971,6 +2013,53 @@ mod tests {
             serde_json::from_str(&store.get("test-cli", SCHEME).unwrap().unwrap()).unwrap();
         assert_eq!(stored.access_token, "brand-new");
         assert_eq!(stored.refresh_token.as_deref(), Some("rotated"));
+    }
+
+    /// If the rotated token cannot be stored, the command must fail rather
+    /// than return a working JWT.
+    ///
+    /// The exchange has already consumed the previous refresh token
+    /// server-side, so a silently-dropped replacement leaves the stored
+    /// session dead: the next login-plane call presents an invalidated token
+    /// and is refused, sending the user through a browser login for no
+    /// visible reason. Failing here costs one retryable command instead.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_rotation_that_cannot_be_stored_fails_the_call() {
+        clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "brand-new", "refresh_token": "rotated",
+                "token_type": "Bearer", "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        // Seed through a plain store, then swap in one that cannot write the
+        // OAuth slot — the seeding itself has to succeed.
+        let mock = std::sync::Arc::new(MockKeyringStore::new());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(mock.clone()));
+        let _home = seed_live_session(&mock, &server.uri());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(
+            std::sync::Arc::new(FailingWrites {
+                inner: mock.clone(),
+                slot: SCHEME,
+            }),
+        ));
+
+        let err = fresh_login_jwt("test-cli").unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("auth login"),
+            "the user must be told how to recover: {msg}"
+        );
+        assert!(
+            msg.contains("consumed"),
+            "and why the stored session is now unusable: {msg}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]

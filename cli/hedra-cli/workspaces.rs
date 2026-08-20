@@ -494,16 +494,14 @@ fn http_client() -> Result<reqwest::Client, CliError> {
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))
 }
 
-/// Fetch the listing as the logged-in user. `/v3/workspaces` is a
-/// login-plane endpoint, so it needs a freshly minted JWT rather than
-/// whatever unexpired token the keyring happens to hold — see
-/// `auth::fresh_login_jwt`.
-fn fetch_listing_as_user(
-    cli_name: &str,
-    api_base: &str,
-) -> Result<Vec<WorkspaceSummary>, CliError> {
+/// Fetch the listing with an already-fresh login JWT. `/v3/workspaces` is a
+/// login-plane endpoint, so `jwt` must be one `auth::fresh_login_jwt`
+/// produced — an unexpired token from the keyring is not enough.
+///
+/// The token is a parameter rather than minted here so a caller needing two
+/// login-plane calls pays for one rotation, not two.
+fn fetch_listing_with_jwt(api_base: &str, jwt: &str) -> Result<Vec<WorkspaceSummary>, CliError> {
     let http = http_client()?;
-    let jwt = auth::fresh_login_jwt(cli_name)?;
     let url = format!("{api_base}/v3/workspaces");
     run_async(fetch_workspaces_request(http.get(url).bearer_auth(jwt)))
 }
@@ -515,7 +513,8 @@ fn warn_if_env_key_shadows() {
 }
 
 fn run_list(cli_name: &str, api_base: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
-    let listing = fetch_listing_as_user(cli_name, api_base)?;
+    let jwt = auth::fresh_login_jwt(cli_name)?;
+    let listing = fetch_listing_with_jwt(api_base, &jwt)?;
     let map = WorkspaceKeyMap::load(cli_name);
     let active = map.active_workspace_id.as_deref();
     emit(
@@ -570,7 +569,12 @@ fn run_select(
 
     // Fail on a typo'd or invisible id before minting anything; the listing
     // also supplies the display name for the confirmation line.
-    let listing = fetch_listing_as_user(cli_name, api_base)?;
+    // One forced refresh for the whole command. Each refresh rotates the
+    // token server-side, so refreshing again for the mint would invalidate
+    // the one just used — and if the first rotation failed to persist, the
+    // second would present a dead token and fail outright.
+    let jwt = auth::fresh_login_jwt(cli_name)?;
+    let listing = fetch_listing_with_jwt(api_base, &jwt)?;
     let Some(target) = listing.iter().find(|w| w.workspace_id == workspace_id) else {
         return Err(CliError::Validation(format!(
             "workspace {workspace_id} is not visible to this account; known ids: {}",
@@ -586,7 +590,7 @@ fn run_select(
         "No API key held for {} ({workspace_id}) — minting one…",
         target.workspace_name
     );
-    let minted = auth::mint_for_workspace(cli_name, api_base, workspace_id)?;
+    let minted = auth::mint_for_workspace_at(cli_name, api_base, &jwt, workspace_id)?;
     announce_active(
         matches,
         cli_name,
@@ -1233,5 +1237,63 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("token expired"), "got: {err}");
+    }
+
+    /// A `select` that has to mint makes two login-plane calls — the listing
+    /// and the mint — and must pay for exactly one token rotation between
+    /// them.
+    ///
+    /// It used to force a refresh for each. Every exchange rotates the
+    /// refresh token server-side, so the second one invalidated the token
+    /// the first had just stored; and if the first rotation failed to
+    /// persist, the second presented a dead token and the command failed
+    /// outright. Two concurrent CLI processes raced the same way.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_refreshes_the_session_only_once() {
+        use super::super::auth::tests as auth_tests;
+
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/workspaces"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"workspace_id": "w2", "workspace_name": "Acme", "role": "admin",
+                          "workos_organization_id": "org_1"}],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "credential": "key_w2:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2026-08-21T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        // `.expect(1)` is the assertion: wiremock verifies it on drop.
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "fresh-jwt", "refresh_token": "rotated",
+                "token_type": "Bearer", "expires_in": 3600,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let base = server.uri();
+        tokio::task::spawn_blocking(move || run_select("test-cli", &base, "w2"))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
     }
 }
