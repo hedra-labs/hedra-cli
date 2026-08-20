@@ -928,26 +928,19 @@ pub(crate) struct MintedKey {
     pub(crate) expires_at: Option<String>,
 }
 
-/// Mint a key bound to `workspace_id` and make it the active credential
-/// Runs off the stored OAuth session — refreshed through the
-/// same provider the data plane uses — so switching workspaces costs no
+/// Mint a key bound to `workspace_id` and make it the active credential.
+/// Runs off the stored OAuth session, so switching workspaces costs no
 /// browser round-trip; the login JWT's own org is irrelevant here.
 ///
 /// `api_base` is the caller's resolved resource base, not the compiled
 /// default: minting is the one login-plane call that *creates* state, so a
 /// `--base-url` pointing at a local stack must not quietly mint a real
 /// production key.
-pub(crate) fn mint_for_workspace(
-    cli_name: &str,
-    api_base: &str,
-    workspace_id: &str,
-) -> Result<MintedKey, CliError> {
-    let jwt = fresh_login_jwt(cli_name)?;
-    mint_for_workspace_at(cli_name, api_base, &jwt, workspace_id)
-}
-
-/// The api-base-parameterized body (tests drive it against a mock server),
-/// mirroring `bootstrap_inner`'s shape.
+///
+/// `jwt` must be login-plane fresh. There is deliberately no wrapper that
+/// mints one internally: the only caller already holds a fresh token for
+/// its listing call, and a convenience overload would make it too easy to
+/// reintroduce the second rotation this signature exists to prevent.
 pub(crate) fn mint_for_workspace_at(
     cli_name: &str,
     api_base: &str,
