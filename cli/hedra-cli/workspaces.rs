@@ -17,9 +17,12 @@
 
 use std::collections::BTreeMap;
 
+use anyhow::Context as _;
 use fern_cli_sdk::auth::{active_store, LoginContext, LoginFlow};
 use fern_cli_sdk::error::CliError;
+use fern_cli_sdk::formatter::{format_value, OutputFormat, OutputPipeline};
 use fern_cli_sdk::openapi::AppContext;
+use serde_json::{json, Value};
 
 use super::auth;
 
@@ -30,8 +33,6 @@ pub(crate) struct WorkspaceSummary {
     workspace_id: String,
     workspace_name: String,
     role: String,
-    #[serde(default)]
-    workos_organization_id: Option<String>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -220,65 +221,191 @@ pub(crate) async fn fetch_workspaces(
     .await
 }
 
-/// Render the listing: `★` on the active workspace, name + id, and a
-/// `key held` marker on workspaces `select` can switch to offline.
-pub(crate) fn render_workspace_table(
+// ---------------------------------------------------------------------------
+// Command output: the standard pipeline, same as every generated command.
+// ---------------------------------------------------------------------------
+
+/// The `workspaces list` payload, in the list-shaped envelope the generated
+/// commands use (`{"data": [...]}`) so `OutputPipeline` renders it the same
+/// way — table on a TTY, JSON when piped, plus `--format`, `--query` and
+/// `--quiet`.
+///
+/// `active` is a string — [`ACTIVE_MARKER`] on the active row, empty
+/// everywhere else — rather than a boolean, so the column reads as a marker
+/// in the table instead of a column of `true`/`false`. Filter it with
+/// `--query "data[?active != '']"`.
+///
+/// `api_key` carries the held key's id — the non-secret half of the
+/// `<key_id>:<secret>` credential, which is what this scheme's "key prefix"
+/// is — or `null` where no key is held. It replaced a `key_held` boolean:
+/// presence answers the same "can `select` switch to this one offline?"
+/// question, and naming the key also says *which* key that would be.
+/// `--query 'data[?api_key]'` keeps the boolean's filtering behaviour,
+/// since JMESPath counts `null` as false.
+///
+/// The secret half is never carried here — see [`HeldKey::credential`].
+///
+/// `workos_organization_id` is deliberately not carried: it is an
+/// identifier for the upstream identity provider, not something a caller
+/// picks a workspace by, and as a column it cost more width than any other
+/// field while being empty for personal workspaces. Nothing renders it any
+/// more, so `WorkspaceSummary` no longer parses it either.
+///
+/// Column order is alphabetical and is not a lever: `serde_json` is
+/// BTreeMap-backed in this workspace (the `preserve_order` feature is off),
+/// so key insertion order here has no effect on the rendered order. Renaming
+/// a field is the only way to move a column.
+pub(crate) fn workspace_rows(
+    workspaces: &[WorkspaceSummary],
+    active_id: Option<&str>,
+    held: &BTreeMap<String, HeldKey>,
+) -> Value {
+    let rows: Vec<Value> = workspaces
+        .iter()
+        .map(|ws| {
+            json!({
+                "active": active_marker(active_id == Some(ws.workspace_id.as_str())),
+                "api_key": held.get(&ws.workspace_id).map(|k| k.key_id.as_str()),
+                "role": ws.role,
+                "workspace_id": ws.workspace_id,
+                "workspace_name": ws.workspace_name,
+            })
+        })
+        .collect();
+    json!({ "data": rows })
+}
+
+/// What the `active` column holds on the active row. Empty string
+/// otherwise — an absent marker, not `false`.
+pub(crate) const ACTIVE_MARKER: &str = "*";
+
+fn active_marker(active: bool) -> &'static str {
+    if active {
+        ACTIVE_MARKER
+    } else {
+        ""
+    }
+}
+
+/// The `workspaces select` result: the workspace that is now active, as one
+/// object through the same pipeline the listing uses. Same `active` marker
+/// and same `api_key` / `workspace_id` / `workspace_name` spellings as a
+/// listing row, so the two line up column-for-column.
+///
+/// Deliberately never carries [`HeldKey::credential`] — that is the live
+/// `<key_id>:<secret>` pair, and this value goes to stdout.
+fn selected_row(workspace_id: &str, name: Option<&str>, key_id: Option<&str>) -> Value {
+    json!({
+        // `select` succeeded, so this workspace is by definition the active
+        // one — the marker is not conditional here.
+        "active": ACTIVE_MARKER,
+        "api_key": key_id,
+        "workspace_id": workspace_id,
+        "workspace_name": name,
+    })
+}
+
+/// The listing exactly as `workspaces list` draws it at `--format table`.
+///
+/// Login pins the table format rather than building a pipeline: it is not a
+/// data-emitting command, so there is no `--format` to honor and its output
+/// is not pipeable. Everything else — columns, the `active` marker, the
+/// trailing note — is the command's own rendering, so what you see after a
+/// login is what `workspaces list` would print.
+fn render_listing_table(
     workspaces: &[WorkspaceSummary],
     active_id: Option<&str>,
     held: &BTreeMap<String, HeldKey>,
 ) -> String {
-    use std::fmt::Write as _;
-    let mut out = String::new();
+    let note = listing_note(workspaces, active_id);
+    // An empty listing has no rows to tabulate; the note is the whole story.
     if workspaces.is_empty() {
-        out.push_str("No workspaces visible to this account.\n");
-        return out;
+        return format!("{}\n", note.unwrap_or_default());
     }
-    let name_w = workspaces
-        .iter()
-        .map(|w| w.workspace_name.chars().count())
-        .max()
-        .unwrap_or(0);
-    let id_w = workspaces
-        .iter()
-        .map(|w| w.workspace_id.chars().count())
-        .max()
-        .unwrap_or(0);
-    let _ = writeln!(out, "Workspaces ({}):", workspaces.len());
-    for ws in workspaces {
-        let star = if active_id == Some(ws.workspace_id.as_str()) {
-            '★'
-        } else {
-            ' '
-        };
-        let org = ws
-            .workos_organization_id
-            .as_deref()
-            .map(|o| format!("org: {o}"))
-            .unwrap_or_else(|| "personal".to_string());
-        let held_marker = if held.contains_key(&ws.workspace_id) {
-            "  [key held]"
-        } else {
-            ""
-        };
-        let _ = writeln!(
-            out,
-            "  {star} {:name_w$}  {:id_w$}  role: {:<7} {org}{held_marker}",
-            ws.workspace_name, ws.workspace_id, ws.role
-        );
+    let table = format_value(
+        &workspace_rows(workspaces, active_id, held),
+        &OutputFormat::Table,
+    );
+    match note {
+        Some(n) => format!("{table}{n}\n"),
+        None => table,
+    }
+}
+
+/// Render `value` to stdout through the standard pipeline.
+///
+/// `matches` must be the deepest `ArgMatches` in play: `--format`,
+/// `--query` and `--quiet` are declared `.global(true)` on the root, so
+/// clap propagates them to every level, and the deepest match is the one
+/// guaranteed to carry a value supplied after the subcommand.
+fn emit(matches: &clap::ArgMatches, cli_name: &str, value: &Value) -> Result<(), CliError> {
+    let pipeline = OutputPipeline::from_matches(matches, cli_name)
+        .map_err(|e| CliError::Validation(e.to_string()))?;
+    let mut out = std::io::stdout().lock();
+    pipeline
+        .emit(&mut out, value, false, true)
+        .context("Failed to write output")?;
+    Ok(())
+}
+
+/// The one line of context a listing sometimes needs but cannot express as
+/// a row. `None` when the listing speaks for itself.
+///
+/// Shared so the command and the login display cannot drift: the command
+/// prints it on stderr (below), login appends it under the table.
+fn listing_note(workspaces: &[WorkspaceSummary], active_id: Option<&str>) -> Option<String> {
+    if workspaces.is_empty() {
+        return Some("No workspaces visible to this account.".to_string());
     }
     match active_id {
-        Some(id) if !workspaces.iter().any(|w| w.workspace_id == id) => {
-            let _ = writeln!(
-                out,
-                "  ★ active key is bound to workspace {id} (not in this listing)"
-            );
-        }
-        None => {
-            let _ = writeln!(out, "  (no workspace-bound key is active)");
-        }
-        _ => {}
+        Some(id) if !workspaces.iter().any(|w| w.workspace_id == id) => Some(format!(
+            "(active key is bound to workspace {id}, which is not in this listing)"
+        )),
+        None => Some("(no workspace-bound key is active)".to_string()),
+        _ => None,
     }
-    out
+}
+
+/// Context the old text renderer carried inline, now on stderr so stdout
+/// stays pure data (the same split `warn_if_env_key_shadows` already uses).
+fn list_notes(workspaces: &[WorkspaceSummary], active_id: Option<&str>) {
+    if let Some(note) = listing_note(workspaces, active_id) {
+        eprintln!("{note}");
+    }
+}
+
+/// What the post-login summary prints on stderr once the browser
+/// round-trip completes (see `auth::bootstrap_inner`).
+///
+/// A table earns its header row only when there is a choice to look at. With
+/// a single workspace there is nothing to compare and nothing to switch to,
+/// so six columns of chrome say less than one line naming it; with none, the
+/// note is the whole story. Past that it is the `workspaces list` table
+/// verbatim, so the two views cannot drift apart.
+pub(crate) fn render_login_summary(
+    workspaces: &[WorkspaceSummary],
+    active_id: Option<&str>,
+    held: &BTreeMap<String, HeldKey>,
+) -> String {
+    match workspaces {
+        [] => format!(
+            "{}\n",
+            listing_note(workspaces, active_id).unwrap_or_default()
+        ),
+        [only] => {
+            let line = format!(
+                "Workspace: {} ({})\n",
+                only.workspace_name, only.workspace_id
+            );
+            // Still worth saying when the key that was just bootstrapped is
+            // not bound to the one workspace this account can see.
+            match listing_note(workspaces, active_id) {
+                Some(note) => format!("{line}{note}\n"),
+                None => line,
+            }
+        }
+        _ => render_listing_table(workspaces, active_id, held),
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -329,13 +456,17 @@ pub(crate) fn dispatch(
         .ok_or_else(|| {
             CliError::Validation("workspaces: unexpected binding context type".to_string())
         })?;
+    // Pass the deepest matches on to the handler: global flags propagate to
+    // every level, but only the deepest is certain to carry a value written
+    // after the subcommand (`workspaces list --format json`).
     match matches.subcommand() {
-        None | Some(("list", _)) => run_list(&cli_name),
+        None => run_list(&cli_name, matches),
+        Some(("list", sub)) => run_list(&cli_name, sub),
         Some(("select", sub)) => {
             let ws = sub
                 .get_one::<String>("workspace-id")
                 .expect("--workspace-id is required");
-            run_select(&cli_name, ws)
+            run_select(&cli_name, ws, sub)
         }
         Some((other, _)) => Err(CliError::Validation(format!(
             "unknown workspaces subcommand: {other}"
@@ -373,24 +504,33 @@ fn warn_if_env_key_shadows() {
     }
 }
 
-fn run_list(cli_name: &str) -> Result<(), CliError> {
+fn run_list(cli_name: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
     let listing = fetch_listing_as_user(cli_name)?;
     let map = WorkspaceKeyMap::load(cli_name);
-    print!(
-        "{}",
-        render_workspace_table(&listing, map.active_workspace_id.as_deref(), &map.keys)
-    );
+    let active = map.active_workspace_id.as_deref();
+    emit(
+        matches,
+        cli_name,
+        &workspace_rows(&listing, active, &map.keys),
+    )?;
+    list_notes(&listing, active);
     warn_if_env_key_shadows();
     Ok(())
 }
 
-fn run_select(cli_name: &str, workspace_id: &str) -> Result<(), CliError> {
+fn run_select(
+    cli_name: &str,
+    workspace_id: &str,
+    matches: &clap::ArgMatches,
+) -> Result<(), CliError> {
     if let SelectOutcome::Activated(key) = activate(cli_name, workspace_id)? {
         announce_active(
+            matches,
+            cli_name,
             workspace_id,
             key.workspace_name.as_deref(),
             Some(&key.key_id),
-        );
+        )?;
         return Ok(());
     }
 
@@ -407,10 +547,12 @@ fn run_select(cli_name: &str, workspace_id: &str) -> Result<(), CliError> {
         // The login's own bootstrap may already have landed on the target.
         if let SelectOutcome::Activated(key) = activate(cli_name, workspace_id)? {
             announce_active(
+                matches,
+                cli_name,
                 workspace_id,
                 key.workspace_name.as_deref(),
                 Some(&key.key_id),
-            );
+            )?;
             return Ok(());
         }
     }
@@ -435,26 +577,34 @@ fn run_select(cli_name: &str, workspace_id: &str) -> Result<(), CliError> {
     );
     let minted = auth::mint_for_workspace(cli_name, workspace_id)?;
     announce_active(
+        matches,
+        cli_name,
         workspace_id,
         minted
             .workspace_name
             .as_deref()
             .or(Some(target.workspace_name.as_str())),
         Some(&minted.key_id),
-    );
+    )?;
     if let Some(expiry) = minted.expires_at.as_deref() {
         eprintln!("(key expires {expiry})");
     }
     Ok(())
 }
 
-fn announce_active(workspace_id: &str, name: Option<&str>, key_id: Option<&str>) {
-    let name = name.unwrap_or("<unnamed>");
-    match key_id {
-        Some(id) => println!("Active workspace: {name} ({workspace_id}) — key {id}"),
-        None => println!("Active workspace: {name} ({workspace_id})"),
-    }
+/// Report the newly active workspace through the standard pipeline, so
+/// `select` honors `--format` / `--query` / `--quiet` exactly like the
+/// listing and every generated command.
+fn announce_active(
+    matches: &clap::ArgMatches,
+    cli_name: &str,
+    workspace_id: &str,
+    name: Option<&str>,
+    key_id: Option<&str>,
+) -> Result<(), CliError> {
+    emit(matches, cli_name, &selected_row(workspace_id, name, key_id))?;
     warn_if_env_key_shadows();
+    Ok(())
 }
 
 #[cfg(test)]
@@ -462,12 +612,11 @@ mod tests {
     use super::*;
     use fern_cli_sdk::auth::{KeyringStore, MockKeyringStore};
 
-    fn ws(id: &str, name: &str, org: Option<&str>) -> WorkspaceSummary {
+    fn ws(id: &str, name: &str) -> WorkspaceSummary {
         WorkspaceSummary {
             workspace_id: id.to_string(),
             workspace_name: name.to_string(),
             role: "member".to_string(),
-            workos_organization_id: org.map(str::to_string),
         }
     }
 
@@ -662,42 +811,345 @@ mod tests {
         );
     }
 
-    // ── render ──────────────────────────────────────────────────────────
+    // ── command output (the standard pipeline path) ─────────────────────
 
     #[test]
-    fn render_stars_active_and_marks_held() {
-        let list = [
-            ws("w1", "Personal", None),
-            ws("w2", "Acme", Some("org_1")),
-            ws("w3", "Big Corp", Some("org_9")),
-        ];
+    fn workspace_rows_are_list_shaped_with_the_markers_as_fields() {
+        let list = [ws("w1", "Personal"), ws("w2", "Acme"), ws("w3", "Big Corp")];
         let mut held_keys = BTreeMap::new();
         held_keys.insert("w1".to_string(), held("key_1"));
         held_keys.insert("w2".to_string(), held("key_2"));
 
-        let out = render_workspace_table(&list, Some("w2"), &held_keys);
-        let acme = out.lines().find(|l| l.contains("Acme")).unwrap();
-        assert!(acme.trim_start().starts_with('★'), "no star: {acme}");
-        assert!(acme.contains("w2"), "id missing: {acme}");
-        assert!(acme.contains("[key held]"));
-        let personal = out.lines().find(|l| l.contains("Personal")).unwrap();
-        assert!(!personal.contains('★'));
-        assert!(personal.contains("[key held]"));
-        let big = out.lines().find(|l| l.contains("Big Corp")).unwrap();
-        assert!(!big.contains("[key held]"));
-        assert!(big.contains("org: org_9"));
+        let out = workspace_rows(&list, Some("w2"), &held_keys);
+
+        // The `{"data": [...]}` envelope is what makes the shared formatter
+        // render this as a table of rows rather than one key/value blob.
+        let rows = out["data"].as_array().expect("list-shaped envelope");
+        assert_eq!(rows.len(), 3);
+
+        // The markers survive as real fields, not decoration. `active` is a
+        // marker string so the column reads as `*` / blank rather than as a
+        // column of `true`/`false`; `api_key` names the held key instead of
+        // just asserting that one exists.
+        assert_eq!(rows[1]["workspace_name"], "Acme");
+        assert_eq!(rows[1]["active"], ACTIVE_MARKER);
+        assert_eq!(rows[1]["api_key"], "key_2");
+
+        assert_eq!(rows[0]["active"], "");
+        assert_eq!(rows[0]["api_key"], "key_1");
+
+        // No key held: a real absence, which the table renders as a blank
+        // cell and `--query 'data[?api_key]'` filters out.
+        assert_eq!(rows[2]["active"], "");
+        assert!(rows[2]["api_key"].is_null());
+
+        // Only the id half ever appears — never the secret behind the colon.
+        let serialized = serde_json::to_string(&out).unwrap();
+        assert!(
+            !serialized.contains("secret"),
+            "credential leaked into the listing: {serialized}"
+        );
+
+        // Exactly one row may carry the marker.
+        assert_eq!(
+            rows.iter().filter(|r| r["active"] == ACTIVE_MARKER).count(),
+            1
+        );
+
+        // The upstream identity-provider id is deliberately not a column —
+        // widest field in the table, empty for personal workspaces, and not
+        // how anyone selects a workspace.
+        for row in rows {
+            assert!(
+                row.get("workos_organization_id").is_none(),
+                "org id leaked back into the listing: {row}"
+            );
+        }
     }
 
     #[test]
-    fn render_notes_unbound_and_unlisted_active() {
-        let list = [ws("w1", "A", None), ws("w2", "B", Some("org_1"))];
-        let none = render_workspace_table(&list, None, &BTreeMap::new());
-        assert!(none.contains("no workspace-bound key is active"));
-        let gone = render_workspace_table(&list, Some("w9"), &BTreeMap::new());
-        assert!(gone.contains("bound to workspace w9"));
+    fn workspace_rows_empty_listing_keeps_the_envelope() {
+        // Scripts still get well-formed `{"data": []}`; the human-facing
+        // "no workspaces" line is `list_notes`' job, on stderr.
+        let out = workspace_rows(&[], None, &BTreeMap::new());
+        assert_eq!(out["data"].as_array().map(Vec::len), Some(0));
+    }
+
+    // The point of the change: the shared formatter, not a hand-rolled
+    // renderer, draws the listing — so `--format table` gets a real header +
+    // separator + aligned columns, and every other format works for free.
+    #[test]
+    fn the_shared_formatter_draws_a_real_table_and_real_json() {
+        use fern_cli_sdk::formatter::{format_value, OutputFormat};
+
+        let list = [ws("w1", "Personal"), ws("w2", "Acme")];
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w2".to_string(), held("key_2"));
+        let value = workspace_rows(&list, Some("w2"), &held_keys);
+
+        let table = format_value(&value, &OutputFormat::Table);
+        let mut lines = table.lines();
+        let header = lines.next().expect("header row");
+        for column in [
+            "active",
+            "api_key",
+            "role",
+            "workspace_id",
+            "workspace_name",
+        ] {
+            assert!(header.contains(column), "missing {column} in: {header}");
+        }
         assert!(
-            render_workspace_table(&[], None, &BTreeMap::new()).contains("No workspaces visible")
+            !header.contains("workos"),
+            "org id is not a column: {header}"
         );
+        assert!(
+            lines.next().is_some_and(|l| l.starts_with('─')),
+            "no separator rule under the header: {table}"
+        );
+        let acme = table.lines().find(|l| l.contains("Acme")).unwrap();
+        assert!(acme.contains("w2") && acme.contains("member"));
+        // Rows are padded to a common width — that is the "aligned table"
+        // the bespoke renderer used to hand-roll.
+        let widths: Vec<usize> = table
+            .lines()
+            .filter(|l| !l.is_empty())
+            .map(|l| l.chars().count())
+            .collect();
+        assert!(
+            widths.windows(2).all(|w| w[0] == w[1]),
+            "ragged rows: {widths:?}"
+        );
+
+        let json: serde_json::Value =
+            serde_json::from_str(&format_value(&value, &OutputFormat::Json)).unwrap();
+        assert_eq!(json, value);
+    }
+
+    #[test]
+    fn global_output_flags_reach_the_matches_dispatch_hands_to_handlers() {
+        // The whole change rests on this: `--format` / `--query` / `--quiet`
+        // are declared `.global(true)` on the root the SDK builds, so a
+        // custom command registered on that root can read them back with
+        // `OutputPipeline::from_matches`. Built against the real root rather
+        // than a hand-rolled stand-in, so it fails if the SDK ever stops
+        // declaring them global — which would silently strand `workspaces`
+        // on whatever the TTY default happened to be.
+        use fern_cli_sdk::formatter::OutputFormat;
+        use fern_cli_sdk::openapi::{commands, load_openapi_spec};
+
+        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli")
+            .expect("the bundled spec parses");
+        let root = commands::build_cli(&doc).subcommand(command());
+
+        // Written after the subcommand — the position `dispatch`'s
+        // deepest-matches choice exists to handle.
+        let m = root
+            .clone()
+            .try_get_matches_from(["hedra-cli", "workspaces", "list", "--format", "yaml"])
+            .expect("--format is accepted after the subcommand");
+        let Some(("workspaces", ws)) = m.subcommand() else {
+            panic!("expected workspaces")
+        };
+        let Some(("list", sub)) = ws.subcommand() else {
+            panic!("expected list")
+        };
+        assert_eq!(
+            OutputPipeline::from_matches(sub, "hedra-cli")
+                .unwrap()
+                .format,
+            OutputFormat::Yaml
+        );
+
+        // And written before it, which clap propagates downward.
+        let m = root
+            .clone()
+            .try_get_matches_from([
+                "hedra-cli",
+                "--format",
+                "csv",
+                "--quiet",
+                "workspaces",
+                "list",
+            ])
+            .expect("globals are accepted before the subcommand");
+        let Some(("workspaces", ws)) = m.subcommand() else {
+            panic!("expected workspaces")
+        };
+        let Some(("list", sub)) = ws.subcommand() else {
+            panic!("expected list")
+        };
+        let pipeline = OutputPipeline::from_matches(sub, "hedra-cli").unwrap();
+        assert_eq!(pipeline.format, OutputFormat::Csv);
+        assert!(pipeline.quiet);
+
+        // Bare `workspaces` (no subcommand) still carries them — that path
+        // hands `dispatch`'s own matches to `run_list`.
+        let m = root
+            .clone()
+            .try_get_matches_from(["hedra-cli", "workspaces", "--format", "jsonl"])
+            .expect("bare workspaces accepts globals");
+        let Some(("workspaces", ws)) = m.subcommand() else {
+            panic!("expected workspaces")
+        };
+        assert!(ws.subcommand().is_none());
+        assert_eq!(
+            OutputPipeline::from_matches(ws, "hedra-cli")
+                .unwrap()
+                .format,
+            OutputFormat::Jsonl
+        );
+    }
+
+    // The doc comment on `workspace_rows` advertises these two filters.
+    // Pin them so the advice cannot rot.
+    #[test]
+    fn the_documented_query_filters_work() {
+        let list = [ws("w1", "Personal"), ws("w2", "Acme"), ws("w3", "Big Corp")];
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w1".to_string(), held("key_1"));
+        held_keys.insert("w2".to_string(), held("key_2"));
+        let v = workspace_rows(&list, Some("w2"), &held_keys);
+
+        let run = |expr: &str| -> Vec<String> {
+            let compiled = jmespath::compile(expr).expect("expression compiles");
+            let data = jmespath::Variable::from_json(&serde_json::to_string(&v).unwrap()).unwrap();
+            let out = compiled.search(data).expect("expression evaluates");
+            serde_json::from_str::<Vec<serde_json::Value>>(&serde_json::to_string(&out).unwrap())
+                .expect("an array of rows")
+                .iter()
+                .map(|r| r["workspace_name"].as_str().unwrap().to_string())
+                .collect()
+        };
+
+        assert_eq!(run("data[?active != '']"), ["Acme"]);
+        assert_eq!(run("data[?api_key]"), ["Personal", "Acme"]);
+    }
+
+    #[test]
+    fn list_notes_stay_off_stdout() {
+        // Nothing here writes to stdout — the notes are stderr-only so that
+        // `--format json` output stays parseable. Exercised for panics and
+        // for the branch shape.
+        list_notes(&[], None);
+        list_notes(&[ws("w1", "A")], None);
+        list_notes(&[ws("w1", "A")], Some("w9"));
+        list_notes(&[ws("w1", "A")], Some("w1"));
+    }
+
+    #[test]
+    fn selected_row_is_an_object_that_lines_up_with_a_listing_row() {
+        let out = selected_row("w2", Some("Acme"), Some("key_2"));
+
+        assert_eq!(out["workspace_id"], "w2");
+        assert_eq!(out["workspace_name"], "Acme");
+        assert_eq!(out["api_key"], "key_2");
+        // `select` just made this workspace active, so the marker is not
+        // conditional — and it is spelled the same way a listing row spells
+        // it, so the two render as the same column.
+        assert_eq!(out["active"], ACTIVE_MARKER);
+
+        // Field names match the listing's, so `select` and `list` agree.
+        let list = [ws("w2", "Acme")];
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w2".to_string(), held("key_2"));
+        let row = workspace_rows(&list, Some("w2"), &held_keys)["data"][0].clone();
+        for key in ["active", "api_key", "workspace_id", "workspace_name"] {
+            assert_eq!(out[key], row[key], "`{key}` disagrees between the two");
+        }
+
+        // An unknown name is a real absence, not the string "<unnamed>".
+        assert!(selected_row("w2", None, None)["workspace_name"].is_null());
+    }
+
+    #[test]
+    fn selected_row_never_leaks_the_credential() {
+        // This value goes to stdout, and `HeldKey::credential` is the live
+        // `<key_id>:<secret>` pair. It must never appear there.
+        let key = held("key_1");
+        let out = selected_row("w2", key.workspace_name.as_deref(), Some(&key.key_id));
+        let serialized = serde_json::to_string(&out).unwrap();
+        assert!(
+            !serialized.contains("secret"),
+            "credential leaked into stdout payload: {serialized}"
+        );
+    }
+
+    // The post-login display is the listing, not a second rendering that can
+    // drift away from it.
+    #[test]
+    fn the_login_display_is_the_listing_table() {
+        use fern_cli_sdk::formatter::{format_value, OutputFormat};
+
+        let list = [ws("w1", "Personal"), ws("w2", "Acme")];
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w2".to_string(), held("key_2"));
+
+        let login = render_listing_table(&list, Some("w2"), &held_keys);
+        let command = format_value(
+            &workspace_rows(&list, Some("w2"), &held_keys),
+            &OutputFormat::Table,
+        );
+        assert_eq!(
+            login, command,
+            "login drew something other than the listing table"
+        );
+        assert!(login.contains(ACTIVE_MARKER) && login.contains("workspace_name"));
+
+        // The note rides along under the table when there is one. `w9` is not
+        // in the listing, so no row carries the marker — the table it sits
+        // under is that listing's own table, not the one above.
+        let unlisted = render_listing_table(&list, Some("w9"), &held_keys);
+        let unlisted_table = format_value(
+            &workspace_rows(&list, Some("w9"), &held_keys),
+            &OutputFormat::Table,
+        );
+        assert!(
+            unlisted.starts_with(&unlisted_table),
+            "note replaced the table instead of following it: {unlisted}"
+        );
+        assert!(!unlisted_table.contains(ACTIVE_MARKER), "unexpected marker");
+        assert!(unlisted.trim_end().ends_with("not in this listing)"));
+        assert!(render_listing_table(&list, None, &held_keys)
+            .contains("no workspace-bound key is active"));
+
+        // Nothing to tabulate: the note is the whole output.
+        assert_eq!(
+            render_listing_table(&[], None, &BTreeMap::new()),
+            "No workspaces visible to this account.\n"
+        );
+    }
+
+    #[test]
+    fn the_login_summary_only_tabulates_when_there_is_a_choice() {
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w1".to_string(), held("key_1"));
+
+        // One workspace: a one-row table is more chrome than content, so it
+        // is named on one line instead — no headers, no separator rule.
+        let one = render_login_summary(&[ws("w1", "Personal")], Some("w1"), &held_keys);
+        assert_eq!(one, "Workspace: Personal (w1)\n");
+
+        // Two: the listing table, byte-for-byte what `workspaces list` draws.
+        let list = [ws("w1", "Personal"), ws("w2", "Acme")];
+        let two = render_login_summary(&list, Some("w1"), &held_keys);
+        assert_eq!(two, render_listing_table(&list, Some("w1"), &held_keys));
+        assert!(two.contains("workspace_name") && two.contains(ACTIVE_MARKER));
+
+        // None: the note is all there is.
+        assert_eq!(
+            render_login_summary(&[], None, &BTreeMap::new()),
+            "No workspaces visible to this account.\n"
+        );
+    }
+
+    #[test]
+    fn the_login_summary_still_flags_a_key_bound_elsewhere() {
+        // The single-workspace line has no `active` column to carry this, so
+        // the note has to survive the shortened form.
+        let out = render_login_summary(&[ws("w1", "Personal")], Some("w9"), &BTreeMap::new());
+        assert!(out.starts_with("Workspace: Personal (w1)\n"), "{out}");
+        assert!(out.trim_end().ends_with("not in this listing)"), "{out}");
     }
 
     // ── command shape ───────────────────────────────────────────────────
