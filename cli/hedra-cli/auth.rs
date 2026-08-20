@@ -73,10 +73,103 @@ pub(crate) fn resource_base_url() -> &'static str {
 // compiled fallback, which would reintroduce the staleness this removes.
 // ---------------------------------------------------------------------------
 
-/// Keyring slot caching the discovered endpoints so the token-refresh path
-/// does not re-run discovery on every CLI invocation. Rewritten by every
-/// login (which always re-discovers).
+/// Legacy keyring slot that used to cache the discovered endpoints.
+///
+/// The cache now lives in a plain file — see [`discovery_cache_path`]. These
+/// endpoints come from two unauthenticated `.well-known` documents fetched
+/// over plain HTTPS; they are public by construction and were never a
+/// secret. Keeping them in the OS credential store bought nothing and cost a
+/// whole keychain item, which on macOS means its own authorization prompt on
+/// every login-plane command.
+///
+/// The constant survives so [`drop_stale_discovery_item`] can clean up after
+/// releases that did write it.
 const DISCOVERY_SCHEME: &str = "OAuthDiscovery";
+
+/// Where the endpoint cache lives, alongside the credential store's own
+/// `auth-keyring.json`:
+///
+/// * macOS — `~/Library/Application Support/hedra-cli/auth-endpoints.json`
+/// * Linux — `$XDG_CONFIG_HOME/hedra-cli/auth-endpoints.json`, else
+///   `~/.config/hedra-cli/auth-endpoints.json`
+/// * Windows — `%APPDATA%\hedra-cli\auth-endpoints.json`
+///
+/// This duplicates the SDK's own `oauth_common::config_dir`, which is
+/// `pub(crate)` and so unreachable from here. Kept byte-identical in
+/// behaviour on purpose: the two files are siblings, and a CLI whose cache
+/// landed somewhere other than its credentials would be its own bug report.
+///
+/// `None` when no home directory can be determined. The caller treats that
+/// as "no cache" and re-discovers, which is correct — unlike the credential
+/// store there is nothing here worth a `/tmp` fallback.
+fn discovery_cache_path(cli_name: &str) -> Option<std::path::PathBuf> {
+    let home = std::env::var_os("HOME")
+        .or_else(|| std::env::var_os("USERPROFILE"))
+        .map(std::path::PathBuf::from)
+        .filter(|p| !p.as_os_str().is_empty())?;
+
+    #[cfg(target_os = "macos")]
+    let root = home.join("Library").join("Application Support");
+    #[cfg(target_os = "windows")]
+    let root = std::env::var_os("APPDATA")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join("AppData").join("Roaming"));
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let root = std::env::var_os("XDG_CONFIG_HOME")
+        .map(std::path::PathBuf::from)
+        .unwrap_or_else(|| home.join(".config"));
+
+    Some(root.join(cli_name).join("auth-endpoints.json"))
+}
+
+fn read_cached_endpoints(cli_name: &str) -> Option<AuthEndpoints> {
+    let raw = std::fs::read_to_string(discovery_cache_path(cli_name)?).ok()?;
+    serde_json::from_str(&raw).ok()
+}
+
+/// Best-effort write. A cache that cannot be written costs one extra pair of
+/// `.well-known` fetches next run; it must never fail the command that just
+/// discovered them.
+///
+/// Written via temp-file-then-rename so a concurrent reader sees either the
+/// old document or the new one, never a half-written file. The temp name
+/// carries the pid because two `hedra-cli` processes can discover at once.
+fn write_cached_endpoints(cli_name: &str, endpoints: &AuthEndpoints) {
+    let Some(path) = discovery_cache_path(cli_name) else {
+        return;
+    };
+    let Ok(json) = serde_json::to_string(endpoints) else {
+        return;
+    };
+    let Some(parent) = path.parent() else {
+        return;
+    };
+    if std::fs::create_dir_all(parent).is_err() {
+        return;
+    }
+    let tmp = parent.join(format!(".auth-endpoints.{}.tmp", std::process::id()));
+    if std::fs::write(&tmp, json).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+        return;
+    }
+    if std::fs::rename(&tmp, &path).is_err() {
+        let _ = std::fs::remove_file(&tmp);
+    }
+}
+
+/// Remove the endpoint cache from the keyring, where releases before the
+/// move stored it.
+///
+/// Left in place it would be a public document sitting in the OS credential
+/// store forever, costing an authorization prompt that buys nothing —
+/// nothing reads it any more. Cleared whenever discovery runs, which is
+/// every login, so an upgraded install sheds it on first use.
+///
+/// Silent: on a fresh install there is nothing to delete and the backend
+/// says so without prompting.
+fn drop_stale_discovery_item(cli_name: &str) {
+    let _ = active_store().delete(cli_name, DISCOVERY_SCHEME);
+}
 
 #[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 struct AuthEndpoints {
@@ -89,7 +182,7 @@ struct AuthEndpoints {
 }
 
 /// Process-wide endpoint resolution, memoized so discovery runs at most
-/// once per process. `use_cache: false` (login) skips the keyring cache so
+/// once per process. `use_cache: false` (login) skips the on-disk cache so
 /// each login re-validates the live chain; `use_cache: true` (the refresh
 /// path) prefers the cached copy.
 fn auth_endpoints(cli_name: &str, use_cache: bool) -> Result<AuthEndpoints, CliError> {
@@ -111,21 +204,20 @@ fn resolve_auth_endpoints(
         return Ok(overridden);
     }
     if use_cache {
-        if let Ok(Some(stored)) = active_store().get(cli_name, DISCOVERY_SCHEME) {
-            if let Ok(cached) = serde_json::from_str::<AuthEndpoints>(&stored) {
-                if cached.resource == resource_base_url {
-                    return Ok(cached);
-                }
+        if let Some(cached) = read_cached_endpoints(cli_name) {
+            if cached.resource == resource_base_url {
+                return Ok(cached);
             }
         }
     }
     let discovered = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(discover_endpoints(resource_base_url))
     })?;
-    // Best-effort cache write: a keyring hiccup must not fail a login.
-    if let Ok(json) = serde_json::to_string(&discovered) {
-        let _ = active_store().set(cli_name, DISCOVERY_SCHEME, &json);
-    }
+    write_cached_endpoints(cli_name, &discovered);
+    // Discovery has just run, so anything an older release left in the
+    // keyring is both stale and unread. This is the natural moment to shed
+    // it, and it is the only path that reaches every install.
+    drop_stale_discovery_item(cli_name);
     Ok(discovered)
 }
 
@@ -431,7 +523,8 @@ impl LoginFlow for EnvPkceLoginFlow {
             "Login environment: {:?} (set HEDRA_ENV=staging to switch)",
             hedra_env()
         );
-        // Fresh discovery on every login (keyring cache skipped): login is
+        // Fresh discovery on every login (the on-disk cache is skipped):
+        // login is
         // the natural point to re-validate the chain and rewrite the cache.
         let endpoints = auth_endpoints(&ctx.cli_name, false)?;
         concretize(&self.base, &endpoints).run(ctx)?;
@@ -1278,21 +1371,15 @@ mod tests {
     #[serial_test::serial]
     async fn refresh_path_uses_cached_endpoints_and_login_ignores_them() {
         clear_endpoint_override();
-        let store = fresh_keyring();
+        let _store = fresh_keyring();
         let cached = AuthEndpoints {
             resource: "http://127.0.0.1:9".to_string(),
             authorization_endpoint: "http://cached/authorize".to_string(),
             token_endpoint: "http://cached/token".to_string(),
         };
-        store
-            .set(
-                "test-cli",
-                DISCOVERY_SCHEME,
-                &serde_json::to_string(&cached).unwrap(),
-            )
-            .unwrap();
+        let _home = seed_discovery_cache(&cached);
 
-        // use_cache=true (refresh path): served from the keyring, no network
+        // use_cache=true (refresh path): served from the file, no network
         // (the dead resource base would error otherwise).
         let ep = resolve_auth_endpoints("test-cli", "http://127.0.0.1:9", true).unwrap();
         assert_eq!(ep, cached);
@@ -1462,19 +1549,17 @@ mod tests {
     /// A live (unexpired) OAuth session plus a discovery cache pointing at
     /// `server` — enough for `oauth_apply` to authenticate without any
     /// network round-trip of its own.
-    fn seed_live_session(store: &MockKeyringStore, server_uri: &str) {
-        let cached = AuthEndpoints {
+    ///
+    /// Returns the [`TempHome`] the endpoint cache was written into; the
+    /// caller must hold it for the length of the test, or the directory is
+    /// removed and `HOME` restored the moment it drops.
+    #[must_use]
+    fn seed_live_session(store: &MockKeyringStore, server_uri: &str) -> TempHome {
+        let home = seed_discovery_cache(&AuthEndpoints {
             resource: resource_base_url().to_string(),
             authorization_endpoint: format!("{server_uri}/authorize"),
             token_endpoint: format!("{server_uri}/token"),
-        };
-        store
-            .set(
-                "test-cli",
-                DISCOVERY_SCHEME,
-                &serde_json::to_string(&cached).unwrap(),
-            )
-            .unwrap();
+        });
         store
             .set(
                 "test-cli",
@@ -1483,6 +1568,63 @@ mod tests {
                 r#"{"access_token":"live-token","refresh_token":"r1","expires_at":4102444800}"#,
             )
             .unwrap();
+        home
+    }
+
+    /// Redirects the on-disk endpoint cache into a fresh temp directory and
+    /// seeds it with `endpoints`.
+    ///
+    /// The cache is deliberately a plain file, so isolating it means moving
+    /// `HOME` — process-global state, which is safe here only because every
+    /// test that touches it is `#[serial]`. [`TempHome`] restores the
+    /// previous value on drop.
+    #[must_use]
+    fn seed_discovery_cache(endpoints: &AuthEndpoints) -> TempHome {
+        let home = TempHome::new();
+        write_cached_endpoints("test-cli", endpoints);
+        assert_eq!(
+            read_cached_endpoints("test-cli").as_ref(),
+            Some(endpoints),
+            "the seed must be readable back, or the test is asserting on nothing"
+        );
+        home
+    }
+
+    /// Points `HOME` (and `XDG_CONFIG_HOME`, which the Linux branch prefers)
+    /// at a temp directory, restoring both on drop. Holding one keeps a
+    /// test off the developer's real config directory.
+    struct TempHome {
+        _dir: tempfile::TempDir,
+        previous_home: Option<std::ffi::OsString>,
+        previous_xdg: Option<std::ffi::OsString>,
+    }
+
+    impl TempHome {
+        fn new() -> Self {
+            let dir = tempfile::tempdir().expect("temp dir");
+            let previous_home = std::env::var_os("HOME");
+            let previous_xdg = std::env::var_os("XDG_CONFIG_HOME");
+            std::env::set_var("HOME", dir.path());
+            std::env::set_var("XDG_CONFIG_HOME", dir.path().join(".config"));
+            Self {
+                _dir: dir,
+                previous_home,
+                previous_xdg,
+            }
+        }
+    }
+
+    impl Drop for TempHome {
+        fn drop(&mut self) {
+            match &self.previous_home {
+                Some(v) => std::env::set_var("HOME", v),
+                None => std::env::remove_var("HOME"),
+            }
+            match &self.previous_xdg {
+                Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+                None => std::env::remove_var("XDG_CONFIG_HOME"),
+            }
+        }
     }
 
     /// Every login-plane call mints a fresh JWT first, so a mint test needs
@@ -1517,7 +1659,7 @@ mod tests {
             .mount(&server)
             .await;
         let store = fresh_keyring();
-        seed_live_session(&store, &server.uri());
+        let _home = seed_live_session(&store, &server.uri());
         mock_token_refresh(&server).await;
 
         let minted = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap();
@@ -1554,7 +1696,7 @@ mod tests {
             .mount(&server)
             .await;
         let store = fresh_keyring();
-        seed_live_session(&store, &server.uri());
+        let _home = seed_live_session(&store, &server.uri());
         mock_token_refresh(&server).await;
         store.set("test-cli", KEY_SCHEME, "key_held:stay").unwrap();
 
@@ -1615,7 +1757,7 @@ mod tests {
             .mount(&server)
             .await;
         let store = fresh_keyring();
-        seed_live_session(&store, &server.uri());
+        let _home = seed_live_session(&store, &server.uri());
 
         let jwt = fresh_login_jwt("test-cli").unwrap();
 
@@ -1634,21 +1776,81 @@ mod tests {
     #[serial_test::serial]
     async fn fresh_login_jwt_without_a_session_says_log_in() {
         clear_endpoint_override();
-        let store = fresh_keyring();
-        let cached = AuthEndpoints {
+        let _store = fresh_keyring();
+        let _home = seed_discovery_cache(&AuthEndpoints {
             resource: resource_base_url().to_string(),
             authorization_endpoint: "https://example.invalid/a".to_string(),
             token_endpoint: "https://example.invalid/t".to_string(),
-        };
-        store
-            .set(
-                "test-cli",
-                DISCOVERY_SCHEME,
-                &serde_json::to_string(&cached).unwrap(),
-            )
-            .unwrap();
+        });
 
         let err = fresh_login_jwt("test-cli").unwrap_err().to_string();
         assert!(err.contains("auth login"), "unexpected: {err}");
+    }
+
+    // ── the endpoint cache is a plain file, not a keyring item ──────────
+
+    // It is two unauthenticated `.well-known` documents; keeping it in the
+    // credential store cost a whole keychain item for nothing.
+    #[test]
+    #[serial_test::serial]
+    fn discovery_cache_is_written_beside_the_credential_store() {
+        let home = TempHome::new();
+        let endpoints = AuthEndpoints {
+            resource: "https://api.example.com".to_string(),
+            authorization_endpoint: "https://auth.example.com/authorize".to_string(),
+            token_endpoint: "https://auth.example.com/token".to_string(),
+        };
+
+        write_cached_endpoints("hedra-cli", &endpoints);
+
+        let path = discovery_cache_path("hedra-cli").expect("HOME is set");
+        assert!(path.exists(), "expected a cache file at {}", path.display());
+        assert!(
+            path.ends_with("hedra-cli/auth-endpoints.json"),
+            "must sit in the CLI's own config dir, beside auth-keyring.json: {}",
+            path.display()
+        );
+        assert_eq!(
+            read_cached_endpoints("hedra-cli").as_ref(),
+            Some(&endpoints)
+        );
+        drop(home);
+    }
+
+    // A `HEDRA_ENV` flip changes the resource base, and a cache discovered
+    // for the other environment must not be served for this one.
+    // Multi-thread flavor: `resolve_auth_endpoints` reaches discovery via
+    // `block_in_place`, which panics on a current-thread runtime.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_cache_for_another_resource_base_is_not_served() {
+        clear_endpoint_override();
+        let _home = seed_discovery_cache(&AuthEndpoints {
+            resource: "https://api.staging.hedra.com".to_string(),
+            authorization_endpoint: "https://staging/authorize".to_string(),
+            token_endpoint: "https://staging/token".to_string(),
+        });
+
+        // A dead resource base: reaching the network at all is the failure.
+        let err = resolve_auth_endpoints("hedra-cli", "http://127.0.0.1:9", true)
+            .expect_err("must reject the mismatched cache and try to discover");
+        assert!(
+            !err.is_empty(),
+            "the mismatch must fall through to discovery, not silently serve staging"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_corrupt_cache_file_reads_as_absent() {
+        let _home = TempHome::new();
+        let path = discovery_cache_path("hedra-cli").expect("HOME is set");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, "{ not json").unwrap();
+
+        assert!(
+            read_cached_endpoints("hedra-cli").is_none(),
+            "a corrupt cache must degrade to re-discovery, not error"
+        );
     }
 }
