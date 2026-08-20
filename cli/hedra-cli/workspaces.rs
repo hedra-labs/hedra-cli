@@ -1288,7 +1288,25 @@ mod tests {
             .await;
 
         let base = server.uri();
-        tokio::task::spawn_blocking(move || run_select("test-cli", &base, "w2"))
+        // The deepest matches, as `dispatch` hands them over. Built off the
+        // real root CLI rather than `command()` alone: the output pipeline
+        // reads the SDK's *global* `--format`/`--quiet`, which the bare
+        // subcommand does not declare, and `OutputPipeline::from_matches`
+        // panics on a matches object that lacks them. This test is about the
+        // refresh count, but it still has to run the real rendering path.
+        use fern_cli_sdk::openapi::{commands, load_openapi_spec};
+        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli")
+            .expect("the bundled spec parses");
+        let m = commands::build_cli(&doc)
+            .subcommand(command())
+            .try_get_matches_from(["hedra-cli", "workspaces", "select", "--workspace-id", "w2"])
+            .expect("select parses");
+        let sub = m
+            .subcommand_matches("workspaces")
+            .and_then(|ws| ws.subcommand_matches("select"))
+            .expect("deepest matches")
+            .clone();
+        tokio::task::spawn_blocking(move || run_select("test-cli", &base, "w2", &sub))
             .await
             .unwrap()
             .unwrap();
