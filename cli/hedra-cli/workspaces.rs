@@ -309,6 +309,12 @@ pub(crate) fn render_workspace_table(
 /// strictly more useful — `--query 'data[?active]'` and `--format csv` both
 /// work on them.
 ///
+/// `workos_organization_id` is deliberately not carried: it is an
+/// identifier for the upstream identity provider, not something a caller
+/// picks a workspace by, and as a column it cost more width than any other
+/// field while being empty for personal workspaces. The interactive login
+/// listing still shows it — see [`render_workspace_table`].
+///
 /// Column order is alphabetical and is not a lever: `serde_json` is
 /// BTreeMap-backed in this workspace (the `preserve_order` feature is off),
 /// so key insertion order here has no effect on the rendered order. Renaming
@@ -325,7 +331,6 @@ pub(crate) fn workspace_rows(
                 "active": active_id == Some(ws.workspace_id.as_str()),
                 "key_held": held.contains_key(&ws.workspace_id),
                 "role": ws.role,
-                "workos_organization_id": ws.workos_organization_id,
                 "workspace_id": ws.workspace_id,
                 "workspace_name": ws.workspace_name,
             })
@@ -816,17 +821,24 @@ mod tests {
         assert_eq!(rows[1]["workspace_name"], "Acme");
         assert_eq!(rows[1]["active"], true);
         assert_eq!(rows[1]["key_held"], true);
-        assert_eq!(rows[1]["workos_organization_id"], "org_1");
 
         assert_eq!(rows[0]["active"], false);
         assert_eq!(rows[0]["key_held"], true);
-        // Absent org stays null rather than becoming the string "personal":
-        // the formatter renders it as an empty cell, and a machine consumer
-        // gets a real absence instead of a magic word.
-        assert!(rows[0]["workos_organization_id"].is_null());
 
         assert_eq!(rows[2]["active"], false);
         assert_eq!(rows[2]["key_held"], false);
+
+        // The upstream identity-provider id is deliberately not a column —
+        // widest field in the table, empty for personal workspaces, and not
+        // how anyone selects a workspace. Asserted so it cannot drift back
+        // in unnoticed: `WorkspaceSummary` still carries it for the login
+        // listing, so re-adding it here is a one-line accident.
+        for row in rows {
+            assert!(
+                row.get("workos_organization_id").is_none(),
+                "org id leaked back into the listing: {row}"
+            );
+        }
     }
 
     #[test]
@@ -856,18 +868,21 @@ mod tests {
             "active",
             "key_held",
             "role",
-            "workos_organization_id",
             "workspace_id",
             "workspace_name",
         ] {
             assert!(header.contains(column), "missing {column} in: {header}");
         }
         assert!(
+            !header.contains("workos"),
+            "org id is not a column: {header}"
+        );
+        assert!(
             lines.next().is_some_and(|l| l.starts_with('─')),
             "no separator rule under the header: {table}"
         );
         let acme = table.lines().find(|l| l.contains("Acme")).unwrap();
-        assert!(acme.contains("org_1") && acme.contains("member"));
+        assert!(acme.contains("w2") && acme.contains("member"));
         // Rows are padded to a common width — that is the "aligned table"
         // the bespoke renderer used to hand-roll.
         let widths: Vec<usize> = table
