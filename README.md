@@ -285,8 +285,8 @@ you have logged into, and `select` switches which one is the active credential.
 
 | Command | Description |
 |---------|-------------|
-| `hedra-cli workspaces list` | List accessible workspaces. `active` carries `*` on the current credential and `key_held` marks the ones `select` can switch to offline. This is the default — bare `hedra-cli workspaces` runs it |
-| `hedra-cli workspaces select --workspace-id <ID>` | Make that workspace's key the active credential, and report the result as an object (`active`, `key_id`, `workspace_id`, `workspace_name`) |
+| `hedra-cli workspaces list` | List accessible workspaces. `active` carries `*` on the current credential and `api_key` names the key held for each — the ones `select` can switch to offline. This is the default — bare `hedra-cli workspaces` runs it |
+| `hedra-cli workspaces select --workspace-id <ID>` | Make that workspace's key the active credential, and report the result as an object (`active`, `api_key`, `workspace_id`, `workspace_name`) |
 
 Both emit through the standard output pipeline like every generated command, so
 `--format` / `--query` / `--quiet` apply (table on a TTY, JSON when piped). The listing

@@ -235,8 +235,15 @@ pub(crate) async fn fetch_workspaces(
 /// in the table instead of a column of `true`/`false`. Filter it with
 /// `--query "data[?active != '']"`.
 ///
-/// `key_held` stays a boolean: it is a plain fact about local state with no
-/// marker reading, and `--query 'data[?key_held]'` is the natural filter.
+/// `api_key` carries the held key's id — the non-secret half of the
+/// `<key_id>:<secret>` credential, which is what this scheme's "key prefix"
+/// is — or `null` where no key is held. It replaced a `key_held` boolean:
+/// presence answers the same "can `select` switch to this one offline?"
+/// question, and naming the key also says *which* key that would be.
+/// `--query 'data[?api_key]'` keeps the boolean's filtering behaviour,
+/// since JMESPath counts `null` as false.
+///
+/// The secret half is never carried here — see [`HeldKey::credential`].
 ///
 /// `workos_organization_id` is deliberately not carried: it is an
 /// identifier for the upstream identity provider, not something a caller
@@ -258,7 +265,7 @@ pub(crate) fn workspace_rows(
         .map(|ws| {
             json!({
                 "active": active_marker(active_id == Some(ws.workspace_id.as_str())),
-                "key_held": held.contains_key(&ws.workspace_id),
+                "api_key": held.get(&ws.workspace_id).map(|k| k.key_id.as_str()),
                 "role": ws.role,
                 "workspace_id": ws.workspace_id,
                 "workspace_name": ws.workspace_name,
@@ -282,8 +289,8 @@ fn active_marker(active: bool) -> &'static str {
 
 /// The `workspaces select` result: the workspace that is now active, as one
 /// object through the same pipeline the listing uses. Same `active` marker
-/// and same `workspace_id` / `workspace_name` spellings as a listing row, so
-/// the two line up column-for-column.
+/// and same `api_key` / `workspace_id` / `workspace_name` spellings as a
+/// listing row, so the two line up column-for-column.
 ///
 /// Deliberately never carries [`HeldKey::credential`] — that is the live
 /// `<key_id>:<secret>` pair, and this value goes to stdout.
@@ -292,7 +299,7 @@ fn selected_row(workspace_id: &str, name: Option<&str>, key_id: Option<&str>) ->
         // `select` succeeded, so this workspace is by definition the active
         // one — the marker is not conditional here.
         "active": ACTIVE_MARKER,
-        "key_id": key_id,
+        "api_key": key_id,
         "workspace_id": workspace_id,
         "workspace_name": name,
     })
@@ -822,16 +829,26 @@ mod tests {
 
         // The markers survive as real fields, not decoration. `active` is a
         // marker string so the column reads as `*` / blank rather than as a
-        // column of `true`/`false`; `key_held` stays a plain boolean.
+        // column of `true`/`false`; `api_key` names the held key instead of
+        // just asserting that one exists.
         assert_eq!(rows[1]["workspace_name"], "Acme");
         assert_eq!(rows[1]["active"], ACTIVE_MARKER);
-        assert_eq!(rows[1]["key_held"], true);
+        assert_eq!(rows[1]["api_key"], "key_2");
 
         assert_eq!(rows[0]["active"], "");
-        assert_eq!(rows[0]["key_held"], true);
+        assert_eq!(rows[0]["api_key"], "key_1");
 
+        // No key held: a real absence, which the table renders as a blank
+        // cell and `--query 'data[?api_key]'` filters out.
         assert_eq!(rows[2]["active"], "");
-        assert_eq!(rows[2]["key_held"], false);
+        assert!(rows[2]["api_key"].is_null());
+
+        // Only the id half ever appears — never the secret behind the colon.
+        let serialized = serde_json::to_string(&out).unwrap();
+        assert!(
+            !serialized.contains("secret"),
+            "credential leaked into the listing: {serialized}"
+        );
 
         // Exactly one row may carry the marker.
         assert_eq!(
@@ -875,7 +892,7 @@ mod tests {
         let header = lines.next().expect("header row");
         for column in [
             "active",
-            "key_held",
+            "api_key",
             "role",
             "workspace_id",
             "workspace_name",
@@ -1006,7 +1023,7 @@ mod tests {
         };
 
         assert_eq!(run("data[?active != '']"), ["Acme"]);
-        assert_eq!(run("data[?key_held]"), ["Personal", "Acme"]);
+        assert_eq!(run("data[?api_key]"), ["Personal", "Acme"]);
     }
 
     #[test]
@@ -1026,7 +1043,7 @@ mod tests {
 
         assert_eq!(out["workspace_id"], "w2");
         assert_eq!(out["workspace_name"], "Acme");
-        assert_eq!(out["key_id"], "key_2");
+        assert_eq!(out["api_key"], "key_2");
         // `select` just made this workspace active, so the marker is not
         // conditional — and it is spelled the same way a listing row spells
         // it, so the two render as the same column.
@@ -1037,7 +1054,7 @@ mod tests {
         let mut held_keys = BTreeMap::new();
         held_keys.insert("w2".to_string(), held("key_2"));
         let row = workspace_rows(&list, Some("w2"), &held_keys)["data"][0].clone();
-        for key in ["active", "workspace_id", "workspace_name"] {
+        for key in ["active", "api_key", "workspace_id", "workspace_name"] {
             assert_eq!(out[key], row[key], "`{key}` disagrees between the two");
         }
 
