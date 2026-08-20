@@ -51,13 +51,20 @@ impl Sandbox {
     }
 
     /// Where `FileKeyringStore::user_default()` lands under this HOME.
-    /// Mirrors the platform layout the SDK picks; the tests only run the
-    /// paths CI runs, so macOS and Linux are enough.
+    ///
+    /// Mirrors `oauth_common::config_dir` exactly, and the `command()` env
+    /// scrub below is what makes that mirroring true: on Linux the SDK
+    /// prefers `$XDG_CONFIG_HOME` over `$HOME/.config`, and on Windows
+    /// `%APPDATA%` over `$HOME/AppData/Roaming`, so a sandbox that sets only
+    /// `HOME` does not actually get its own store. Both are removed there,
+    /// which leaves the `$HOME`-relative fallbacks reproduced here.
     fn store_path(&self) -> PathBuf {
         let home = self.home.path();
         #[cfg(target_os = "macos")]
         let root = home.join("Library").join("Application Support");
-        #[cfg(not(target_os = "macos"))]
+        #[cfg(target_os = "windows")]
+        let root = home.join("AppData").join("Roaming");
+        #[cfg(not(any(target_os = "macos", target_os = "windows")))]
         let root = home.join(".config");
         root.join(CLI).join("auth-keyring.json")
     }
@@ -68,6 +75,20 @@ impl Sandbox {
             .env("HOME", self.home.path())
             .env("FERN_CLI_CREDENTIAL_STORE", "file")
             .env("NO_COLOR", "1")
+            // `HOME` alone does NOT isolate the credential store. The SDK's
+            // `oauth_common::config_dir` prefers `$XDG_CONFIG_HOME` on Linux
+            // and `%APPDATA%` on Windows, and both outrank the `HOME`-relative
+            // fallback this harness relies on. Whenever the environment sets
+            // one, every sandbox in the suite resolves to the *same* file and
+            // ten tests race it in parallel — a fresh install sees another
+            // test's key, a seeded one sees a credential a third just deleted.
+            // That is the shape the first CI run of this file failed in, while
+            // passing locally: macOS consults neither variable.
+            //
+            // Removing an unset variable is a no-op, so this is correct
+            // wherever it runs. `isolation_is_real` pins the result.
+            .env_remove("XDG_CONFIG_HOME")
+            .env_remove("APPDATA")
             // The ambient environment must not reach into these tests:
             // HEDRA_API_KEY shadows the keyring outright, and HEDRA_ENV /
             // HEDRA_CLI_BASE_URL would retarget the very base URL some of
@@ -220,6 +241,39 @@ fn a_pasted_key_reaches_the_server_when_no_map_exists() {
         authorization_header(&s).as_deref(),
         Some("Bearer pasted:secret"),
         "with no map, the raw KeyAuth item is the credential"
+    );
+}
+
+/// Every other test here assumes its sandbox has a credential store of its
+/// own. That assumption is environment-dependent and it has already been
+/// wrong once, so it gets asserted directly rather than inferred from the
+/// suite passing.
+///
+/// A break shows up here as one named path instead of as an unrelated
+/// handful of tests failing on values they never wrote — which is how it
+/// presented the first time, and why it cost a CI round trip to read.
+#[test]
+fn isolation_is_real() {
+    let s = Sandbox::new();
+    let out = s.run_with_stdin(
+        &["auth", "login", "--with-token", "--scheme", "KeyAuth"],
+        "isolation:probe\n",
+    );
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    assert!(
+        s.store_path().exists(),
+        "the CLI did not write its credential store where this harness reads it.\n\
+         expected: {}\n\
+         The sandbox is not isolated: something in the environment is redirecting \
+         the SDK's config_dir (XDG_CONFIG_HOME / APPDATA), so every test in this \
+         file is sharing one store and racing.",
+        s.store_path().display(),
+    );
+    assert_eq!(
+        s.raw_slot("KeyAuth").as_deref(),
+        Some("isolation:probe"),
+        "the store this harness reads is not the one the CLI wrote"
     );
 }
 
