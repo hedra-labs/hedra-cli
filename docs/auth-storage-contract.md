@@ -101,7 +101,7 @@ present; if not, `git cherry-pick <sha>`.
 | `d06b3c3` | `src/http.rs` | re-supply the `X-Fern-*` identity headers the CLI executor drops |
 | `53c3773` | `src/http.rs` | send the `X-Fern-*` identity trio on the OpenAPI path |
 | `8a3427d` | `src/pager.rs` | serialize PAGER env-var tests (see the `.fernignore` note — the file is deliberately not ignored) |
-| `c0a3cba` | `src/auth/login.rs` | bare `auth logout` clears every declared scheme; `--with-token` pastes into the token binding rather than the OAuth one |
+| `29c92df` | `src/auth/login.rs` | bare `auth logout` clears every declared scheme; `--with-token` pastes into the token binding rather than the OAuth one |
 
 Keep this table current. A patch that is not listed is one nobody will notice
 has been reverted.
