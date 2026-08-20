@@ -296,8 +296,8 @@ fn endpoint_override(resource_base_url: &str) -> Result<Option<AuthEndpoints>, S
     ) {
         (None, None) => Ok(None),
         (Some(authorization_endpoint), Some(token_endpoint)) => {
-            require_https(&authorization_endpoint)?;
-            require_https(&token_endpoint)?;
+            require_https("authorization endpoint", &authorization_endpoint)?;
+            require_https("token endpoint", &token_endpoint)?;
             Ok(Some(AuthEndpoints {
                 resource: resource_base_url.to_string(),
                 authorization_endpoint,
@@ -338,24 +338,79 @@ async fn discover_endpoints(resource_base_url: &str) -> Result<AuthEndpoints, St
         .ok_or_else(|| format!("{url}: document lists no authorization_servers"))?
         .trim_end_matches('/')
         .to_string();
-    require_https(&issuer).map_err(|e| format!("{url}: {e}"))?;
+    require_https("authorization server", &issuer).map_err(|e| format!("{url}: {e}"))?;
 
     // Hop 2 — RFC 8414: the issuer names its endpoints. Taken verbatim —
     // reconstructing `{issuer}/oauth2/…` would re-hardcode the vendor's
     // path shape, the very thing this chain exists to avoid.
-    let meta_url = format!("{issuer}/.well-known/oauth-authorization-server");
+    let meta_url = metadata_url(&issuer)?;
     let meta = fetch_json(&http, &meta_url).await?;
+
+    // RFC 8414 § 3.3: the metadata's own `issuer` MUST match the issuer used
+    // to fetch it. Without the check, a document served at one issuer can
+    // name another, and the CLI would carry an authorization code to
+    // whatever token endpoint that second party published.
+    let declared = meta
+        .get("issuer")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{meta_url}: metadata has no `issuer`"))?;
+    if declared.trim_end_matches('/') != issuer {
+        return Err(format!(
+            "{meta_url}: metadata declares issuer `{declared}` but was served from \
+             `{issuer}` — refusing a document that does not describe the \
+             authorization server it came from"
+        ));
+    }
+
     let endpoint = |key: &str| -> Result<String, String> {
-        meta.get(key)
+        let value = meta
+            .get(key)
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| format!("{meta_url}: metadata has no `{key}`"))
+            .ok_or_else(|| format!("{meta_url}: metadata has no `{key}`"))?;
+        // The token leg carries the PKCE code exchange and the authorization
+        // leg carries the code itself, so neither may be plaintext however
+        // the document asks for it.
+        require_https(key, &value).map_err(|e| format!("{meta_url}: {e}"))?;
+        Ok(value)
     };
     Ok(AuthEndpoints {
         resource: resource_base_url.to_string(),
         authorization_endpoint: endpoint("authorization_endpoint")?,
         token_endpoint: endpoint("token_endpoint")?,
     })
+}
+
+/// The RFC 8414 § 3.1 metadata URL for `issuer`.
+///
+/// The well-known segment goes *between the host and the issuer's path*, not
+/// on the end of the whole issuer:
+///
+/// ```text
+///   https://host          → https://host/.well-known/oauth-authorization-server
+///   https://host/tenant1  → https://host/.well-known/oauth-authorization-server/tenant1
+/// ```
+///
+/// Appending — the old behaviour — happens to work only because today's
+/// issuer is origin-only. The moment an authorization server is served under
+/// a path, which a per-tenant issuer usually is, the appended form 404s and
+/// the CLI cannot log in at all until a new binary ships. Building it
+/// correctly costs nothing and takes a release off that recovery path.
+fn metadata_url(issuer: &str) -> Result<String, String> {
+    let url = reqwest::Url::parse(issuer)
+        .map_err(|e| format!("authorization server `{issuer}` is not a valid URL: {e}"))?;
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(format!(
+            "authorization server `{issuer}` carries a query or fragment, which \
+             RFC 8414 forbids in an issuer identifier"
+        ));
+    }
+    let issuer_path = url.path().trim_end_matches('/');
+    let mut meta = url.clone();
+    meta.set_path(&format!(
+        "/.well-known/oauth-authorization-server{issuer_path}"
+    ));
+    Ok(meta.to_string())
 }
 
 async fn fetch_json(http: &reqwest::Client, url: &str) -> Result<Value, String> {
@@ -388,18 +443,18 @@ fn resource_covers(published: &str, requested: &str) -> bool {
 
 /// The issuer must be https; loopback is exempt so local mock servers (and
 /// the wiremock tests) can exercise the chain.
-fn require_https(issuer: &str) -> Result<(), String> {
-    if issuer.starts_with("https://") {
+fn require_https(what: &str, url: &str) -> Result<(), String> {
+    if url.starts_with("https://") {
         return Ok(());
     }
-    let loopback = issuer.strip_prefix("http://").is_some_and(|rest| {
+    let loopback = url.strip_prefix("http://").is_some_and(|rest| {
         let host = rest.split(['/', ':']).next().unwrap_or("");
         matches!(host, "127.0.0.1" | "localhost")
     });
     if loopback {
         Ok(())
     } else {
-        Err(format!("authorization server `{issuer}` is not https"))
+        Err(format!("{what} `{url}` is not https"))
     }
 }
 
@@ -1395,6 +1450,123 @@ pub(crate) mod tests {
         assert_eq!(ep.resource, uri);
         assert_eq!(ep.authorization_endpoint, format!("{uri}/custom/authorize"));
         assert_eq!(ep.token_endpoint, format!("{uri}/custom/token"));
+    }
+
+    // RFC 8414 § 3.1: the well-known segment goes between host and path.
+    #[test]
+    fn metadata_url_inserts_the_well_known_segment_before_the_issuer_path() {
+        assert_eq!(
+            metadata_url("https://auth.example.com").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server"
+        );
+        assert_eq!(
+            metadata_url("https://auth.example.com/tenant1").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
+        );
+        // A trailing slash is not an extra path segment.
+        assert_eq!(
+            metadata_url("https://auth.example.com/tenant1/").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
+        );
+    }
+
+    #[test]
+    fn metadata_url_refuses_an_issuer_with_a_query_or_fragment() {
+        assert!(metadata_url("https://auth.example.com/t?x=1").is_err());
+        assert!(metadata_url("https://auth.example.com/t#frag").is_err());
+    }
+
+    /// The path-based issuer end to end — the shape a per-tenant
+    /// authorization server takes, and the one the appended form 404s on.
+    #[tokio::test]
+    async fn discovery_follows_an_issuer_that_has_a_path() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let issuer = format!("{uri}/tenant1");
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [issuer],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server/tenant1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": issuer,
+                "authorization_endpoint": format!("{issuer}/authorize"),
+                "token_endpoint": format!("{issuer}/token"),
+            })))
+            .mount(&server)
+            .await;
+
+        let ep = discover_endpoints(&uri).await.unwrap();
+        assert_eq!(ep.token_endpoint, format!("{issuer}/token"));
+    }
+
+    /// A document that names an issuer other than the one that served it
+    /// must be refused: honouring it would send an authorization code to a
+    /// token endpoint published by a third party.
+    #[tokio::test]
+    async fn discovery_refuses_metadata_whose_issuer_does_not_match() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [uri],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": "https://somewhere-else.example.com",
+                "authorization_endpoint": "https://somewhere-else.example.com/authorize",
+                "token_endpoint": "https://somewhere-else.example.com/token",
+            })))
+            .mount(&server)
+            .await;
+
+        let err = discover_endpoints(&uri).await.unwrap_err();
+        assert!(
+            err.contains("somewhere-else.example.com") && err.contains("issuer"),
+            "unexpected: {err}"
+        );
+    }
+
+    /// The token leg carries the PKCE code exchange, so a plaintext endpoint
+    /// is refused however the document asks for it.
+    #[tokio::test]
+    async fn discovery_refuses_an_insecure_returned_endpoint() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [uri],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": uri,
+                "authorization_endpoint": format!("{uri}/authorize"),
+                // Not loopback, and not https.
+                "token_endpoint": "http://tokens.example.com/token",
+            })))
+            .mount(&server)
+            .await;
+
+        let err = discover_endpoints(&uri).await.unwrap_err();
+        assert!(
+            err.contains("token_endpoint") && err.contains("not https"),
+            "unexpected: {err}"
+        );
     }
 
     #[tokio::test]
