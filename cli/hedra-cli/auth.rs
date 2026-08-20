@@ -1,16 +1,12 @@
-//! The auth flow: env-late-bound PKCE login against AuthKit, plus the
-//! ENG-10346 token bootstrap that exchanges the OAuth JWT for a durable
-//! API key on the v3 login plane:
+//! The auth flow: an env-late-bound PKCE login, plus the token bootstrap
+//! that exchanges the resulting OAuth JWT for a durable API key on the v3
+//! login plane.
 //!
-//!   GET  /v3/workspaces            — picker listing (JWT not consumed)
-//!   POST /v3/keys/bootstrap/renew  — possession-based extension of a held key
-//!   POST /v3/keys/bootstrap        — mint (single-use JWT consumed)
-//!
-//! Renew is tried first (a mint response is the only time a secret exists in
-//! plaintext, so keeping the held key alive is preferred); mint is the
-//! fallback. The workspace is named explicitly at mint time (ENG-10403);
-//! the login itself carries no workspace selector, because a WorkOS
-//! organization cannot name an org-less ("born-free") workspace.
+//! Renew is tried before mint: a mint response is the only time a secret
+//! exists in plaintext, so keeping an already-held key alive is preferred.
+//! The workspace is named explicitly at mint time; the login itself carries
+//! no workspace selector, because the identity provider's organization
+//! cannot name an org-less ("born-free") workspace.
 //!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
@@ -52,7 +48,7 @@ fn hedra_env() -> HedraEnv {
 /// The compiled resource base for the current `HEDRA_ENV`. These are the
 /// only hostnames that ship in the binary — we own them permanently. The
 /// authorization server is NOT compiled in; it is discovered from the
-/// resource base at runtime (ENG-10377), so a vendor domain change is a
+/// resource base at runtime, so a vendor domain change is a
 /// server-side config edit and released binaries keep working.
 pub(crate) fn resource_base_url() -> &'static str {
     match hedra_env() {
@@ -62,7 +58,7 @@ pub(crate) fn resource_base_url() -> &'static str {
 }
 
 // ---------------------------------------------------------------------------
-// Authorization-server discovery (ENG-10377): RFC 9728 → RFC 8414.
+// Authorization-server discovery: RFC 9728 → RFC 8414.
 //
 //   1. GET {resource_base}/.well-known/oauth-protected-resource
 //      → validate its `resource` covers ours → authorization_servers[0]
@@ -388,8 +384,8 @@ pub(crate) fn derive_base_url_from_hedra_env() {
 /// Callers must only invoke this at dispatch/request time — `register()`
 /// runs before `run_with_args` loads `.env`, so an eager call would freeze
 /// the wrong env (and discovery is I/O besides).
-/// The login carries NO workspace selector — deliberately (ENG-10403). A
-/// WorkOS organization cannot name an org-less ("born-free") workspace, so
+/// The login carries NO workspace selector — deliberately. The identity
+/// provider's organization cannot name an org-less ("born-free") workspace, so
 /// hinting the hosted login at an org selects the wrong thing or nothing;
 /// the workspace is named at mint time instead, by id.
 fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow {
@@ -416,7 +412,8 @@ fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow 
 /// call therefore exchanges the refresh token for a brand-new access token
 /// rather than reusing the stored one.
 ///
-/// The rotated refresh token is written back: WorkOS rotates on every
+/// The rotated refresh token is written back: the identity provider
+/// rotates it on every
 /// exchange, so dropping the new one would break the *next* call.
 pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let endpoints =
@@ -562,7 +559,7 @@ impl EnvOAuthProvider {
         self.inner
             .get_or_init(|| {
                 // Cache-first endpoints: the refresh path must not re-run
-                // discovery on every invocation (ENG-10377).
+                // discovery on every invocation.
                 let endpoints = auth_endpoints(&self.cli_name, true).map_err(|e| e.to_string())?;
                 Ok(concretize(&self.base, &endpoints)
                     .build_auth_provider(&self.cli_name)
@@ -623,8 +620,8 @@ fn dump_token_claims(cli_name: &str) {
                 "sid",
                 "org_id",
                 "organization_id",
-                // The client-identity claims (ENG-10375 needed these and
-                // their absence forced an out-of-band probe).
+                // The client-identity claims — their absence once forced
+                // an out-of-band probe to establish which client was used.
                 "client_id",
                 "azp",
             ] {
@@ -659,7 +656,7 @@ fn jwt_claims(token: &str) -> Result<serde_json::Map<String, Value>, String> {
 }
 
 // ---------------------------------------------------------------------------
-// Token bootstrap (ENG-10346 login plane): OAuth JWT → durable API key.
+// Token bootstrap (login plane): OAuth JWT → durable API key.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, serde::Deserialize)]
@@ -708,13 +705,12 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
         .build()
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
 
-    // 1. The picker listing — JWT-authenticated, deliberately not consumed
-    //    by the server, so list-then-mint works on one login.
+    // 1. The picker listing, authenticated with the login JWT.
     let listing = workspaces::fetch_workspaces(&http, api_base, jwt).await?;
 
-    // 2. Renew the held key if there is one; mint on any refusal. A failed
-    //    renew does not burn the single-use JWT (the server consumes it
-    //    last), so the same token still covers the fallback mint.
+    // 2. Renew the held key if there is one; mint on any refusal. One JWT
+    //    covers every leg below, so the fallback mint needs no second
+    //    login — do not reorder these on the assumption that it does.
     let held = active_store().get(cli_name, KEY_SCHEME).ok().flatten();
     let (key_id, expires_at, workspace_id, minted) = match held {
         Some(credential) => match try_renew(&http, api_base, &credential, jwt).await? {
@@ -807,7 +803,7 @@ async fn try_renew(
 /// POST the mint and parse the response. The builder must already carry a
 /// login credential (the login-fresh JWT, or the stored OAuth session via
 /// [`fresh_login_jwt`]). `workspace_id` names the target workspace when the
-/// caller has one (ENG-10403); omitted, the server picks — today's behavior.
+/// caller has one; omitted, the server picks — today's behavior.
 async fn post_bootstrap_mint(
     req: reqwest::RequestBuilder,
     workspace_id: Option<&str>,
@@ -874,7 +870,7 @@ pub(crate) struct MintedKey {
 }
 
 /// Mint a key bound to `workspace_id` and make it the active credential
-/// (ENG-10403). Runs off the stored OAuth session — refreshed through the
+/// Runs off the stored OAuth session — refreshed through the
 /// same provider the data plane uses — so switching workspaces costs no
 /// browser round-trip; the login JWT's own org is irrelevant here.
 pub(crate) fn mint_for_workspace(
@@ -910,7 +906,7 @@ fn mint_for_workspace_at(
     // workspace-targeted mint silently DROPS `workspace_id` and binds the
     // key to the login's own workspace. Trusting the request would file a
     // key under a workspace it does not belong to — and bill the wrong
-    // target. The response is the only trustworthy source (ENG-10403).
+    // target. The response is the only trustworthy source.
     if minted.workspace_id.as_deref() != Some(workspace_id) {
         let landed = minted.workspace_id.as_deref();
         // The credential is real; record it where it actually belongs so it
@@ -1197,7 +1193,7 @@ mod tests {
         }
     }
 
-    // ── discovery tests (ENG-10377) ─────────────────────────────────────
+    // ── discovery tests ──────────────────────────────────────────────
 
     #[test]
     fn resource_covers_requires_equality_or_path_ancestor() {
@@ -1544,7 +1540,7 @@ mod tests {
         );
     }
 
-    // ── targeted mint (ENG-10403: `workspaces select`) ──────────────────
+    // ── targeted mint (`workspaces select`) ────────────────────────────
 
     /// A live (unexpired) OAuth session plus a discovery cache pointing at
     /// `server` — enough for `oauth_apply` to authenticate without any
@@ -1678,7 +1674,8 @@ mod tests {
         assert_eq!(map.keys["w2"].credential, "key_w2:s3cret");
     }
 
-    /// The compatibility guard: a server without ENG-10403 ignores the
+    /// The compatibility guard: a server that predates workspace-targeted
+    /// minting ignores the
     /// unknown `workspace_id` field and mints for the JWT's own workspace.
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]
@@ -1739,7 +1736,7 @@ mod tests {
 
     /// The regression that matters: the stored token is NOT expired, so the
     /// ordinary provider would reuse it — and the login plane would refuse it
-    /// as "too old" (its `iat` gate is 300s, far shorter than a token's TTL).
+    /// as "too old", since its `iat` gate is far shorter than a token's TTL.
     /// `fresh_login_jwt` must exchange the refresh token regardless.
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]

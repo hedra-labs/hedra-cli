@@ -1,5 +1,5 @@
-//! Workspace surface: the v3 login-plane workspace listing (ENG-10346's
-//! picker source), the local per-workspace key map, and the `workspaces`
+//! Workspace surface: the v3 login-plane workspace listing (the picker
+//! source), the local per-workspace key map, and the `workspaces`
 //! command (`list` / `select`).
 //!
 //! The CLI can only ever HOLD keys it got from logins — the bootstrap mint
@@ -7,7 +7,7 @@
 //! bootstrapped key deliberately lacks KEYS_MANAGE, so it cannot mint keys
 //! for other workspaces. Keys therefore accumulate here, one per workspace
 //! logged into, and `select` switches the active `KeyAuth` slot between
-//! them — auto-launching a login (with a WorkOS organization hint) when no
+//! them — auto-launching a login when no
 //! key is held for the target.
 //!
 //! Hand-written and .fernignore-protected — the generator never emits this
@@ -111,7 +111,7 @@ impl WorkspaceKeyMap {
 /// `unbound_key` rather than in `keys`, and the workspace marker clears so
 /// no stale star is shown.
 /// A `None` name preserves any name already held (renewals don't carry one).
-/// `activate: false` files the key WITHOUT making it the active credential — the ENG-10403 compatibility guard uses it to keep a
+/// `activate: false` files the key WITHOUT making it the active credential — the compatibility guard uses it to keep a
 /// key that landed on the wrong workspace instead of orphaning it, while
 /// leaving the user's active workspace untouched.
 #[allow(clippy::too_many_arguments)]
@@ -206,8 +206,8 @@ async fn fetch_workspaces_request(
 }
 
 /// Fetch the picker listing with the login JWT (the bootstrap path). The
-/// JWT is deliberately not consumed by the server, so list-then-mint works
-/// on one login.
+/// same JWT still covers the mint that may follow, so this does not need a
+/// login of its own.
 pub(crate) async fn fetch_workspaces(
     http: &reqwest::Client,
     api_base: &str,
@@ -397,7 +397,7 @@ fn run_select(cli_name: &str, workspace_id: &str) -> Result<(), CliError> {
     // No key held for the target. A browser login is needed only when there
     // is no session at all — the workspace itself is named at mint time, so
     // an existing session (refreshed) can mint for any workspace the account
-    // is a member of, whether or not it has a WorkOS organization.
+    // is a member of, whether or not it has a linked organization.
     if !auth::has_oauth_session(cli_name) {
         eprintln!("Not logged in — launching browser login…");
         auth::EnvPkceLoginFlow::new().run(&LoginContext {
