@@ -359,7 +359,6 @@ hedra-cli jobs list --page-all --page-limit 5
 | `HEDRA_API_KEY` | API key (`<key_id>:<secret>`, sent as `Authorization: Bearer …`). Shadows the keyring |
 | `HEDRA_CLI_BASE_URL` | Override the API base URL |
 | `HEDRA_ENV` | Target environment: `prod` (default) or `staging`. Selects the API resource base, the login/auth discovery origin, and (for `staging`) derives the API base URL unless overridden |
-| `HEDRA_AUTH_BASE_URL` | Break-glass override for the OAuth authorization server: skips RFC 9728/8414 discovery and uses `{base}/oauth2/authorize` + `{base}/oauth2/token` directly (local/mock servers, or discovery outage) |
 | `HEDRA_CLI_OUTPUT` | Default output format when `--format` is not given |
 | `HEDRA_CLI_USER_AGENT_SUFFIX` | Product token appended to the User-Agent (`--user-agent-suffix` wins) |
 | `HEDRA_CLI_CA_BUNDLE` | Path to a PEM file with extra trust roots (or `SSL_CERT_FILE`) |
