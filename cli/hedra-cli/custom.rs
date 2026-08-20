@@ -14,7 +14,7 @@
 
 // Hand-written sibling modules, declared here rather than in main.rs
 // (which is regenerated). `#[path]` resolves relative to this file's
-// directory, keeping them at cli/hedra-cli/ next to this file. All three are
+// directory, keeping them at cli/hedra-cli/ next to this file. All of them are
 // .fernignore-protected like custom.rs itself.
 #[path = "active_key.rs"]
 mod active_key;
@@ -22,6 +22,8 @@ mod active_key;
 mod auth;
 #[path = "keyring_cache.rs"]
 mod keyring_cache;
+#[path = "views.rs"]
+mod views;
 #[path = "workspaces.rs"]
 mod workspaces;
 
@@ -61,10 +63,29 @@ pub fn register(app: CliApp) -> CliApp {
         .command(workspaces::command(), Box::new(workspaces::dispatch));
 
     if resolve_format_from_argv() != OutputFormat::Table {
-        app
-    } else {
-        app.transform_response(&["models", "list"], reshape_model_list_table)
+        return app;
     }
+
+    // Table-only response reshaping. Every hook below exists because the
+    // generic table renderer drops fields, and none of them may run for
+    // machine-readable formats — json/yaml/csv/jsonl output stays
+    // byte-identical to the server's, so scripts are unaffected.
+    //
+    // `["jobs", "*"]` is one registration rather than ~85: the jobs group
+    // carries `submit-<model>` leaves for every model in the catalog, and
+    // `views::jobs` selects the view from the operation path.
+    //
+    // The remaining four groups get the generic array de-hijacker. They
+    // are named individually rather than globbed across the whole CLI so
+    // that adding a resource is a deliberate choice — `views::dehijack`
+    // passes list envelopes through untouched, but a hook that silently
+    // covered every future endpoint would be harder to reason about.
+    app.transform_response(&["models", "list"], reshape_model_list_table)
+        .transform_response(&["jobs", "*"], views::jobs)
+        .transform_response(&["keys", "*"], views::defuse_arrays)
+        .transform_response(&["webhooks", "*"], views::defuse_arrays)
+        .transform_response(&["log-drains", "*"], views::defuse_arrays)
+        .transform_response(&["billing", "*"], views::defuse_arrays)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {
