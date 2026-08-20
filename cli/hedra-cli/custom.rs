@@ -14,10 +14,12 @@
 
 // Hand-written sibling modules, declared here rather than in main.rs
 // (which is regenerated). `#[path]` resolves relative to this file's
-// directory, keeping them at cli/hedra-cli/ next to this file. Both are
+// directory, keeping them at cli/hedra-cli/ next to this file. All three are
 // .fernignore-protected like custom.rs itself.
 #[path = "auth.rs"]
 mod auth;
+#[path = "keyring_cache.rs"]
+mod keyring_cache;
 #[path = "workspaces.rs"]
 mod workspaces;
 
@@ -36,6 +38,10 @@ pub fn register(app: CliApp) -> CliApp {
     // it here too is safe: dotenvy never overrides existing process env,
     // and the runtime's later call just becomes a no-op.
     let _ = dotenvy::dotenv();
+
+    // Memoise credential reads for the life of the process. Must happen
+    // before anything resolves a credential — see keyring_cache::install.
+    keyring_cache::install();
 
     // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
     // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise.
