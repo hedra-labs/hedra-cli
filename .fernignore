@@ -14,6 +14,7 @@ cli/hedra-cli/custom.rs
 cli/hedra-cli/active_key.rs
 cli/hedra-cli/auth.rs
 cli/hedra-cli/keyring_cache.rs
+cli/hedra-cli/views.rs
 cli/hedra-cli/workspaces.rs
 README.md
 
