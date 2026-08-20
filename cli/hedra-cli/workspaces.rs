@@ -43,10 +43,11 @@ struct WorkspaceListResponse {
 // Local key map: one bootstrapped key per workspace, in a single keyring slot.
 // ---------------------------------------------------------------------------
 
-/// Keyring slot holding the JSON [`WorkspaceKeyMap`]. Separate from the
-/// active `KeyAuth` slot, which stays the single credential the SDK's
-/// keyring source reads — `select` copies a held credential into it.
-const WORKSPACE_KEYS_SCHEME: &str = "WorkspaceKeys";
+/// Keyring slot holding the JSON [`WorkspaceKeyMap`]. This is the *only*
+/// slot the active credential lives in: the `KeyAuth` address the SDK's
+/// keyring source reads is projected from this map at resolve time by
+/// [`super::active_key`], rather than being a second item holding a copy.
+pub(crate) const WORKSPACE_KEYS_SCHEME: &str = "WorkspaceKeys";
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub(crate) struct HeldKey {
@@ -61,12 +62,20 @@ pub(crate) struct HeldKey {
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
 pub(crate) struct WorkspaceKeyMap {
-    /// Workspace of the credential currently in the `KeyAuth` slot; `None`
-    /// when the active key is unbound (org-less personal mint).
+    /// Workspace of the currently active credential; `None` when the active
+    /// key is unbound (org-less personal mint), in which case it lives in
+    /// [`unbound_key`](Self::unbound_key) instead.
     #[serde(default)]
     pub(crate) active_workspace_id: Option<String>,
     #[serde(default)]
     pub(crate) keys: BTreeMap<String, HeldKey>,
+    /// The active credential when it is bound to no workspace. `keys` is
+    /// indexed by workspace id and so has nowhere to put one; before the
+    /// `KeyAuth` slot became a projection of this map, an org-less mint
+    /// survived only as that separate item. Without this field it would
+    /// have nowhere to live at all.
+    #[serde(default)]
+    pub(crate) unbound_key: Option<HeldKey>,
 }
 
 impl WorkspaceKeyMap {
@@ -77,6 +86,18 @@ impl WorkspaceKeyMap {
         }
     }
 
+    /// The credential the CLI should present right now, if it holds one.
+    ///
+    /// `active_workspace_id` wins: selecting a workspace is what makes its
+    /// key active, and an `unbound_key` left over from an earlier org-less
+    /// mint must not shadow that choice.
+    pub(crate) fn active_credential(&self) -> Option<&str> {
+        match &self.active_workspace_id {
+            Some(id) => self.keys.get(id).map(|k| k.credential.as_str()),
+            None => self.unbound_key.as_ref().map(|k| k.credential.as_str()),
+        }
+    }
+
     fn save(&self, cli_name: &str) -> Result<(), CliError> {
         let json = serde_json::to_string(self)
             .map_err(|e| CliError::Auth(format!("could not serialize workspace key map: {e}")))?;
@@ -84,10 +105,11 @@ impl WorkspaceKeyMap {
     }
 }
 
-/// Record a key the bootstrap just minted or renewed, and mark its
-/// workspace active (it IS the credential now sitting in `KeyAuth`).
-/// A `None` workspace means an unbound personal key — nothing to map,
-/// but the active marker must clear so no stale star is shown.
+/// Record a key the bootstrap just minted or renewed, and mark it active
+/// (it IS the credential the `KeyAuth` slot now projects).
+/// A `None` workspace means an unbound personal key: it is filed in
+/// `unbound_key` rather than in `keys`, and the workspace marker clears so
+/// no stale star is shown.
 /// A `None` name preserves any name already held (renewals don't carry one).
 /// `activate: false` files the key WITHOUT making it the active credential — the ENG-10403 compatibility guard uses it to keep a
 /// key that landed on the wrong workspace instead of orphaning it, while
@@ -119,9 +141,19 @@ pub(crate) fn record_key(
                 map.active_workspace_id = Some(ws.to_string());
             }
         }
-        // An unbound mint owns no map entry; the active marker must clear so
-        // no stale star is shown.
-        None if activate => map.active_workspace_id = None,
+        // An unbound mint owns no *workspace* entry — `keys` is indexed by
+        // workspace id. It still has to be stored, because the map is the
+        // only place the active credential lives, so it goes in its own
+        // slot and the workspace marker clears (no stale star).
+        None if activate => {
+            map.unbound_key = Some(HeldKey {
+                key_id: key_id.to_string(),
+                credential: credential.to_string(),
+                workspace_name: workspace_name.map(str::to_string),
+                expires_at: expires_at.map(str::to_string),
+            });
+            map.active_workspace_id = None;
+        }
         None => {}
     }
     map.save(cli_name)
@@ -133,15 +165,15 @@ pub(crate) enum SelectOutcome {
 }
 
 /// Make the held key for `workspace_id` the active credential. Local-only:
-/// copies it into the `KeyAuth` slot and moves the active marker.
+/// moves the active marker, which is what the `KeyAuth` projection reads.
 pub(crate) fn activate(cli_name: &str, workspace_id: &str) -> Result<SelectOutcome, CliError> {
     let mut map = WorkspaceKeyMap::load(cli_name);
     let Some(key) = map.keys.get(workspace_id).cloned() else {
         return Ok(SelectOutcome::NotHeld);
     };
-    active_store().set(cli_name, auth::KEY_SCHEME, &key.credential)?;
     map.active_workspace_id = Some(workspace_id.to_string());
     map.save(cli_name)?;
+    auth::drop_stale_key_mirror(cli_name);
     Ok(SelectOutcome::Activated(key))
 }
 
@@ -428,7 +460,7 @@ fn announce_active(workspace_id: &str, name: Option<&str>, key_id: Option<&str>)
 #[cfg(test)]
 mod tests {
     use super::*;
-    use fern_cli_sdk::auth::{set_active_store, KeyringStore, MockKeyringStore};
+    use fern_cli_sdk::auth::{KeyringStore, MockKeyringStore};
 
     fn ws(id: &str, name: &str, org: Option<&str>) -> WorkspaceSummary {
         WorkspaceSummary {
@@ -448,10 +480,10 @@ mod tests {
         }
     }
 
+    /// Installs the `KeyAuth` projection over the mock, as production does,
+    /// so assertions about the active credential go through the derivation.
     fn fresh_keyring() -> std::sync::Arc<MockKeyringStore> {
-        let store = std::sync::Arc::new(MockKeyringStore::new());
-        set_active_store(store.clone());
-        store
+        super::super::active_key::projected_mock()
     }
 
     // ── key map ─────────────────────────────────────────────────────────
@@ -542,7 +574,10 @@ mod tests {
         let outcome = activate("test-cli", "w1").unwrap();
         assert!(matches!(outcome, SelectOutcome::Activated(ref k) if k.key_id == "key_1"));
         assert_eq!(
-            store.get("test-cli", auth::KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", auth::KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_1:a")
         );
         assert_eq!(
@@ -566,7 +601,10 @@ mod tests {
         ));
         // Nothing moved.
         assert_eq!(
-            store.get("test-cli", auth::KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", auth::KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_1:a")
         );
         assert_eq!(
@@ -574,6 +612,53 @@ mod tests {
                 .active_workspace_id
                 .as_deref(),
             Some("w1")
+        );
+    }
+
+    // An org-less mint is bound to no workspace, so `keys` — indexed by
+    // workspace id — has nowhere to put it. Before the KeyAuth slot became a
+    // projection of this map it survived only as that separate item, so
+    // without `unbound_key` the credential would simply be lost.
+    #[test]
+    #[serial_test::serial]
+    fn an_unbound_mint_is_still_the_active_credential() {
+        let _store = fresh_keyring();
+
+        record_key("test-cli", None, "key_free", "key_free:x", None, None, true).unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_credential(), Some("key_free:x"));
+        assert!(
+            map.active_workspace_id.is_none(),
+            "an unbound key must not leave a stale star on any workspace"
+        );
+        assert_eq!(
+            active_store()
+                .get("test-cli", auth::KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_free:x"),
+            "and it must reach the wire through the KeyAuth projection"
+        );
+    }
+
+    // Upgrades: releases before the projection wrote a standalone KeyAuth
+    // item. The map already beats it, but leaving it in place keeps an
+    // unmaintained credential in the keychain, costing a prompt for nothing.
+    #[test]
+    #[serial_test::serial]
+    fn activate_clears_a_stale_key_auth_mirror() {
+        let store = fresh_keyring();
+        record_key("test-cli", Some("w1"), "key_1", "key_1:a", None, None, true).unwrap();
+        store
+            .set("test-cli", auth::KEY_SCHEME, "key_9:stale")
+            .unwrap();
+
+        let _ = activate("test-cli", "w1").unwrap();
+
+        assert!(
+            store.get("test-cli", auth::KEY_SCHEME).unwrap().is_none(),
+            "the legacy mirror item should be gone from the backend entirely"
         );
     }
 

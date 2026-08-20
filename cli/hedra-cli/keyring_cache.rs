@@ -30,11 +30,12 @@
 //! could equally write one instruction after our uncached read — there is no
 //! window here that did not already exist.
 //!
-//! This does **not** reduce the number of distinct Keychain *items* touched,
-//! and so does not by itself reduce the number of authorization prompts —
-//! macOS authorizes per item, not per read. It removes redundant work; the
-//! prompt count is a separate problem (fewer items, and a stable code
-//! signature so "Always Allow" survives an upgrade).
+//! This layer does **not** reduce the number of distinct Keychain *items*
+//! touched, and so does not by itself reduce the number of authorization
+//! prompts — macOS authorizes per item, not per read. It removes redundant
+//! work. Reducing the item count is [`super::active_key`]'s job, and making
+//! the remaining prompts stop recurring on every upgrade needs a stable code
+//! signature, which is neither of these.
 //!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
@@ -44,18 +45,15 @@
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 
-use fern_cli_sdk::auth::{auto_store, set_active_store, KeyringStore};
+use fern_cli_sdk::auth::KeyringStore;
 use fern_cli_sdk::error::CliError;
 
-/// Wrap the platform's credential store in [`CachingKeyringStore`] and make
-/// it the process-global active store.
+/// Wrap `inner` in a [`CachingKeyringStore`].
 ///
-/// Must run before anything resolves a credential. `custom::register` is the
-/// right place: nothing in the SDK installs a store eagerly — `active_store()`
-/// lazily initialises the slot on first use — and `register` runs from
-/// `main()` before `CliApp::run`, so this call wins the slot.
-pub(crate) fn install() {
-    set_active_store(Arc::new(CachingKeyringStore::new(auto_store())));
+/// The caller installs the result — see `custom::register`, which stacks the
+/// `KeyAuth` projection on top of this.
+pub(crate) fn memoize(inner: Arc<dyn KeyringStore>) -> Arc<dyn KeyringStore> {
+    Arc::new(CachingKeyringStore::new(inner))
 }
 
 /// Read-through, write-through memo over another [`KeyringStore`].

@@ -16,6 +16,8 @@
 // (which is regenerated). `#[path]` resolves relative to this file's
 // directory, keeping them at cli/hedra-cli/ next to this file. All three are
 // .fernignore-protected like custom.rs itself.
+#[path = "active_key.rs"]
+mod active_key;
 #[path = "auth.rs"]
 mod auth;
 #[path = "keyring_cache.rs"]
@@ -39,9 +41,16 @@ pub fn register(app: CliApp) -> CliApp {
     // and the runtime's later call just becomes a no-op.
     let _ = dotenvy::dotenv();
 
-    // Memoise credential reads for the life of the process. Must happen
-    // before anything resolves a credential — see keyring_cache::install.
-    keyring_cache::install();
+    // Credential-store stack, outermost first. Must be installed before
+    // anything resolves a credential; nothing in the SDK installs a store
+    // eagerly, and this runs before CliApp::run, so it wins the slot.
+    //
+    // The KeyAuth projection sits outside the memo so the workspace-map read
+    // it performs is cached like any other. The reverse order would memoise
+    // a derived value that a later write to the map could not invalidate.
+    fern_cli_sdk::auth::set_active_store(active_key::project(keyring_cache::memoize(
+        fern_cli_sdk::auth::auto_store(),
+    )));
 
     // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
     // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise.

@@ -750,7 +750,6 @@ async fn mint_and_store(
         .post(format!("{api_base}/v3/keys/bootstrap"))
         .bearer_auth(jwt);
     let minted = post_bootstrap_mint(req, None).await?;
-    active_store().set(cli_name, KEY_SCHEME, &minted.credential)?;
     record_workspace_key(
         cli_name,
         minted.workspace_id.as_deref(),
@@ -842,7 +841,6 @@ fn mint_for_workspace_at(
         )));
     }
 
-    active_store().set(cli_name, KEY_SCHEME, &minted.credential)?;
     record_workspace_key(
         cli_name,
         Some(workspace_id),
@@ -883,7 +881,34 @@ fn record_workspace_key(
         activate,
     ) {
         eprintln!("(could not record the workspace key map: {e})");
+        return;
     }
+    if activate {
+        drop_stale_key_mirror(cli_name);
+    }
+}
+
+/// Remove the legacy standalone `KeyAuth` keyring item, if one is still
+/// there.
+///
+/// Releases before the projection landed stored the active credential twice:
+/// once inside the workspace key map, and once as its own item at
+/// `(cli_name, KeyAuth)` — which is the address the SDK's injected keyring
+/// source reads. The map is now the only writer, so an item left over from
+/// an older release would sit there frozen at whatever key was active on the
+/// day of the upgrade.
+///
+/// [`super::active_key`] prefers the map precisely so that stale item cannot
+/// win, but leaving it in place would keep a live credential in the keychain
+/// that nothing maintains — and would keep costing an authorization prompt.
+/// Clearing it at the moments the active credential changes migrates the
+/// install on first use.
+///
+/// Best-effort and silent: on a fresh install there is nothing to delete and
+/// the backend says so without prompting, and a failure here must never sink
+/// a login that has otherwise succeeded.
+pub(crate) fn drop_stale_key_mirror(cli_name: &str) {
+    let _ = active_store().delete(cli_name, KEY_SCHEME);
 }
 
 /// Server error body → one readable line; a 404 on this plane almost always
@@ -1284,7 +1309,7 @@ mod tests {
 
     // ── wire-level bootstrap tests (mock server + mock keyring) ─────────
 
-    use fern_cli_sdk::auth::{set_active_store, KeyringStore, MockKeyringStore};
+    use fern_cli_sdk::auth::{KeyringStore, MockKeyringStore};
     use wiremock::matchers::{body_partial_json, body_string_contains, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
@@ -1309,10 +1334,13 @@ mod tests {
         server
     }
 
+    /// Installs the same `KeyAuth` projection production uses, so anything
+    /// asserting on the active credential exercises the derivation from the
+    /// workspace map rather than a raw item that nothing writes any more.
+    /// The mock is returned so a test can still seed and inspect the slots
+    /// underneath it.
     fn fresh_keyring() -> std::sync::Arc<MockKeyringStore> {
-        let store = std::sync::Arc::new(MockKeyringStore::new());
-        set_active_store(store.clone());
-        store
+        super::super::active_key::projected_mock()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1330,14 +1358,17 @@ mod tests {
             .expect(1)
             .mount(&server)
             .await;
-        let store = fresh_keyring();
+        let _store = fresh_keyring();
 
         bootstrap_inner("test-cli", &server.uri(), JWT)
             .await
             .unwrap();
 
         assert_eq!(
-            store.get("test-cli", KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_1:s3cret")
         );
         // The mint is recorded in the per-workspace key map, marked active.
@@ -1369,7 +1400,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            store.get("test-cli", KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_0:held"),
             "renewal must never touch the stored credential"
         );
@@ -1414,7 +1448,10 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            store.get("test-cli", KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_2:fresh"),
             "refused renewal must be replaced by the freshly minted credential"
         );
@@ -1488,7 +1525,10 @@ mod tests {
         assert_eq!(minted.key_id, "key_w2");
         assert_eq!(minted.workspace_name.as_deref(), Some("Born Free"));
         assert_eq!(
-            store.get("test-cli", KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_w2:s3cret"),
         );
         let map = workspaces::WorkspaceKeyMap::load("test-cli");
@@ -1531,7 +1571,10 @@ mod tests {
 
         // The active credential must NOT move to a key for another workspace.
         assert_eq!(
-            store.get("test-cli", KEY_SCHEME).unwrap().as_deref(),
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
             Some("key_held:stay"),
         );
         // …but the minted key is filed where it actually belongs, not orphaned.
