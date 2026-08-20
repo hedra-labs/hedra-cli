@@ -84,8 +84,6 @@ exclude:
   #
   # Both spellings: ENG-10291 renamed the crates, and the pre-rename patch is
   # still in the ledger naming the old paths.
-  - hedra-sdk/Cargo.toml
-  - hedra-types/Cargo.toml
   - hedra-cli-sdk/Cargo.toml
   - hedra-cli-types/Cargo.toml
 
