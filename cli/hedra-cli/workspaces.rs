@@ -452,23 +452,28 @@ pub(crate) fn dispatch(
     matches: &clap::ArgMatches,
     ctx: &dyn std::any::Any,
 ) -> Result<(), CliError> {
-    let cli_name = ctx
-        .downcast_ref::<AppContext>()
-        .map(|c| c.http_config().name().to_string())
-        .ok_or_else(|| {
-            CliError::Validation("workspaces: unexpected binding context type".to_string())
-        })?;
+    let app = ctx.downcast_ref::<AppContext>().ok_or_else(|| {
+        CliError::Validation("workspaces: unexpected binding context type".to_string())
+    })?;
+    let cli_name = app.http_config().name().to_string();
+    // The login plane follows `--base-url` / `HEDRA_CLI_BASE_URL` like every
+    // generated command does. Reading it from the context rather than the
+    // environment is what picks up the flag, which never reaches env.
+    let api_base = match app.base_url_override() {
+        Some(raw) => auth::resource_base_from_override(raw)?,
+        None => auth::resource_base()?,
+    };
     // Pass the deepest matches on to the handler: global flags propagate to
     // every level, but only the deepest is certain to carry a value written
     // after the subcommand (`workspaces list --format json`).
     match matches.subcommand() {
-        None => run_list(&cli_name, matches),
-        Some(("list", sub)) => run_list(&cli_name, sub),
+        None => run_list(&cli_name, &api_base, matches),
+        Some(("list", sub)) => run_list(&cli_name, &api_base, sub),
         Some(("select", sub)) => {
             let ws = sub
                 .get_one::<String>("workspace-id")
                 .expect("--workspace-id is required");
-            run_select(&cli_name, ws, sub)
+            run_select(&cli_name, &api_base, ws, sub)
         }
         Some((other, _)) => Err(CliError::Validation(format!(
             "unknown workspaces subcommand: {other}"
@@ -493,10 +498,13 @@ fn http_client() -> Result<reqwest::Client, CliError> {
 /// login-plane endpoint, so it needs a freshly minted JWT rather than
 /// whatever unexpired token the keyring happens to hold — see
 /// `auth::fresh_login_jwt`.
-fn fetch_listing_as_user(cli_name: &str) -> Result<Vec<WorkspaceSummary>, CliError> {
+fn fetch_listing_as_user(
+    cli_name: &str,
+    api_base: &str,
+) -> Result<Vec<WorkspaceSummary>, CliError> {
     let http = http_client()?;
     let jwt = auth::fresh_login_jwt(cli_name)?;
-    let url = format!("{}/v3/workspaces", auth::resource_base_url());
+    let url = format!("{api_base}/v3/workspaces");
     run_async(fetch_workspaces_request(http.get(url).bearer_auth(jwt)))
 }
 
@@ -506,8 +514,8 @@ fn warn_if_env_key_shadows() {
     }
 }
 
-fn run_list(cli_name: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
-    let listing = fetch_listing_as_user(cli_name)?;
+fn run_list(cli_name: &str, api_base: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
+    let listing = fetch_listing_as_user(cli_name, api_base)?;
     let map = WorkspaceKeyMap::load(cli_name);
     let active = map.active_workspace_id.as_deref();
     emit(
@@ -522,6 +530,7 @@ fn run_list(cli_name: &str, matches: &clap::ArgMatches) -> Result<(), CliError> 
 
 fn run_select(
     cli_name: &str,
+    api_base: &str,
     workspace_id: &str,
     matches: &clap::ArgMatches,
 ) -> Result<(), CliError> {
@@ -561,7 +570,7 @@ fn run_select(
 
     // Fail on a typo'd or invisible id before minting anything; the listing
     // also supplies the display name for the confirmation line.
-    let listing = fetch_listing_as_user(cli_name)?;
+    let listing = fetch_listing_as_user(cli_name, api_base)?;
     let Some(target) = listing.iter().find(|w| w.workspace_id == workspace_id) else {
         return Err(CliError::Validation(format!(
             "workspace {workspace_id} is not visible to this account; known ids: {}",
@@ -577,7 +586,7 @@ fn run_select(
         "No API key held for {} ({workspace_id}) — minting one…",
         target.workspace_name
     );
-    let minted = auth::mint_for_workspace(cli_name, workspace_id)?;
+    let minted = auth::mint_for_workspace(cli_name, api_base, workspace_id)?;
     announce_active(
         matches,
         cli_name,

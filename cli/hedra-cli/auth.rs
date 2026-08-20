@@ -57,6 +57,53 @@ pub(crate) fn resource_base_url() -> &'static str {
     }
 }
 
+/// The resource base this invocation should actually use — the origin that
+/// discovery, the RFC 8707 resource indicator, and every `/v3/...`
+/// login-plane URL hang off.
+///
+/// [`resource_base_url`] is the compiled default for `HEDRA_ENV`. It is not
+/// the whole answer, because `--base-url` / `HEDRA_CLI_BASE_URL` retarget
+/// the data plane and the login plane has to follow. Without this, pointing
+/// the CLI at a local stack sent generated commands there while workspace
+/// listing and — worse — key *minting* silently went on talking to
+/// production: a developer testing locally would create real production
+/// credentials without ever being told.
+///
+/// The override names the data-plane base *including* the `/v3` prefix (it
+/// replaces the spec's `https://api.hedra.com/v3` server wholesale), while
+/// everything here wants the origin, so the suffix comes off.
+pub(crate) fn resource_base() -> Result<String, CliError> {
+    match std::env::var("HEDRA_CLI_BASE_URL") {
+        Ok(raw) if !raw.trim().is_empty() => resource_base_from_override(raw.trim()),
+        _ => Ok(resource_base_url().to_string()),
+    }
+}
+
+/// Strip the `/v3` the data-plane override carries, so the login plane can
+/// rebuild its own `/v3/...` paths from the same origin.
+///
+/// An override that does not carry it is rejected rather than guessed at.
+/// The two planes would otherwise disagree about where `/v3` lives — the
+/// data plane appending nothing, the login plane appending `/v3` — and the
+/// failure would surface as a 404 from whichever deployment happened to
+/// answer, long after the point where the mistake was made. Refusing before
+/// any request is the only way the message can still name the cause.
+pub(crate) fn resource_base_from_override(raw: &str) -> Result<String, CliError> {
+    let trimmed = raw.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/v3")
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::Validation(format!(
+                "base URL `{raw}` does not end in `/v3`. The CLI's base URL names the \
+                 data-plane root, which carries that prefix (as the default \
+                 `https://api.hedra.com/v3` does); the login plane derives its own \
+                 endpoints from the same origin and cannot do so without it. Pass \
+                 `{trimmed}/v3` instead."
+            ))
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Authorization-server discovery: RFC 9728 → RFC 8414.
 //
@@ -183,8 +230,9 @@ struct AuthEndpoints {
 /// path) prefers the cached copy.
 fn auth_endpoints(cli_name: &str, use_cache: bool) -> Result<AuthEndpoints, CliError> {
     static ENDPOINTS: OnceLock<Result<AuthEndpoints, String>> = OnceLock::new();
+    let base = resource_base()?;
     ENDPOINTS
-        .get_or_init(|| resolve_auth_endpoints(cli_name, resource_base_url(), use_cache))
+        .get_or_init(|| resolve_auth_endpoints(cli_name, &base, use_cache))
         .clone()
         .map_err(CliError::Auth)
 }
@@ -417,7 +465,7 @@ fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow 
 /// exchange, so dropping the new one would break the *next* call.
 pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let endpoints =
-        resolve_auth_endpoints(cli_name, resource_base_url(), true).map_err(CliError::Auth)?;
+        resolve_auth_endpoints(cli_name, &resource_base()?, true).map_err(CliError::Auth)?;
     let raw = active_store().get(cli_name, SCHEME)?.ok_or_else(|| {
         CliError::Auth(format!(
             "Not logged in. Run `{cli_name} auth login` to authenticate."
@@ -621,7 +669,7 @@ struct BootstrapRenewResponse {
 }
 
 fn bootstrap_api_key(cli_name: &str) -> Result<(), CliError> {
-    let api_base = resource_base_url();
+    let api_base = resource_base()?;
     let jwt = match active_store().get(cli_name, SCHEME) {
         Ok(Some(stored)) => serde_json::from_str::<TokenBundle>(&stored)
             .map(|b| b.access_token)
@@ -633,7 +681,7 @@ fn bootstrap_api_key(cli_name: &str) -> Result<(), CliError> {
         }
     };
     tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(bootstrap_inner(cli_name, api_base, &jwt))
+        tokio::runtime::Handle::current().block_on(bootstrap_inner(cli_name, &api_base, &jwt))
     })
 }
 
@@ -809,11 +857,17 @@ pub(crate) struct MintedKey {
 /// Runs off the stored OAuth session — refreshed through the
 /// same provider the data plane uses — so switching workspaces costs no
 /// browser round-trip; the login JWT's own org is irrelevant here.
+///
+/// `api_base` is the caller's resolved resource base, not the compiled
+/// default: minting is the one login-plane call that *creates* state, so a
+/// `--base-url` pointing at a local stack must not quietly mint a real
+/// production key.
 pub(crate) fn mint_for_workspace(
     cli_name: &str,
+    api_base: &str,
     workspace_id: &str,
 ) -> Result<MintedKey, CliError> {
-    mint_for_workspace_at(cli_name, resource_base_url(), workspace_id)
+    mint_for_workspace_at(cli_name, api_base, workspace_id)
 }
 
 /// The api-base-parameterized body (tests drive it against a mock server),
@@ -1135,6 +1189,55 @@ mod tests {
             Some(1787097600)
         );
         assert_eq!(iso8601_to_epoch("not a date"), None);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn override_to_resource_base_strips_the_v3_prefix() {
+        assert_eq!(
+            resource_base_from_override("http://localhost:8000/v3").unwrap(),
+            "http://localhost:8000"
+        );
+        // A trailing slash is not a different deployment.
+        assert_eq!(
+            resource_base_from_override("https://api.staging.hedra.com/v3/").unwrap(),
+            "https://api.staging.hedra.com"
+        );
+    }
+
+    #[test]
+    fn an_override_without_v3_is_refused_before_any_request() {
+        let err = resource_base_from_override("http://localhost:8000").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("/v3"), "unexpected: {msg}");
+        // The message has to carry the fix, since the failure would
+        // otherwise surface as a 404 far from its cause.
+        assert!(
+            msg.contains("http://localhost:8000/v3"),
+            "the error must name the corrected URL: {msg}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn the_login_plane_follows_the_data_plane_override() {
+        let restore = std::env::var("HEDRA_CLI_BASE_URL").ok();
+
+        std::env::set_var("HEDRA_CLI_BASE_URL", "http://localhost:8000/v3");
+        assert_eq!(
+            resource_base().unwrap(),
+            "http://localhost:8000",
+            "a custom data-plane base must retarget the login plane too, or a \
+             local test run mints production keys"
+        );
+
+        std::env::remove_var("HEDRA_CLI_BASE_URL");
+        assert_eq!(resource_base().unwrap(), resource_base_url());
+
+        match restore {
+            Some(v) => std::env::set_var("HEDRA_CLI_BASE_URL", v),
+            None => std::env::remove_var("HEDRA_CLI_BASE_URL"),
+        }
     }
 
     #[test]
