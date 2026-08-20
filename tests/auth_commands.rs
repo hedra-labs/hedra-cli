@@ -232,3 +232,101 @@ fn a_fresh_install_sends_no_credential() {
         "an install that has never logged in must send no Authorization header"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Logout.
+// ---------------------------------------------------------------------------
+
+/// The headline regression. `auth logout --scheme KeyAuth` exited zero and
+/// printed that the credential had been removed while the projection kept
+/// serving it from the map, so `auth status` stayed active and every request
+/// stayed signed. Asserting on the wire is what makes this test meaningful:
+/// the old behaviour genuinely did delete the raw item it was asked about.
+#[test]
+fn logout_stops_the_cli_sending_a_credential() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(&map_with("ws_1", "key_1", "key_1:secret_one"));
+    assert!(authorization_header(&s).is_some(), "precondition");
+
+    let out = s.run(&["auth", "logout", "--scheme", "KeyAuth"]);
+    assert!(out.status.success(), "logout failed: {}", stderr(&out));
+
+    assert_eq!(
+        authorization_header(&s),
+        None,
+        "logout reported success, so the CLI must stop presenting a credential"
+    );
+}
+
+/// Every held key is a live credential. Leaving the non-active ones behind
+/// would let `workspaces select <other>` re-authenticate with no challenge,
+/// which makes "logged out" false for anyone holding a second workspace.
+#[test]
+fn logout_clears_every_held_workspace_key() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(
+        &serde_json::json!({
+            "active_workspace_id": "ws_1",
+            "keys": {
+                "ws_1": { "key_id": "key_1", "credential": "key_1:one",
+                          "workspace_name": "One", "expires_at": null },
+                "ws_2": { "key_id": "key_2", "credential": "key_2:two",
+                          "workspace_name": "Two", "expires_at": null },
+            },
+            "unbound_key": null,
+        })
+        .to_string(),
+    );
+
+    let out = s.run(&["auth", "logout", "--scheme", "KeyAuth"]);
+    assert!(out.status.success(), "logout failed: {}", stderr(&out));
+
+    assert_eq!(
+        s.raw_slot("WorkspaceKeys"),
+        None,
+        "a logout that leaves usable secrets on disk is not a logout"
+    );
+}
+
+/// An install that never migrated still has only the standalone item.
+#[test]
+fn logout_works_on_an_unmigrated_install() {
+    let s = Sandbox::new();
+    let out = s.run_with_stdin(
+        &["auth", "login", "--with-token", "--scheme", "KeyAuth"],
+        "legacy:secret\n",
+    );
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+    assert!(authorization_header(&s).is_some(), "precondition");
+
+    let out = s.run(&["auth", "logout", "--scheme", "KeyAuth"]);
+    assert!(out.status.success(), "logout failed: {}", stderr(&out));
+
+    assert_eq!(authorization_header(&s), None);
+}
+
+// ---------------------------------------------------------------------------
+// Token paste.
+// ---------------------------------------------------------------------------
+
+/// Rotation. Pasting a replacement key on a migrated install used to write a
+/// raw item the projection then ignored, so the CLI went on presenting the
+/// key the user was trying to replace — the exact failure mode someone
+/// rotating a leaked credential is trying to avoid.
+#[test]
+fn a_pasted_key_replaces_the_one_the_map_was_serving() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(&map_with("ws_1", "key_1", "key_1:leaked"));
+
+    let out = s.run_with_stdin(
+        &["auth", "login", "--with-token", "--scheme", "KeyAuth"],
+        "key_9:rotated\n",
+    );
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    assert_eq!(
+        authorization_header(&s).as_deref(),
+        Some("Bearer key_9:rotated"),
+        "the pasted key must be what goes on the wire, not the map's older answer"
+    );
+}

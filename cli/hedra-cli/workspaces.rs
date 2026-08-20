@@ -173,8 +173,10 @@ pub(crate) fn activate(cli_name: &str, workspace_id: &str) -> Result<SelectOutco
         return Ok(SelectOutcome::NotHeld);
     };
     map.active_workspace_id = Some(workspace_id.to_string());
+    // Saving the map is also what sheds any legacy standalone `KeyAuth`
+    // item — see `active_key::write_map`. No separate cleanup call: routing
+    // one through the projection would now delete the map itself.
     map.save(cli_name)?;
-    auth::drop_stale_key_mirror(cli_name);
     Ok(SelectOutcome::Activated(key))
 }
 
