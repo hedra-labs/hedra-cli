@@ -14,7 +14,9 @@
 # ran on 2026-08-13 ("Installed Fern CLI version 5.95.1"), re-read from the
 # published bundle at that exact version. It installs via fern-api/setup-fern-cli
 # with version: latest and pins nothing, so this floats; re-read the applicator
-# rather than trusting this note after a CLI bump.
+# rather than trusting this note after a CLI bump. Re-read at 5.100.0 (`latest`
+# as of 2026-08-20): isExcluded, resolveFilePath and the merge planner are
+# byte-identical to 5.95.1 modulo minified module aliases.
 #
 #   - `exclude` suppresses patch APPLICATION, not detection.
 #     ReplayApplicator.applyPatches() tests isExcluded(patch) at the top of the
@@ -82,8 +84,55 @@ exclude:
   # entry in .fernignore documents. Excluding here leaves both files fully
   # generator-owned and only stops Replay putting yesterday's stamp back on top.
   #
-  # Both spellings: ENG-10291 renamed the crates, and the pre-rename patch is
-  # still in the ledger naming the old paths.
+  # BOTH SPELLINGS ARE LOAD-BEARING. ENG-10291 renamed the crates, and the
+  # ledger now holds one version-stamp patch under each naming:
+  #
+  #     patch-ed9886b4  hedra-sdk/Cargo.toml, hedra-types/Cargo.toml — #52,
+  #                     stamping 1.0.0-dev.
+  #     patch-6c535920  hedra-cli-sdk/Cargo.toml, hedra-cli-types/Cargo.toml,
+  #                     hedra-cli-sdk/src/config.rs — the hedra-sdk-ci-app[bot]
+  #                     alignment commit of 2026-08-13, rebased onto the #98
+  #                     generation, stamping 2.0.2-dev (and the matching
+  #                     X-Fern-SDK-Version literal) while the tree is already
+  #                     at 2.0.3-dev.
+  #
+  # isExcluded() matches `patch.files` — the paths as RECORDED — and it runs
+  # before any rename resolution, so a post-rename entry cannot reach the
+  # pre-rename patch. Dropping the old two therefore does not retire ed9886b4,
+  # it un-skips it, and an un-skipped patch whose files are gone does not fail
+  # quietly:
+  #
+  #   - resolveFilePath() asks `git diff --find-renames --find-copies` between
+  #     the base generation's tree and the current one, but the base tree of a
+  #     generation that old is not in this repo at all (b50f379, from the
+  #     2026-08-11 generation — no commit on main carries it). detectRenames()
+  #     catches and returns [], so the recorded path is used unchanged.
+  #   - base = showFile(<missing tree>) → null and ours = readFile(<deleted
+  #     path>) → null, but `theirs_snapshot` is still in replay.lock. The
+  #     planner reads that as kind "new-file-only-user" and the applicator
+  #     WRITES the snapshot to disk.
+  #
+  # That is not a hypothetical. hedra-types/.gitignore is on main today for
+  # exactly this reason: fc264e8 added it (#60), the #72 regeneration f4a1372
+  # deleted it, and 2f7fad9 "[fern-replay] Applied customizations" put it
+  # straight back from patch-fc264e80's snapshot. Un-excluding ed9886b4 runs
+  # that same path over two Cargo.toml files — resurrecting hedra-sdk/ and
+  # hedra-types/ manifests that name crates which no longer exist, inside a
+  # workspace that has to build.
+  #
+  # Do NOT reach for `moves:` (the other key LockManager reads out of this
+  # file) to repoint the old paths at the renamed crates. That resolves the
+  # patch onto the live manifests and applies the stale 1.0.0-dev stamp to
+  # them — the failure these entries exist to prevent, with extra steps.
+  #
+  # The old two come out only once patch-ed9886b4 is out of the ledger
+  # (`fern replay forget patch-ed9886b4`), not merely because its paths are.
+  #
+  # Verified against fern-api 5.100.0 — `latest`, which setup-fern-cli installs
+  # unpinned — in ReplayApplicator.isExcluded / resolveFilePath /
+  # applyPatchWithFallback and the merge planner they feed.
+  - hedra-sdk/Cargo.toml
+  - hedra-types/Cargo.toml
   - hedra-cli-sdk/Cargo.toml
   - hedra-cli-types/Cargo.toml
 
