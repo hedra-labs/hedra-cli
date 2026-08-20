@@ -101,7 +101,13 @@ present; if not, `git cherry-pick <sha>`.
 | `d06b3c3` | `src/http.rs` | re-supply the `X-Fern-*` identity headers the CLI executor drops |
 | `53c3773` | `src/http.rs` | send the `X-Fern-*` identity trio on the OpenAPI path |
 | `8a3427d` | `src/pager.rs` | serialize PAGER env-var tests (see the `.fernignore` note — the file is deliberately not ignored) |
-| `94bce27` | `src/auth/login.rs` | bare `auth logout` clears every declared scheme; `--with-token` pastes into the token binding rather than the OAuth one |
+| `c0a3cba` | `src/auth/login.rs` | bare `auth logout` clears every declared scheme; `--with-token` pastes into the token binding rather than the OAuth one |
 
 Keep this table current. A patch that is not listed is one nobody will notice
 has been reverted.
+
+**A rebase rewrites these shas.** They name commits on a branch, so rebasing
+onto a moved trunk invalidates every row for work that has not merged yet —
+silently, because a dangling sha looks exactly like a valid one until someone
+tries to cherry-pick it. Re-read the table after any rebase of an open branch
+and refresh the rows it covers.
