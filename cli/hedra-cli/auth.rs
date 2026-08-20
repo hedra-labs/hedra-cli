@@ -709,7 +709,7 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
                     None, // renewals carry no name — the held one is kept
                     Some(&renewed.expires_at),
                     true,
-                );
+                )?;
                 (
                     renewed.key_id,
                     Some(renewed.expires_at),
@@ -831,7 +831,7 @@ async fn mint_and_store(
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
         true,
-    );
+    )?;
     if let (Some(name), Some(org)) = (&minted.workspace_name, &minted.organization_id) {
         eprintln!("(key bound to workspace \"{name}\" via organization {org})");
     }
@@ -902,7 +902,12 @@ fn mint_for_workspace_at(
         // The credential is real; record it where it actually belongs so it
         // is not orphaned — but leave the active credential alone, because
         // the workspace the user asked for was not reached.
-        record_workspace_key(
+        // This arm returns an error either way, so the persistence result is
+        // not propagated with `?` — that would replace the explanation of
+        // *why* the mint was refused with a storage message, and the
+        // workspace mismatch is the more useful half. Instead both outcomes
+        // are reported: whether the key was salvaged, or is now orphaned.
+        let fate = match record_workspace_key(
             cli_name,
             landed,
             &minted.key_id,
@@ -910,13 +915,21 @@ fn mint_for_workspace_at(
             minted.workspace_name.as_deref(),
             minted.expires_at.as_deref(),
             false,
-        );
+        ) {
+            Ok(()) => format!(
+                "The key was kept for {}; the active workspace is unchanged.",
+                landed.unwrap_or("that workspace")
+            ),
+            Err(e) => format!(
+                "It could not be saved locally either, so it is now orphaned — \
+                 revoke key {} in the dashboard. ({e})",
+                minted.key_id
+            ),
+        };
         return Err(CliError::Auth(format!(
             "the mint bound its key to workspace {} instead of the requested {workspace_id} — \
-             this environment does not support selecting a workspace at mint time yet. \
-             The key was kept for {}; the active workspace is unchanged.",
+             this environment does not support selecting a workspace at mint time yet. {fate}",
             landed.unwrap_or("<none>"),
-            landed.unwrap_or("that workspace")
         )));
     }
 
@@ -928,7 +941,7 @@ fn mint_for_workspace_at(
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
         true,
-    );
+    )?;
     Ok(MintedKey {
         key_id: minted.key_id,
         workspace_name: minted.workspace_name,
@@ -936,10 +949,18 @@ fn mint_for_workspace_at(
     })
 }
 
-/// Best-effort update of the per-workspace key map (`workspaces select`'s
-/// data source). The credential is already safe in `KeyAuth`, so a map
-/// write failure must not fail the login — but it must not be silent
-/// either, or a later `select` mysteriously lacks the key.
+/// Persist a minted or renewed key into the per-workspace key map.
+///
+/// This used to swallow the write error on the grounds that "the credential
+/// is already safe in `KeyAuth`". That stopped being true when the `KeyAuth`
+/// slot became a projection of this very map: the map is now the *only*
+/// copy. Swallowing the failure meant the CLI could create a key
+/// server-side, drop the sole copy of its secret, and print "minted and
+/// stored in the keyring" — leaving a live credential on the account that
+/// nobody can see, use, or revoke through this CLI.
+///
+/// So the error propagates. A caller that cannot persist a minted secret
+/// has not succeeded and must not say it has.
 #[allow(clippy::too_many_arguments)]
 fn record_workspace_key(
     cli_name: &str,
@@ -949,8 +970,8 @@ fn record_workspace_key(
     workspace_name: Option<&str>,
     expires_at: Option<&str>,
     activate: bool,
-) {
-    if let Err(e) = workspaces::record_key(
+) -> Result<(), CliError> {
+    workspaces::record_key(
         cli_name,
         workspace_id,
         key_id,
@@ -958,9 +979,15 @@ fn record_workspace_key(
         workspace_name,
         expires_at,
         activate,
-    ) {
-        eprintln!("(could not record the workspace key map: {e})");
-    }
+    )
+    .map_err(|e| {
+        CliError::Auth(format!(
+            "API key {key_id} was created but could not be saved locally: {e}. \
+             The key exists on your account and this CLI no longer holds its \
+             secret — revoke it in the dashboard, resolve the credential-store \
+             problem, and run the command again."
+        ))
+    })
 }
 
 /// Server error body → one readable line; a 404 on this plane almost always
@@ -1512,6 +1539,53 @@ mod tests {
         super::super::active_key::projected_mock()
     }
 
+    /// A store whose writes to one slot always fail — a locked keychain, a
+    /// full or read-only config directory. Reads and every other slot behave
+    /// normally, so a test can set up state and then fail only the write
+    /// under examination.
+    ///
+    /// Local to this crate rather than added to `MockKeyringStore`: that
+    /// type lives in generator-owned `src/`, and a test fixture is not worth
+    /// a second Fern Replay patch to re-apply after every regeneration.
+    #[derive(Debug)]
+    struct FailingWrites {
+        inner: std::sync::Arc<MockKeyringStore>,
+        slot: &'static str,
+    }
+
+    impl KeyringStore for FailingWrites {
+        fn get(&self, service: &str, account: &str) -> Result<Option<String>, CliError> {
+            self.inner.get(service, account)
+        }
+        fn set(&self, service: &str, account: &str, value: &str) -> Result<(), CliError> {
+            if account == self.slot {
+                return Err(CliError::Auth(format!(
+                    "credential store is locked ({slot})",
+                    slot = self.slot
+                )));
+            }
+            self.inner.set(service, account, value)
+        }
+        fn delete(&self, service: &str, account: &str) -> Result<(), CliError> {
+            self.inner.delete(service, account)
+        }
+        fn backend_label(&self) -> String {
+            "failing mock".to_string()
+        }
+    }
+
+    /// The projection, over a store that cannot persist the workspace map.
+    fn keyring_that_cannot_save_keys() -> std::sync::Arc<MockKeyringStore> {
+        let mock = std::sync::Arc::new(MockKeyringStore::new());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(
+            std::sync::Arc::new(FailingWrites {
+                inner: mock.clone(),
+                slot: workspaces::WORKSPACE_KEYS_SCHEME,
+            }),
+        ));
+        mock
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]
     async fn bootstrap_mints_and_stores_when_no_key_is_held() {
@@ -1720,6 +1794,50 @@ mod tests {
             })))
             .mount(server)
             .await;
+    }
+
+    /// A mint whose only local copy cannot be saved must fail, loudly.
+    ///
+    /// It used to print "minted and stored in the keyring" and exit zero,
+    /// having created a key server-side and dropped the sole copy of its
+    /// secret — a live credential on the account that nobody could see, use
+    /// or revoke through this CLI.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_mint_that_cannot_be_saved_fails_instead_of_reporting_success() {
+        clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "credential": "key_w2:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Born Free", "organization_id": null,
+                "expires_at": "2026-08-21T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+        let store = keyring_that_cannot_save_keys();
+        let _home = seed_live_session(&store, &server.uri());
+        mock_token_refresh(&server).await;
+
+        let err = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("key_w2"),
+            "the error must name the key that now exists on the account: {msg}"
+        );
+        assert!(
+            msg.contains("revoke"),
+            "and must tell the user how to clean it up: {msg}"
+        );
+        assert!(
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .is_none(),
+            "nothing was persisted, so nothing must resolve"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
