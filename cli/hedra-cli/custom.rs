@@ -12,30 +12,83 @@
 //! to run async SDK calls from synchronous handler context.
 //! Types are available via `hedra_cli_sdk::api::*`.
 
+// Hand-written sibling modules, declared here rather than in main.rs
+// (which is regenerated). `#[path]` resolves relative to this file's
+// directory, keeping them at cli/hedra-cli/ next to this file. Both are
+// .fernignore-protected like custom.rs itself.
+#[path = "auth.rs"]
+mod auth;
+#[path = "workspaces.rs"]
+mod workspaces;
+
 use fern_cli_sdk::app::CliApp;
+use fern_cli_sdk::error::CliError;
+use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
+use fern_cli_sdk::openapi::{commands, load_openapi_spec};
+use serde_json::Value;
 
 /// Register custom commands on the CLI app builder.
 ///
-/// Called from `main.rs` during startup. Uncomment the example
-/// below and adapt it to your API to get started.
+/// Called from `main.rs` during startup.
 pub fn register(app: CliApp) -> CliApp {
-    // Example: typed SDK client usage with the co-generated SDK.
-    //
-    // use hedra_cli_sdk::api::*;
-    //
-    // let app = app.command(
-    //     clap::Command::new("get-plant")
-    //         .about("Fetch a plant by its ID")
-    //         .arg(clap::Arg::new("plant-id").required(true)),
-    //     |matches, ctx| {
-    //         let plant_id = matches.get_one::<String>("plant-id").unwrap();
-    //         let client = super::sdk::client(ctx);
-    //         let plant = super::sdk::block_on(
-    //             client.plants.get_plant(plant_id, None),
-    //         )?;
-    //         println!("{}", serde_json::to_string_pretty(&plant).unwrap());
-    //         Ok(())
-    //     },
-    // );
-    app
+    // The runtime only loads .env inside run() — after this function has
+    // returned — so any env read below would miss .env-set values. Loading
+    // it here too is safe: dotenvy never overrides existing process env,
+    // and the runtime's later call just becomes a no-op.
+    let _ = dotenvy::dotenv();
+
+    // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
+    // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise.
+    auth::derive_base_url_from_hedra_env();
+
+    let app = app
+        .login_flow(auth::EnvPkceLoginFlow::new())
+        .command(workspaces::command(), Box::new(workspaces::dispatch));
+
+    if resolve_format_from_argv() != OutputFormat::Table {
+        app
+    } else {
+        app.transform_response(&["models", "list"], reshape_model_list_table)
+    }
+}
+
+async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {
+    const COLUMNS: [&str; 4] = ["id", "name", "modality", "description"];
+
+    if let Some(Value::Array(models)) = v.get_mut("data") {
+        for model in models {
+            if let Value::Object(fields) = model {
+                let mut source = std::mem::take(fields);
+                *fields = COLUMNS
+                    .into_iter()
+                    .filter_map(|key| source.remove(key).map(|value| (key.to_owned(), value)))
+                    .collect();
+            }
+        }
+    }
+
+    Ok(v)
+}
+
+fn resolve_format_from_argv() -> OutputFormat {
+    let probe = || -> Option<OutputFormat> {
+        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli").ok()?;
+        let cli = commands::build_cli(&doc).ignore_errors(true);
+        let matches = cli.try_get_matches_from(std::env::args_os()).ok()?;
+        OutputPipeline::from_matches(&matches, "hedra-cli")
+            .ok()
+            .map(|p| p.format)
+    };
+    probe().unwrap_or_else(|| {
+        // parse failed (--help, custom command, exotic argv): env/TTY default
+        use std::io::IsTerminal;
+        std::env::var("HEDRA_CLI_OUTPUT")
+            .ok()
+            .and_then(|v| OutputFormat::parse(&v).ok())
+            .unwrap_or(if std::io::stdout().is_terminal() {
+                OutputFormat::Table
+            } else {
+                OutputFormat::Json
+            })
+    })
 }

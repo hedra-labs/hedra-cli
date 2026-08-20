@@ -6,6 +6,13 @@
 # from deletion while leaving the live file unprotected. The orphan is gone and
 # the stale entry with it.
 cli/hedra-cli/custom.rs
+# Hand-written siblings of custom.rs, declared from it via `#[path]` (main.rs
+# is regenerated and cannot carry the mod declarations). The generator never
+# emits either file, so — like .gitattributes and tests/ below — these entries
+# are load-bearing: they are the only thing stopping regeneration from
+# DELETING the files.
+cli/hedra-cli/auth.rs
+cli/hedra-cli/workspaces.rs
 README.md
 
 # NOTE: src/pager.rs is deliberately NOT listed (ENG-10250). It held a hand-carried
