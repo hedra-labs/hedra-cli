@@ -288,6 +288,35 @@ fn logout_clears_every_held_workspace_key() {
     );
 }
 
+/// Bare `auth logout` — no `--scheme`. Declaring an API-key scheme and an
+/// OAuth login flow gives this CLI two bindings, which used to make the bare
+/// form exit 3 with "Multiple auth schemes declared (KeyAuth, OAuth)".
+#[test]
+fn bare_logout_succeeds_and_clears_everything() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(&map_with("ws_1", "key_1", "key_1:secret_one"));
+    let out = s.run_with_stdin(
+        &["auth", "login", "--with-token", "--scheme", "OAuth"],
+        "{\"access_token\":\"jwt\",\"refresh_token\":\"r\"}\n",
+    );
+    assert!(out.status.success(), "OAuth seed failed: {}", stderr(&out));
+
+    let out = s.run(&["auth", "logout"]);
+    assert!(
+        out.status.success(),
+        "bare logout must exit 0, got {:?}: {}",
+        out.status.code(),
+        stderr(&out)
+    );
+
+    assert_eq!(
+        authorization_header(&s),
+        None,
+        "the data-plane credential must be gone"
+    );
+    assert_eq!(s.raw_slot("OAuth"), None, "and so must the OAuth session");
+}
+
 /// An install that never migrated still has only the standalone item.
 #[test]
 fn logout_works_on_an_unmigrated_install() {
@@ -308,6 +337,44 @@ fn logout_works_on_an_unmigrated_install() {
 // ---------------------------------------------------------------------------
 // Token paste.
 // ---------------------------------------------------------------------------
+
+/// Bare `auth login --with-token` — no `--scheme`. The single declared login
+/// flow used to win, so a Hedra API key was filed under `OAuth`, where it is
+/// not a token bundle: the data-plane slot stayed empty and every workspace
+/// command died with "stored OAuth bundle is not valid JSON".
+#[test]
+fn a_bare_paste_installs_the_key_the_data_plane_uses() {
+    let s = Sandbox::new();
+
+    let out = s.run_with_stdin(&["auth", "login", "--with-token"], "key_7:pasted\n");
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    assert_eq!(
+        authorization_header(&s).as_deref(),
+        Some("Bearer key_7:pasted"),
+        "a pasted API key must become the credential requests actually use"
+    );
+    assert_eq!(
+        s.raw_slot("OAuth"),
+        None,
+        "and must not be filed as an OAuth token bundle"
+    );
+}
+
+/// The same paste on a migrated install must reach the map, not a raw item.
+#[test]
+fn a_bare_paste_takes_effect_after_migration() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(&map_with("ws_1", "key_1", "key_1:leaked"));
+
+    let out = s.run_with_stdin(&["auth", "login", "--with-token"], "key_9:rotated\n");
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    assert_eq!(
+        authorization_header(&s).as_deref(),
+        Some("Bearer key_9:rotated")
+    );
+}
 
 /// Rotation. Pasting a replacement key on a migrated install used to write a
 /// raw item the projection then ignored, so the CLI went on presenting the
