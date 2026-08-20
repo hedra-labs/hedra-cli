@@ -64,5 +64,8 @@ install-path = "CARGO_HOME"
 # Whether to install an updater program
 install-updater = false
 
+# release.yml is generated, so dependabot's action bumps there fail the `plan`
+# check; take them by stamping the version here and running `dist generate`.
 [dist.github-action-commits]
 "actions/checkout" = "v7"
+"actions/setup-node" = "v7"
