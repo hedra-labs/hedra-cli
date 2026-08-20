@@ -741,7 +741,7 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
     let map = workspaces::WorkspaceKeyMap::load(cli_name);
     eprint!(
         "{}",
-        workspaces::render_workspace_table(&listing, workspace_id.as_deref(), &map.keys)
+        workspaces::render_listing_table(&listing, workspace_id.as_deref(), &map.keys)
     );
     let expiry = expires_at
         .as_deref()
