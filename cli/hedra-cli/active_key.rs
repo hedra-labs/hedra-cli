@@ -54,6 +54,18 @@
 //! upgraded install converges on one item rather than carrying an
 //! unmaintained credential forever.
 //!
+//! ## Rollback
+//!
+//! A binary older than this projection reads only the standalone `KeyAuth`
+//! item and cannot see the map, so **downgrading to v2.0.2 or earlier reads
+//! as logged out**. That is intended, not an oversight: one `auth login`
+//! restores it, and the alternative — keeping a mirrored copy in the old
+//! address forever — costs a second keychain item and its own macOS
+//! authorization prompt on every `workspaces select`, permanently, to spare
+//! a downgrade one command. The choice was cheap to make because the
+//! map-only store had not shipped in any release when it was taken
+//! (ENG-10414; v2.0.2 was current and predates it).
+//!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
 

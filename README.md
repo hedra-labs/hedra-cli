@@ -100,11 +100,6 @@ every workspace API key the CLI holds, so nothing usable is left behind. Add
 session. The model catalog (`hedra-cli models …`) and the webhook public key are
 readable without credentials.
 
-Credentials live in a single keyring entry that the CLI resolves the active key from;
-downgrading to v2.0.2 or earlier will appear logged out, and one `hedra-cli auth login`
-restores it. See [docs/auth-storage-contract.md](docs/auth-storage-contract.md) for the
-full storage and version-compatibility contract.
-
 ## Quick start
 
 ```bash
