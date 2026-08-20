@@ -6,6 +6,11 @@
 #   .fernignore  — "generator, do not WRITE this file"        (freezes the file)
 #   exclude here — "replay, do not RE-APPLY customizations"   (frees the file)
 #
+# A third lever lives in the lockfile rather than here, and the two are not
+# interchangeable — see the version-stamp entry below:
+#
+#   replay forget — "drop this patch from the ledger for good" (retires history)
+#
 # Replay records every non-.fernignore'd commit since the last generation as a
 # "customization" and replays it onto each new generation. Entries here tell it
 # not to, so the listed files always land as pure generated output.
@@ -14,7 +19,9 @@
 # ran on 2026-08-13 ("Installed Fern CLI version 5.95.1"), re-read from the
 # published bundle at that exact version. It installs via fern-api/setup-fern-cli
 # with version: latest and pins nothing, so this floats; re-read the applicator
-# rather than trusting this note after a CLI bump.
+# rather than trusting this note after a CLI bump. Re-read at 5.100.0 (`latest`
+# as of 2026-08-20): isExcluded, resolveFilePath and the merge planner are
+# byte-identical to 5.95.1 modulo minified module aliases.
 #
 #   - `exclude` suppresses patch APPLICATION, not detection.
 #     ReplayApplicator.applyPatches() tests isExcluded(patch) at the top of the
@@ -81,8 +88,53 @@ exclude:
   # freezes real generated dependency changes, the ENG-10048 trap the Cargo.lock
   # entry in .fernignore documents. Excluding here leaves both files fully
   # generator-owned and only stops Replay putting yesterday's stamp back on top.
-  - hedra-sdk/Cargo.toml
-  - hedra-types/Cargo.toml
+  #
+  # THE ENTRIES ARE FORWARD-LOOKING ONLY. The historical stamp patches are no
+  # longer in the ledger at all: `fern replay forget` retired patch-ed9886b4
+  # (#52, the pre-rename 1.0.0-dev stamp), patch-6c535920 and patch-c5aa650c
+  # (the hedra-sdk-ci-app[bot] alignment commits, stamping a 2.0.2-dev that the
+  # tree had already moved past). Forget is terminal in a way exclude is not:
+  # it records a `dismissals` entry and pushes each patch's content hash into
+  # `forgotten_hashes`, and detection skips a hash listed there, so those
+  # commits can never be re-recorded.
+  #
+  # What remains is the recurring case. refresh-lockfile.yml runs
+  # set-version.py after every regeneration, and that alignment commit is
+  # authored by hedra-sdk-ci-app[bot] — not fern-api[bot] — with a plain
+  # subject, so nothing in the detection filter skips it. The NEXT one is a
+  # fresh commit with a fresh content hash that no dismissal covers, and it
+  # would be replayed. These two entries are what stop it, at the moment of
+  # application rather than after the fact.
+  #
+  # So the two levers divide cleanly, and neither substitutes for the other:
+  #
+  #     forget   — retires a patch already in the ledger, permanently
+  #     exclude  — stops the next equivalent commit from ever being applied
+  #
+  # The pre-rename spellings (hedra-sdk/Cargo.toml, hedra-types/Cargo.toml) are
+  # gone from this list because no future commit can touch paths that no longer
+  # exist, AND ed9886b4 is out of the ledger. Both conditions were required:
+  # dropping the entries while that patch was still tracked would not have
+  # retired it, it would have UN-SKIPPED it — and an un-skipped patch whose
+  # files are gone is not inert. Its `theirs_snapshot` survives in the lock, so
+  # base and ours both read null, the planner returns kind "new-file-only-user"
+  # and the applicator writes the snapshot back to disk. That is how
+  # hedra-types/.gitignore returned to main: fc264e8 added it (#60), the #72
+  # regeneration f4a1372 deleted it, and 2f7fad9 "[fern-replay] Applied
+  # customizations" restored it from patch-fc264e80's snapshot. That patch is
+  # forgotten too now, so the next regeneration's deletion of that husk sticks.
+  #
+  # Do NOT reach for `moves:` (the other key LockManager reads out of this
+  # file) to repoint an old path at a renamed crate. That resolves the patch
+  # onto the live manifests and applies the stale stamp to them — the failure
+  # this entry exists to prevent, with extra steps.
+  #
+  # Verified against fern-api 5.100.0 — `latest`, which setup-fern-cli installs
+  # unpinned, and the version that ran the forget — in
+  # ReplayApplicator.isExcluded / resolveFilePath / applyPatchWithFallback, the
+  # merge planner they feed, and PatchDetector's forgotten-hash check.
+  - hedra-cli-sdk/Cargo.toml
+  - hedra-cli-types/Cargo.toml
 
   # The ENG-10226 identity-header merge in CliExecutor::new (ENG-10241, and the
   # 2026-08-13 regeneration that forced the issue).
