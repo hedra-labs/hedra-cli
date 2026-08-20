@@ -298,16 +298,14 @@ fn selected_row(workspace_id: &str, name: Option<&str>, key_id: Option<&str>) ->
     })
 }
 
-/// The listing exactly as `workspaces list` draws it at `--format table`,
-/// for the interactive login flow to print on stderr once the browser
-/// round-trip completes (see `auth::bootstrap_inner`).
+/// The listing exactly as `workspaces list` draws it at `--format table`.
 ///
 /// Login pins the table format rather than building a pipeline: it is not a
 /// data-emitting command, so there is no `--format` to honor and its output
 /// is not pipeable. Everything else — columns, the `active` marker, the
 /// trailing note — is the command's own rendering, so what you see after a
 /// login is what `workspaces list` would print.
-pub(crate) fn render_listing_table(
+fn render_listing_table(
     workspaces: &[WorkspaceSummary],
     active_id: Option<&str>,
     held: &BTreeMap<String, HeldKey>,
@@ -366,6 +364,40 @@ fn listing_note(workspaces: &[WorkspaceSummary], active_id: Option<&str>) -> Opt
 fn list_notes(workspaces: &[WorkspaceSummary], active_id: Option<&str>) {
     if let Some(note) = listing_note(workspaces, active_id) {
         eprintln!("{note}");
+    }
+}
+
+/// What the post-login summary prints on stderr once the browser
+/// round-trip completes (see `auth::bootstrap_inner`).
+///
+/// A table earns its header row only when there is a choice to look at. With
+/// a single workspace there is nothing to compare and nothing to switch to,
+/// so six columns of chrome say less than one line naming it; with none, the
+/// note is the whole story. Past that it is the `workspaces list` table
+/// verbatim, so the two views cannot drift apart.
+pub(crate) fn render_login_summary(
+    workspaces: &[WorkspaceSummary],
+    active_id: Option<&str>,
+    held: &BTreeMap<String, HeldKey>,
+) -> String {
+    match workspaces {
+        [] => format!(
+            "{}\n",
+            listing_note(workspaces, active_id).unwrap_or_default()
+        ),
+        [only] => {
+            let line = format!(
+                "Workspace: {} ({})\n",
+                only.workspace_name, only.workspace_id
+            );
+            // Still worth saying when the key that was just bootstrapped is
+            // not bound to the one workspace this account can see.
+            match listing_note(workspaces, active_id) {
+                Some(note) => format!("{line}{note}\n"),
+                None => line,
+            }
+        }
+        _ => render_listing_table(workspaces, active_id, held),
     }
 }
 
@@ -1069,6 +1101,38 @@ mod tests {
             render_listing_table(&[], None, &BTreeMap::new()),
             "No workspaces visible to this account.\n"
         );
+    }
+
+    #[test]
+    fn the_login_summary_only_tabulates_when_there_is_a_choice() {
+        let mut held_keys = BTreeMap::new();
+        held_keys.insert("w1".to_string(), held("key_1"));
+
+        // One workspace: a one-row table is more chrome than content, so it
+        // is named on one line instead — no headers, no separator rule.
+        let one = render_login_summary(&[ws("w1", "Personal")], Some("w1"), &held_keys);
+        assert_eq!(one, "Workspace: Personal (w1)\n");
+
+        // Two: the listing table, byte-for-byte what `workspaces list` draws.
+        let list = [ws("w1", "Personal"), ws("w2", "Acme")];
+        let two = render_login_summary(&list, Some("w1"), &held_keys);
+        assert_eq!(two, render_listing_table(&list, Some("w1"), &held_keys));
+        assert!(two.contains("workspace_name") && two.contains(ACTIVE_MARKER));
+
+        // None: the note is all there is.
+        assert_eq!(
+            render_login_summary(&[], None, &BTreeMap::new()),
+            "No workspaces visible to this account.\n"
+        );
+    }
+
+    #[test]
+    fn the_login_summary_still_flags_a_key_bound_elsewhere() {
+        // The single-workspace line has no `active` column to carry this, so
+        // the note has to survive the shortened form.
+        let out = render_login_summary(&[ws("w1", "Personal")], Some("w9"), &BTreeMap::new());
+        assert!(out.starts_with("Workspace: Personal (w1)\n"), "{out}");
+        assert!(out.trim_end().ends_with("not in this listing)"), "{out}");
     }
 
     // ── command shape ───────────────────────────────────────────────────

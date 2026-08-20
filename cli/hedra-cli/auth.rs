@@ -525,7 +525,6 @@ impl LoginFlow for EnvPkceLoginFlow {
         // the natural point to re-validate the chain and rewrite the cache.
         let endpoints = auth_endpoints(&ctx.cli_name, false)?;
         concretize(&self.base, &endpoints).run(ctx)?;
-        dump_token_claims(&ctx.cli_name);
         bootstrap_api_key(&ctx.cli_name)
     }
     fn token_paste_url(&self) -> Option<&str> {
@@ -591,67 +590,6 @@ impl AuthProvider for EnvOAuthProvider {
         endpoint: &EndpointAuthMetadata,
     ) -> Result<reqwest::RequestBuilder, CliError> {
         self.resolved()?.apply(request, endpoint)
-    }
-}
-
-/// Print selected claims from the freshly minted access token. Diagnostic
-/// only — decodes the JWT payload without verifying the signature.
-fn dump_token_claims(cli_name: &str) {
-    let bundle: TokenBundle = match active_store().get(cli_name, SCHEME) {
-        Ok(Some(stored)) => match serde_json::from_str(&stored) {
-            Ok(b) => b,
-            Err(e) => {
-                eprintln!("(stored token bundle is not valid JSON: {e})");
-                return;
-            }
-        },
-        _ => {
-            eprintln!("(no stored token bundle to inspect)");
-            return;
-        }
-    };
-    match jwt_claims(&bundle.access_token) {
-        Ok(claims) => {
-            eprintln!("Access-token claims:");
-            for key in [
-                "aud",
-                "iss",
-                "sub",
-                "sid",
-                "org_id",
-                "organization_id",
-                // The client-identity claims — their absence once forced
-                // an out-of-band probe to establish which client was used.
-                "client_id",
-                "azp",
-            ] {
-                let shown = match claims.get(key) {
-                    Some(Value::String(s)) => s.clone(),
-                    Some(other) => other.to_string(),
-                    None => "(absent)".to_string(),
-                };
-                eprintln!("  {key:<16} {shown}");
-            }
-        }
-        Err(e) => eprintln!("(could not decode access token as a JWT: {e})"),
-    }
-}
-
-fn jwt_claims(token: &str) -> Result<serde_json::Map<String, Value>, String> {
-    use base64::Engine as _;
-    let mut parts = token.split('.');
-    let (Some(_header), Some(payload), Some(_sig), None) =
-        (parts.next(), parts.next(), parts.next(), parts.next())
-    else {
-        return Err("not a three-segment JWT".to_string());
-    };
-    let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
-        .decode(payload)
-        .map_err(|e| format!("payload is not base64url: {e}"))?;
-    match serde_json::from_slice(&bytes) {
-        Ok(Value::Object(map)) => Ok(map),
-        Ok(_) => Err("payload is not a JSON object".to_string()),
-        Err(e) => Err(format!("payload is not JSON: {e}")),
     }
 }
 
@@ -737,23 +675,21 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
     };
 
     // 3. Render: the mint/renew response's workspace is the authoritative
-    //    selection (the JWT's org is the sole selector server-side).
+    //    selection (the JWT's org is the sole selector server-side). The key
+    //    line comes first — it is what the login was for — and the workspace
+    //    picture follows it.
     let map = workspaces::WorkspaceKeyMap::load(cli_name);
-    eprint!(
-        "{}",
-        workspaces::render_listing_table(&listing, workspace_id.as_deref(), &map.keys)
-    );
     let expiry = expires_at
         .as_deref()
         .map(describe_expiry)
         .unwrap_or_else(|| "no expiry reported".to_string());
     eprintln!(
         "API key {key_id} {} — {expiry}.",
-        if minted {
-            "minted and stored in the keyring"
-        } else {
-            "renewed (existing keyring credential still valid)"
-        }
+        if minted { "minted" } else { "renewed" }
+    );
+    eprint!(
+        "{}",
+        workspaces::render_login_summary(&listing, workspace_id.as_deref(), &map.keys)
     );
     if std::env::var("HEDRA_API_KEY").is_ok() {
         eprintln!(
@@ -1032,8 +968,65 @@ fn device_name() -> String {
     format!("hedra-cli @ {host}")
 }
 
-/// "expires 2026-08-19T00:00:00Z (in 23h 58m)" — the ISO instant is kept
-/// verbatim (it carries its offset) and the relative form disambiguates.
+/// Format a Unix instant in the device's locale and timezone.
+///
+/// `%x %X %Z` is the locale's own date and time plus the zone —
+/// `setlocale(LC_TIME, "")` adopts whatever `LC_ALL` / `LC_TIME` / `LANG`
+/// say, and `localtime_r` applies `TZ`. The zone is appended explicitly
+/// because most locales' date and time formats omit it, and an expiry
+/// without one is ambiguous.
+///
+/// Unix only. `std` has no locale-aware formatter, and `chrono` is not
+/// available to reach for: it is declared `optional` and enabled by no
+/// feature purely to pin the lock closure for the generated crates (see the
+/// note in Cargo.toml), and Cargo.toml is generator-owned, so enabling it
+/// here would not survive regeneration. Other platforms return `None` and
+/// the caller falls back to the server's ISO instant.
+#[cfg(unix)]
+fn format_local(epoch: i64) -> Option<String> {
+    use std::sync::Once;
+    static LOCALE: Once = Once::new();
+    // SAFETY: `setlocale` mutates process-global locale state. Run once,
+    // before any `strftime` below, from the login print path.
+    LOCALE.call_once(|| unsafe {
+        libc::setlocale(libc::LC_TIME, c"".as_ptr());
+    });
+
+    let t = epoch as libc::time_t;
+    let mut tm: libc::tm = unsafe { std::mem::zeroed() };
+    // SAFETY: `t` and `tm` are valid, distinct, aligned locals; `localtime_r`
+    // fills `tm` and returns null on failure (e.g. `epoch` out of range for
+    // a 32-bit `time_t`).
+    if unsafe { libc::localtime_r(&t, &mut tm) }.is_null() {
+        return None;
+    }
+
+    let mut buf = [0u8; 128];
+    // SAFETY: `buf` is writable for the length passed, the format is
+    // NUL-terminated, and `tm` was just filled by `localtime_r`.
+    let written = unsafe {
+        libc::strftime(
+            buf.as_mut_ptr() as *mut libc::c_char,
+            buf.len(),
+            c"%x %X %Z".as_ptr(),
+            &tm,
+        )
+    };
+    if written == 0 {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&buf[..written]).into_owned())
+}
+
+#[cfg(not(unix))]
+fn format_local(_epoch: i64) -> Option<String> {
+    None
+}
+
+/// "expires 08/21/2026 17:58:00 PDT (in 23h 58m)" — the absolute instant in
+/// the device's locale and timezone, with the relative form to disambiguate.
+/// Falls back to the server's ISO string when the instant will not parse or
+/// the platform has no locale formatter.
 fn describe_expiry(iso: &str) -> String {
     let Some(expiry_epoch) = iso8601_to_epoch(iso) else {
         return format!("expires {iso}");
@@ -1053,10 +1046,11 @@ fn describe_expiry(iso: &str) -> String {
             format!("{m}m")
         }
     };
+    let when = format_local(expiry_epoch).unwrap_or_else(|| iso.to_string());
     if delta >= 0 {
-        format!("expires {iso} (in {})", human(delta))
+        format!("expires {when} (in {})", human(delta))
     } else {
-        format!("expired {iso} ({} ago)", human(-delta))
+        format!("expired {when} ({} ago)", human(-delta))
     }
 }
 
@@ -1113,24 +1107,40 @@ fn iso8601_to_epoch(s: &str) -> Option<i64> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine as _;
 
     #[test]
-    fn jwt_claims_decodes_payload() {
-        let payload = base64::engine::general_purpose::URL_SAFE_NO_PAD
-            .encode(r#"{"aud":"https://api.hedra.com/","sub":"user_123","org_id":"org_9"}"#);
-        let token = format!("e30.{payload}.sig");
-        let claims = jwt_claims(&token).unwrap();
-        assert_eq!(claims["aud"], "https://api.hedra.com/");
-        assert_eq!(claims["sub"], "user_123");
-        assert_eq!(claims["org_id"], "org_9");
-        assert!(claims.get("sid").is_none());
+    fn describe_expiry_is_locale_absolute_plus_relative() {
+        // Both instants sit inside a 32-bit `time_t`, so the localized branch
+        // is reachable on every target rather than silently falling back.
+        let future = describe_expiry("2030-01-01T00:00:00Z");
+        assert!(future.starts_with("expires "), "{future}");
+        assert!(future.contains("(in "), "{future}");
+
+        let past = describe_expiry("2000-01-01T00:00:00Z");
+        assert!(past.starts_with("expired "), "{past}");
+        assert!(past.ends_with(" ago)"), "{past}");
+
+        // Locale output is whatever the machine says, so assert on the one
+        // thing that must be true: the raw ISO instant was replaced.
+        #[cfg(unix)]
+        assert!(
+            !future.contains("2030-01-01T00:00:00Z"),
+            "not localized: {future}"
+        );
+
+        // An instant that will not parse falls back to the server's string.
+        assert_eq!(describe_expiry("whenever"), "expires whenever");
     }
 
+    #[cfg(unix)]
     #[test]
-    fn jwt_claims_rejects_opaque_token() {
-        assert!(jwt_claims("opaque-token").is_err());
-        assert!(jwt_claims("a.b.c.d").is_err());
+    fn format_local_renders_a_known_instant() {
+        // 2026-08-19T00:00:00Z, the epoch pinned by the test below. Every
+        // locale renders the year in some form, and no locale renders an
+        // empty string, but the exact layout is the machine's business.
+        let out = format_local(1787097600).expect("localtime_r + strftime available");
+        assert!(!out.trim().is_empty(), "empty rendering");
+        assert!(out.contains("26"), "year missing from {out}");
     }
 
     #[test]
