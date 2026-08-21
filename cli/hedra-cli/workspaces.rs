@@ -173,8 +173,10 @@ pub(crate) fn activate(cli_name: &str, workspace_id: &str) -> Result<SelectOutco
         return Ok(SelectOutcome::NotHeld);
     };
     map.active_workspace_id = Some(workspace_id.to_string());
+    // Saving the map is also what sheds any legacy standalone `KeyAuth`
+    // item — see `active_key::write_map`. No separate cleanup call: routing
+    // one through the projection would now delete the map itself.
     map.save(cli_name)?;
-    auth::drop_stale_key_mirror(cli_name);
     Ok(SelectOutcome::Activated(key))
 }
 
@@ -450,23 +452,28 @@ pub(crate) fn dispatch(
     matches: &clap::ArgMatches,
     ctx: &dyn std::any::Any,
 ) -> Result<(), CliError> {
-    let cli_name = ctx
-        .downcast_ref::<AppContext>()
-        .map(|c| c.http_config().name().to_string())
-        .ok_or_else(|| {
-            CliError::Validation("workspaces: unexpected binding context type".to_string())
-        })?;
+    let app = ctx.downcast_ref::<AppContext>().ok_or_else(|| {
+        CliError::Validation("workspaces: unexpected binding context type".to_string())
+    })?;
+    let cli_name = app.http_config().name().to_string();
+    // The login plane follows `--base-url` / `HEDRA_CLI_BASE_URL` like every
+    // generated command does. Reading it from the context rather than the
+    // environment is what picks up the flag, which never reaches env.
+    let api_base = match app.base_url_override() {
+        Some(raw) => auth::resource_base_from_override(raw)?,
+        None => auth::resource_base()?,
+    };
     // Pass the deepest matches on to the handler: global flags propagate to
     // every level, but only the deepest is certain to carry a value written
     // after the subcommand (`workspaces list --format json`).
     match matches.subcommand() {
-        None => run_list(&cli_name, matches),
-        Some(("list", sub)) => run_list(&cli_name, sub),
+        None => run_list(&cli_name, &api_base, matches),
+        Some(("list", sub)) => run_list(&cli_name, &api_base, sub),
         Some(("select", sub)) => {
             let ws = sub
                 .get_one::<String>("workspace-id")
                 .expect("--workspace-id is required");
-            run_select(&cli_name, ws, sub)
+            run_select(&cli_name, &api_base, ws, sub)
         }
         Some((other, _)) => Err(CliError::Validation(format!(
             "unknown workspaces subcommand: {other}"
@@ -487,14 +494,15 @@ fn http_client() -> Result<reqwest::Client, CliError> {
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))
 }
 
-/// Fetch the listing as the logged-in user. `/v3/workspaces` is a
-/// login-plane endpoint, so it needs a freshly minted JWT rather than
-/// whatever unexpired token the keyring happens to hold — see
-/// `auth::fresh_login_jwt`.
-fn fetch_listing_as_user(cli_name: &str) -> Result<Vec<WorkspaceSummary>, CliError> {
+/// Fetch the listing with an already-fresh login JWT. `/v3/workspaces` is a
+/// login-plane endpoint, so `jwt` must be one `auth::fresh_login_jwt`
+/// produced — an unexpired token from the keyring is not enough.
+///
+/// The token is a parameter rather than minted here so a caller needing two
+/// login-plane calls pays for one rotation, not two.
+fn fetch_listing_with_jwt(api_base: &str, jwt: &str) -> Result<Vec<WorkspaceSummary>, CliError> {
     let http = http_client()?;
-    let jwt = auth::fresh_login_jwt(cli_name)?;
-    let url = format!("{}/v3/workspaces", auth::resource_base_url());
+    let url = format!("{api_base}/v3/workspaces");
     run_async(fetch_workspaces_request(http.get(url).bearer_auth(jwt)))
 }
 
@@ -504,8 +512,9 @@ fn warn_if_env_key_shadows() {
     }
 }
 
-fn run_list(cli_name: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
-    let listing = fetch_listing_as_user(cli_name)?;
+fn run_list(cli_name: &str, api_base: &str, matches: &clap::ArgMatches) -> Result<(), CliError> {
+    let jwt = auth::fresh_login_jwt(cli_name)?;
+    let listing = fetch_listing_with_jwt(api_base, &jwt)?;
     let map = WorkspaceKeyMap::load(cli_name);
     let active = map.active_workspace_id.as_deref();
     emit(
@@ -520,6 +529,7 @@ fn run_list(cli_name: &str, matches: &clap::ArgMatches) -> Result<(), CliError> 
 
 fn run_select(
     cli_name: &str,
+    api_base: &str,
     workspace_id: &str,
     matches: &clap::ArgMatches,
 ) -> Result<(), CliError> {
@@ -559,7 +569,12 @@ fn run_select(
 
     // Fail on a typo'd or invisible id before minting anything; the listing
     // also supplies the display name for the confirmation line.
-    let listing = fetch_listing_as_user(cli_name)?;
+    // One forced refresh for the whole command. Each refresh rotates the
+    // token server-side, so refreshing again for the mint would invalidate
+    // the one just used — and if the first rotation failed to persist, the
+    // second would present a dead token and fail outright.
+    let jwt = auth::fresh_login_jwt(cli_name)?;
+    let listing = fetch_listing_with_jwt(api_base, &jwt)?;
     let Some(target) = listing.iter().find(|w| w.workspace_id == workspace_id) else {
         return Err(CliError::Validation(format!(
             "workspace {workspace_id} is not visible to this account; known ids: {}",
@@ -575,7 +590,7 @@ fn run_select(
         "No API key held for {} ({workspace_id}) — minting one…",
         target.workspace_name
     );
-    let minted = auth::mint_for_workspace(cli_name, workspace_id)?;
+    let minted = auth::mint_for_workspace_at(cli_name, api_base, &jwt, workspace_id)?;
     announce_active(
         matches,
         cli_name,
@@ -1222,5 +1237,81 @@ mod tests {
             .await
             .unwrap_err();
         assert!(err.to_string().contains("token expired"), "got: {err}");
+    }
+
+    /// A `select` that has to mint makes two login-plane calls — the listing
+    /// and the mint — and must pay for exactly one token rotation between
+    /// them.
+    ///
+    /// It used to force a refresh for each. Every exchange rotates the
+    /// refresh token server-side, so the second one invalidated the token
+    /// the first had just stored; and if the first rotation failed to
+    /// persist, the second presented a dead token and the command failed
+    /// outright. Two concurrent CLI processes raced the same way.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_refreshes_the_session_only_once() {
+        use super::super::auth::tests as auth_tests;
+
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/workspaces"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"workspace_id": "w2", "workspace_name": "Acme", "role": "admin",
+                          "workos_organization_id": "org_1"}],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "credential": "key_w2:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2026-08-21T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        // `.expect(1)` is the assertion: wiremock verifies it on drop.
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "fresh-jwt", "refresh_token": "rotated",
+                "token_type": "Bearer", "expires_in": 3600,
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let base = server.uri();
+        // The deepest matches, as `dispatch` hands them over. Built off the
+        // real root CLI rather than `command()` alone: the output pipeline
+        // reads the SDK's *global* `--format`/`--quiet`, which the bare
+        // subcommand does not declare, and `OutputPipeline::from_matches`
+        // panics on a matches object that lacks them. This test is about the
+        // refresh count, but it still has to run the real rendering path.
+        use fern_cli_sdk::openapi::{commands, load_openapi_spec};
+        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli")
+            .expect("the bundled spec parses");
+        let m = commands::build_cli(&doc)
+            .subcommand(command())
+            .try_get_matches_from(["hedra-cli", "workspaces", "select", "--workspace-id", "w2"])
+            .expect("select parses");
+        let sub = m
+            .subcommand_matches("workspaces")
+            .and_then(|ws| ws.subcommand_matches("select"))
+            .expect("deepest matches")
+            .clone();
+        tokio::task::spawn_blocking(move || run_select("test-cli", &base, "w2", &sub))
+            .await
+            .unwrap()
+            .unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
     }
 }

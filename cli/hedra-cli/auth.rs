@@ -57,6 +57,53 @@ pub(crate) fn resource_base_url() -> &'static str {
     }
 }
 
+/// The resource base this invocation should actually use — the origin that
+/// discovery, the RFC 8707 resource indicator, and every `/v3/...`
+/// login-plane URL hang off.
+///
+/// [`resource_base_url`] is the compiled default for `HEDRA_ENV`. It is not
+/// the whole answer, because `--base-url` / `HEDRA_CLI_BASE_URL` retarget
+/// the data plane and the login plane has to follow. Without this, pointing
+/// the CLI at a local stack sent generated commands there while workspace
+/// listing and — worse — key *minting* silently went on talking to
+/// production: a developer testing locally would create real production
+/// credentials without ever being told.
+///
+/// The override names the data-plane base *including* the `/v3` prefix (it
+/// replaces the spec's `https://api.hedra.com/v3` server wholesale), while
+/// everything here wants the origin, so the suffix comes off.
+pub(crate) fn resource_base() -> Result<String, CliError> {
+    match std::env::var("HEDRA_CLI_BASE_URL") {
+        Ok(raw) if !raw.trim().is_empty() => resource_base_from_override(raw.trim()),
+        _ => Ok(resource_base_url().to_string()),
+    }
+}
+
+/// Strip the `/v3` the data-plane override carries, so the login plane can
+/// rebuild its own `/v3/...` paths from the same origin.
+///
+/// An override that does not carry it is rejected rather than guessed at.
+/// The two planes would otherwise disagree about where `/v3` lives — the
+/// data plane appending nothing, the login plane appending `/v3` — and the
+/// failure would surface as a 404 from whichever deployment happened to
+/// answer, long after the point where the mistake was made. Refusing before
+/// any request is the only way the message can still name the cause.
+pub(crate) fn resource_base_from_override(raw: &str) -> Result<String, CliError> {
+    let trimmed = raw.trim_end_matches('/');
+    trimmed
+        .strip_suffix("/v3")
+        .map(str::to_string)
+        .ok_or_else(|| {
+            CliError::Validation(format!(
+                "base URL `{raw}` does not end in `/v3`. The CLI's base URL names the \
+                 data-plane root, which carries that prefix (as the default \
+                 `https://api.hedra.com/v3` does); the login plane derives its own \
+                 endpoints from the same origin and cannot do so without it. Pass \
+                 `{trimmed}/v3` instead."
+            ))
+        })
+}
+
 // ---------------------------------------------------------------------------
 // Authorization-server discovery: RFC 9728 → RFC 8414.
 //
@@ -183,8 +230,9 @@ struct AuthEndpoints {
 /// path) prefers the cached copy.
 fn auth_endpoints(cli_name: &str, use_cache: bool) -> Result<AuthEndpoints, CliError> {
     static ENDPOINTS: OnceLock<Result<AuthEndpoints, String>> = OnceLock::new();
+    let base = resource_base()?;
     ENDPOINTS
-        .get_or_init(|| resolve_auth_endpoints(cli_name, resource_base_url(), use_cache))
+        .get_or_init(|| resolve_auth_endpoints(cli_name, &base, use_cache))
         .clone()
         .map_err(CliError::Auth)
 }
@@ -248,8 +296,8 @@ fn endpoint_override(resource_base_url: &str) -> Result<Option<AuthEndpoints>, S
     ) {
         (None, None) => Ok(None),
         (Some(authorization_endpoint), Some(token_endpoint)) => {
-            require_https(&authorization_endpoint)?;
-            require_https(&token_endpoint)?;
+            require_https("authorization endpoint", &authorization_endpoint)?;
+            require_https("token endpoint", &token_endpoint)?;
             Ok(Some(AuthEndpoints {
                 resource: resource_base_url.to_string(),
                 authorization_endpoint,
@@ -290,24 +338,79 @@ async fn discover_endpoints(resource_base_url: &str) -> Result<AuthEndpoints, St
         .ok_or_else(|| format!("{url}: document lists no authorization_servers"))?
         .trim_end_matches('/')
         .to_string();
-    require_https(&issuer).map_err(|e| format!("{url}: {e}"))?;
+    require_https("authorization server", &issuer).map_err(|e| format!("{url}: {e}"))?;
 
     // Hop 2 — RFC 8414: the issuer names its endpoints. Taken verbatim —
     // reconstructing `{issuer}/oauth2/…` would re-hardcode the vendor's
     // path shape, the very thing this chain exists to avoid.
-    let meta_url = format!("{issuer}/.well-known/oauth-authorization-server");
+    let meta_url = metadata_url(&issuer)?;
     let meta = fetch_json(&http, &meta_url).await?;
+
+    // RFC 8414 § 3.3: the metadata's own `issuer` MUST match the issuer used
+    // to fetch it. Without the check, a document served at one issuer can
+    // name another, and the CLI would carry an authorization code to
+    // whatever token endpoint that second party published.
+    let declared = meta
+        .get("issuer")
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{meta_url}: metadata has no `issuer`"))?;
+    if declared.trim_end_matches('/') != issuer {
+        return Err(format!(
+            "{meta_url}: metadata declares issuer `{declared}` but was served from \
+             `{issuer}` — refusing a document that does not describe the \
+             authorization server it came from"
+        ));
+    }
+
     let endpoint = |key: &str| -> Result<String, String> {
-        meta.get(key)
+        let value = meta
+            .get(key)
             .and_then(Value::as_str)
             .map(str::to_string)
-            .ok_or_else(|| format!("{meta_url}: metadata has no `{key}`"))
+            .ok_or_else(|| format!("{meta_url}: metadata has no `{key}`"))?;
+        // The token leg carries the PKCE code exchange and the authorization
+        // leg carries the code itself, so neither may be plaintext however
+        // the document asks for it.
+        require_https(key, &value).map_err(|e| format!("{meta_url}: {e}"))?;
+        Ok(value)
     };
     Ok(AuthEndpoints {
         resource: resource_base_url.to_string(),
         authorization_endpoint: endpoint("authorization_endpoint")?,
         token_endpoint: endpoint("token_endpoint")?,
     })
+}
+
+/// The RFC 8414 § 3.1 metadata URL for `issuer`.
+///
+/// The well-known segment goes *between the host and the issuer's path*, not
+/// on the end of the whole issuer:
+///
+/// ```text
+///   https://host          → https://host/.well-known/oauth-authorization-server
+///   https://host/tenant1  → https://host/.well-known/oauth-authorization-server/tenant1
+/// ```
+///
+/// Appending — the old behaviour — happens to work only because today's
+/// issuer is origin-only. The moment an authorization server is served under
+/// a path, which a per-tenant issuer usually is, the appended form 404s and
+/// the CLI cannot log in at all until a new binary ships. Building it
+/// correctly costs nothing and takes a release off that recovery path.
+fn metadata_url(issuer: &str) -> Result<String, String> {
+    let url = reqwest::Url::parse(issuer)
+        .map_err(|e| format!("authorization server `{issuer}` is not a valid URL: {e}"))?;
+    if url.query().is_some() || url.fragment().is_some() {
+        return Err(format!(
+            "authorization server `{issuer}` carries a query or fragment, which \
+             RFC 8414 forbids in an issuer identifier"
+        ));
+    }
+    let issuer_path = url.path().trim_end_matches('/');
+    let mut meta = url.clone();
+    meta.set_path(&format!(
+        "/.well-known/oauth-authorization-server{issuer_path}"
+    ));
+    Ok(meta.to_string())
 }
 
 async fn fetch_json(http: &reqwest::Client, url: &str) -> Result<Value, String> {
@@ -340,18 +443,18 @@ fn resource_covers(published: &str, requested: &str) -> bool {
 
 /// The issuer must be https; loopback is exempt so local mock servers (and
 /// the wiremock tests) can exercise the chain.
-fn require_https(issuer: &str) -> Result<(), String> {
-    if issuer.starts_with("https://") {
+fn require_https(what: &str, url: &str) -> Result<(), String> {
+    if url.starts_with("https://") {
         return Ok(());
     }
-    let loopback = issuer.strip_prefix("http://").is_some_and(|rest| {
+    let loopback = url.strip_prefix("http://").is_some_and(|rest| {
         let host = rest.split(['/', ':']).next().unwrap_or("");
         matches!(host, "127.0.0.1" | "localhost")
     });
     if loopback {
         Ok(())
     } else {
-        Err(format!("authorization server `{issuer}` is not https"))
+        Err(format!("{what} `{url}` is not https"))
     }
 }
 
@@ -412,17 +515,35 @@ fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow 
 /// call therefore exchanges the refresh token for a brand-new access token
 /// rather than reusing the stored one.
 ///
+/// "There is no login session", phrased for what the user actually holds.
+///
+/// A flat "Not logged in" is false for anyone who pasted an API key: they are
+/// authenticated — `auth status` shows the key active and every generated
+/// command works — and it sends them hunting for a problem they do not have.
+/// What they lack is a *user* identity, which only the login plane carries.
+fn no_login_session(cli_name: &str) -> String {
+    let has_key = std::env::var_os("HEDRA_API_KEY").is_some()
+        || matches!(active_store().get(cli_name, KEY_SCHEME), Ok(Some(_)));
+    if has_key {
+        format!(
+            "An API key identifies a workspace, not a person, so workspace commands \
+             need a browser login. Run `{cli_name} auth login` — your key still works \
+             for everything else."
+        )
+    } else {
+        format!("Not logged in. Run `{cli_name} auth login` to authenticate.")
+    }
+}
+
 /// The rotated refresh token is written back: the identity provider
 /// rotates it on every
 /// exchange, so dropping the new one would break the *next* call.
 pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let endpoints =
-        resolve_auth_endpoints(cli_name, resource_base_url(), true).map_err(CliError::Auth)?;
-    let raw = active_store().get(cli_name, SCHEME)?.ok_or_else(|| {
-        CliError::Auth(format!(
-            "Not logged in. Run `{cli_name} auth login` to authenticate."
-        ))
-    })?;
+        resolve_auth_endpoints(cli_name, &resource_base()?, true).map_err(CliError::Auth)?;
+    let raw = active_store()
+        .get(cli_name, SCHEME)?
+        .ok_or_else(|| CliError::Auth(no_login_session(cli_name)))?;
     let bundle: TokenBundle = serde_json::from_str(&raw)
         .map_err(|e| CliError::Auth(format!("stored OAuth bundle is not valid JSON: {e}")))?;
     let refresh = bundle.refresh_token.clone().ok_or_else(|| {
@@ -433,11 +554,31 @@ pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let refreshed = tokio::task::block_in_place(|| {
         tokio::runtime::Handle::current().block_on(refresh_token_grant(&endpoints, &refresh))
     })?;
-    // Best-effort persist: the call at hand already has its token, so a
-    // keyring hiccup must not fail it — only the next call pays.
-    if let Ok(json) = refreshed.to_keyring_value() {
-        let _ = active_store().set(cli_name, SCHEME, &json);
-    }
+
+    // The persist is NOT best-effort. The identity provider rotates the
+    // refresh token on every exchange, so the moment this grant succeeds the
+    // token still in the keyring is dead. Dropping the replacement — the old
+    // behaviour, on the reasoning that "the call at hand already has its
+    // token, only the next call pays" — silently destroys the session: the
+    // next login-plane call presents an invalidated token and is refused,
+    // and the user is sent back through a browser login for no visible
+    // reason.
+    //
+    // Failing here instead costs the current command, which the user can
+    // retry, rather than the session.
+    let json = refreshed.to_keyring_value().map_err(|e| {
+        CliError::Auth(format!(
+            "could not serialize the refreshed session: {e}. The previous refresh \
+             token has already been consumed — run `{cli_name} auth login` again."
+        ))
+    })?;
+    active_store().set(cli_name, SCHEME, &json).map_err(|e| {
+        CliError::Auth(format!(
+            "the refreshed session could not be saved: {e}. The previous refresh \
+             token has already been consumed, so the stored session is now stale — \
+             fix the credential store and run `{cli_name} auth login` again."
+        ))
+    })?;
     Ok(refreshed.access_token)
 }
 
@@ -621,7 +762,7 @@ struct BootstrapRenewResponse {
 }
 
 fn bootstrap_api_key(cli_name: &str) -> Result<(), CliError> {
-    let api_base = resource_base_url();
+    let api_base = resource_base()?;
     let jwt = match active_store().get(cli_name, SCHEME) {
         Ok(Some(stored)) => serde_json::from_str::<TokenBundle>(&stored)
             .map(|b| b.access_token)
@@ -633,7 +774,7 @@ fn bootstrap_api_key(cli_name: &str) -> Result<(), CliError> {
         }
     };
     tokio::task::block_in_place(|| {
-        tokio::runtime::Handle::current().block_on(bootstrap_inner(cli_name, api_base, &jwt))
+        tokio::runtime::Handle::current().block_on(bootstrap_inner(cli_name, &api_base, &jwt))
     })
 }
 
@@ -661,7 +802,7 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
                     None, // renewals carry no name — the held one is kept
                     Some(&renewed.expires_at),
                     true,
-                );
+                )?;
                 (
                     renewed.key_id,
                     Some(renewed.expires_at),
@@ -783,7 +924,7 @@ async fn mint_and_store(
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
         true,
-    );
+    )?;
     if let (Some(name), Some(org)) = (&minted.workspace_name, &minted.organization_id) {
         eprintln!("(key bound to workspace \"{name}\" via organization {org})");
     }
@@ -805,31 +946,34 @@ pub(crate) struct MintedKey {
     pub(crate) expires_at: Option<String>,
 }
 
-/// Mint a key bound to `workspace_id` and make it the active credential
-/// Runs off the stored OAuth session — refreshed through the
-/// same provider the data plane uses — so switching workspaces costs no
+/// Mint a key bound to `workspace_id` and make it the active credential.
+/// Runs off the stored OAuth session, so switching workspaces costs no
 /// browser round-trip; the login JWT's own org is irrelevant here.
-pub(crate) fn mint_for_workspace(
-    cli_name: &str,
-    workspace_id: &str,
-) -> Result<MintedKey, CliError> {
-    mint_for_workspace_at(cli_name, resource_base_url(), workspace_id)
-}
-
-/// The api-base-parameterized body (tests drive it against a mock server),
-/// mirroring `bootstrap_inner`'s shape.
-fn mint_for_workspace_at(
+///
+/// `api_base` is the caller's resolved resource base, not the compiled
+/// default: minting is the one login-plane call that *creates* state, so a
+/// `--base-url` pointing at a local stack must not quietly mint a real
+/// production key.
+///
+/// `jwt` must be login-plane fresh. There is deliberately no wrapper that
+/// mints one internally: the only caller already holds a fresh token for
+/// its listing call, and a convenience overload would make it too easy to
+/// reintroduce the second rotation this signature exists to prevent.
+pub(crate) fn mint_for_workspace_at(
     cli_name: &str,
     api_base: &str,
+    jwt: &str,
     workspace_id: &str,
 ) -> Result<MintedKey, CliError> {
     let http = reqwest::Client::builder()
         .timeout(std::time::Duration::from_secs(30))
         .build()
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
-    // A mint is a login-plane call: it needs a token minted seconds ago,
-    // not merely an unexpired one (see `fresh_login_jwt`).
-    let jwt = fresh_login_jwt(cli_name)?;
+    // `jwt` must be login-plane fresh — minted seconds ago, not merely
+    // unexpired (see `fresh_login_jwt`). Taking it as a parameter rather
+    // than minting one here lets a caller that already refreshed reuse it:
+    // each refresh rotates the token, so two in one command is one rotation
+    // too many.
     let req = http
         .post(format!("{api_base}/v3/keys/bootstrap"))
         .bearer_auth(jwt);
@@ -848,7 +992,12 @@ fn mint_for_workspace_at(
         // The credential is real; record it where it actually belongs so it
         // is not orphaned — but leave the active credential alone, because
         // the workspace the user asked for was not reached.
-        record_workspace_key(
+        // This arm returns an error either way, so the persistence result is
+        // not propagated with `?` — that would replace the explanation of
+        // *why* the mint was refused with a storage message, and the
+        // workspace mismatch is the more useful half. Instead both outcomes
+        // are reported: whether the key was salvaged, or is now orphaned.
+        let fate = match record_workspace_key(
             cli_name,
             landed,
             &minted.key_id,
@@ -856,13 +1005,21 @@ fn mint_for_workspace_at(
             minted.workspace_name.as_deref(),
             minted.expires_at.as_deref(),
             false,
-        );
+        ) {
+            Ok(()) => format!(
+                "The key was kept for {}; the active workspace is unchanged.",
+                landed.unwrap_or("that workspace")
+            ),
+            Err(e) => format!(
+                "It could not be saved locally either, so it is now orphaned — \
+                 revoke key {} in the dashboard. ({e})",
+                minted.key_id
+            ),
+        };
         return Err(CliError::Auth(format!(
             "the mint bound its key to workspace {} instead of the requested {workspace_id} — \
-             this environment does not support selecting a workspace at mint time yet. \
-             The key was kept for {}; the active workspace is unchanged.",
+             this environment does not support selecting a workspace at mint time yet. {fate}",
             landed.unwrap_or("<none>"),
-            landed.unwrap_or("that workspace")
         )));
     }
 
@@ -874,7 +1031,7 @@ fn mint_for_workspace_at(
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
         true,
-    );
+    )?;
     Ok(MintedKey {
         key_id: minted.key_id,
         workspace_name: minted.workspace_name,
@@ -882,10 +1039,18 @@ fn mint_for_workspace_at(
     })
 }
 
-/// Best-effort update of the per-workspace key map (`workspaces select`'s
-/// data source). The credential is already safe in `KeyAuth`, so a map
-/// write failure must not fail the login — but it must not be silent
-/// either, or a later `select` mysteriously lacks the key.
+/// Persist a minted or renewed key into the per-workspace key map.
+///
+/// This used to swallow the write error on the grounds that "the credential
+/// is already safe in `KeyAuth`". That stopped being true when the `KeyAuth`
+/// slot became a projection of this very map: the map is now the *only*
+/// copy. Swallowing the failure meant the CLI could create a key
+/// server-side, drop the sole copy of its secret, and print "minted and
+/// stored in the keyring" — leaving a live credential on the account that
+/// nobody can see, use, or revoke through this CLI.
+///
+/// So the error propagates. A caller that cannot persist a minted secret
+/// has not succeeded and must not say it has.
 #[allow(clippy::too_many_arguments)]
 fn record_workspace_key(
     cli_name: &str,
@@ -895,8 +1060,8 @@ fn record_workspace_key(
     workspace_name: Option<&str>,
     expires_at: Option<&str>,
     activate: bool,
-) {
-    if let Err(e) = workspaces::record_key(
+) -> Result<(), CliError> {
+    workspaces::record_key(
         cli_name,
         workspace_id,
         key_id,
@@ -904,36 +1069,15 @@ fn record_workspace_key(
         workspace_name,
         expires_at,
         activate,
-    ) {
-        eprintln!("(could not record the workspace key map: {e})");
-        return;
-    }
-    if activate {
-        drop_stale_key_mirror(cli_name);
-    }
-}
-
-/// Remove the legacy standalone `KeyAuth` keyring item, if one is still
-/// there.
-///
-/// Releases before the projection landed stored the active credential twice:
-/// once inside the workspace key map, and once as its own item at
-/// `(cli_name, KeyAuth)` — which is the address the SDK's injected keyring
-/// source reads. The map is now the only writer, so an item left over from
-/// an older release would sit there frozen at whatever key was active on the
-/// day of the upgrade.
-///
-/// [`super::active_key`] prefers the map precisely so that stale item cannot
-/// win, but leaving it in place would keep a live credential in the keychain
-/// that nothing maintains — and would keep costing an authorization prompt.
-/// Clearing it at the moments the active credential changes migrates the
-/// install on first use.
-///
-/// Best-effort and silent: on a fresh install there is nothing to delete and
-/// the backend says so without prompting, and a failure here must never sink
-/// a login that has otherwise succeeded.
-pub(crate) fn drop_stale_key_mirror(cli_name: &str) {
-    let _ = active_store().delete(cli_name, KEY_SCHEME);
+    )
+    .map_err(|e| {
+        CliError::Auth(format!(
+            "API key {key_id} was created but could not be saved locally: {e}. \
+             The key exists on your account and this CLI no longer holds its \
+             secret — revoke it in the dashboard, resolve the credential-store \
+             problem, and run the command again."
+        ))
+    })
 }
 
 /// Server error body → one readable line; a 404 on this plane almost always
@@ -1105,7 +1249,7 @@ fn iso8601_to_epoch(s: &str) -> Option<i64> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
 
     #[test]
@@ -1162,6 +1306,55 @@ mod tests {
             Some(1787097600)
         );
         assert_eq!(iso8601_to_epoch("not a date"), None);
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn override_to_resource_base_strips_the_v3_prefix() {
+        assert_eq!(
+            resource_base_from_override("http://localhost:8000/v3").unwrap(),
+            "http://localhost:8000"
+        );
+        // A trailing slash is not a different deployment.
+        assert_eq!(
+            resource_base_from_override("https://api.staging.hedra.com/v3/").unwrap(),
+            "https://api.staging.hedra.com"
+        );
+    }
+
+    #[test]
+    fn an_override_without_v3_is_refused_before_any_request() {
+        let err = resource_base_from_override("http://localhost:8000").unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("/v3"), "unexpected: {msg}");
+        // The message has to carry the fix, since the failure would
+        // otherwise surface as a 404 far from its cause.
+        assert!(
+            msg.contains("http://localhost:8000/v3"),
+            "the error must name the corrected URL: {msg}"
+        );
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn the_login_plane_follows_the_data_plane_override() {
+        let restore = std::env::var("HEDRA_CLI_BASE_URL").ok();
+
+        std::env::set_var("HEDRA_CLI_BASE_URL", "http://localhost:8000/v3");
+        assert_eq!(
+            resource_base().unwrap(),
+            "http://localhost:8000",
+            "a custom data-plane base must retarget the login plane too, or a \
+             local test run mints production keys"
+        );
+
+        std::env::remove_var("HEDRA_CLI_BASE_URL");
+        assert_eq!(resource_base().unwrap(), resource_base_url());
+
+        match restore {
+            Some(v) => std::env::set_var("HEDRA_CLI_BASE_URL", v),
+            None => std::env::remove_var("HEDRA_CLI_BASE_URL"),
+        }
     }
 
     #[test]
@@ -1270,6 +1463,123 @@ mod tests {
         assert_eq!(ep.token_endpoint, format!("{uri}/custom/token"));
     }
 
+    // RFC 8414 § 3.1: the well-known segment goes between host and path.
+    #[test]
+    fn metadata_url_inserts_the_well_known_segment_before_the_issuer_path() {
+        assert_eq!(
+            metadata_url("https://auth.example.com").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server"
+        );
+        assert_eq!(
+            metadata_url("https://auth.example.com/tenant1").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
+        );
+        // A trailing slash is not an extra path segment.
+        assert_eq!(
+            metadata_url("https://auth.example.com/tenant1/").unwrap(),
+            "https://auth.example.com/.well-known/oauth-authorization-server/tenant1"
+        );
+    }
+
+    #[test]
+    fn metadata_url_refuses_an_issuer_with_a_query_or_fragment() {
+        assert!(metadata_url("https://auth.example.com/t?x=1").is_err());
+        assert!(metadata_url("https://auth.example.com/t#frag").is_err());
+    }
+
+    /// The path-based issuer end to end — the shape a per-tenant
+    /// authorization server takes, and the one the appended form 404s on.
+    #[tokio::test]
+    async fn discovery_follows_an_issuer_that_has_a_path() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        let issuer = format!("{uri}/tenant1");
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [issuer],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server/tenant1"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": issuer,
+                "authorization_endpoint": format!("{issuer}/authorize"),
+                "token_endpoint": format!("{issuer}/token"),
+            })))
+            .mount(&server)
+            .await;
+
+        let ep = discover_endpoints(&uri).await.unwrap();
+        assert_eq!(ep.token_endpoint, format!("{issuer}/token"));
+    }
+
+    /// A document that names an issuer other than the one that served it
+    /// must be refused: honouring it would send an authorization code to a
+    /// token endpoint published by a third party.
+    #[tokio::test]
+    async fn discovery_refuses_metadata_whose_issuer_does_not_match() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [uri],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": "https://somewhere-else.example.com",
+                "authorization_endpoint": "https://somewhere-else.example.com/authorize",
+                "token_endpoint": "https://somewhere-else.example.com/token",
+            })))
+            .mount(&server)
+            .await;
+
+        let err = discover_endpoints(&uri).await.unwrap_err();
+        assert!(
+            err.contains("somewhere-else.example.com") && err.contains("issuer"),
+            "unexpected: {err}"
+        );
+    }
+
+    /// The token leg carries the PKCE code exchange, so a plaintext endpoint
+    /// is refused however the document asks for it.
+    #[tokio::test]
+    async fn discovery_refuses_an_insecure_returned_endpoint() {
+        let server = MockServer::start().await;
+        let uri = server.uri();
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-protected-resource"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "resource": uri,
+                "authorization_servers": [uri],
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/.well-known/oauth-authorization-server"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "issuer": uri,
+                "authorization_endpoint": format!("{uri}/authorize"),
+                // Not loopback, and not https.
+                "token_endpoint": "http://tokens.example.com/token",
+            })))
+            .mount(&server)
+            .await;
+
+        let err = discover_endpoints(&uri).await.unwrap_err();
+        assert!(
+            err.contains("token_endpoint") && err.contains("not https"),
+            "unexpected: {err}"
+        );
+    }
+
     #[tokio::test]
     async fn discovery_rejects_foreign_resource_document() {
         let server = MockServer::start().await;
@@ -1301,7 +1611,7 @@ mod tests {
     }
 
     /// Both halves cleared — most tests need discovery to actually run.
-    fn clear_endpoint_override() {
+    pub(crate) fn clear_endpoint_override() {
         std::env::remove_var("HEDRA_AUTH_AUTHORIZE_URL");
         std::env::remove_var("HEDRA_AUTH_TOKEN_URL");
     }
@@ -1436,6 +1746,53 @@ mod tests {
         super::super::active_key::projected_mock()
     }
 
+    /// A store whose writes to one slot always fail — a locked keychain, a
+    /// full or read-only config directory. Reads and every other slot behave
+    /// normally, so a test can set up state and then fail only the write
+    /// under examination.
+    ///
+    /// Local to this crate rather than added to `MockKeyringStore`: that
+    /// type lives in generator-owned `src/`, and a test fixture is not worth
+    /// a second Fern Replay patch to re-apply after every regeneration.
+    #[derive(Debug)]
+    struct FailingWrites {
+        inner: std::sync::Arc<MockKeyringStore>,
+        slot: &'static str,
+    }
+
+    impl KeyringStore for FailingWrites {
+        fn get(&self, service: &str, account: &str) -> Result<Option<String>, CliError> {
+            self.inner.get(service, account)
+        }
+        fn set(&self, service: &str, account: &str, value: &str) -> Result<(), CliError> {
+            if account == self.slot {
+                return Err(CliError::Auth(format!(
+                    "credential store is locked ({slot})",
+                    slot = self.slot
+                )));
+            }
+            self.inner.set(service, account, value)
+        }
+        fn delete(&self, service: &str, account: &str) -> Result<(), CliError> {
+            self.inner.delete(service, account)
+        }
+        fn backend_label(&self) -> String {
+            "failing mock".to_string()
+        }
+    }
+
+    /// The projection, over a store that cannot persist the workspace map.
+    fn keyring_that_cannot_save_keys() -> std::sync::Arc<MockKeyringStore> {
+        let mock = std::sync::Arc::new(MockKeyringStore::new());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(
+            std::sync::Arc::new(FailingWrites {
+                inner: mock.clone(),
+                slot: workspaces::WORKSPACE_KEYS_SCHEME,
+            }),
+        ));
+        mock
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]
     async fn bootstrap_mints_and_stores_when_no_key_is_held() {
@@ -1560,7 +1917,7 @@ mod tests {
     /// caller must hold it for the length of the test, or the directory is
     /// removed and `HOME` restored the moment it drops.
     #[must_use]
-    fn seed_live_session(store: &MockKeyringStore, server_uri: &str) -> TempHome {
+    pub(crate) fn seed_live_session(store: &MockKeyringStore, server_uri: &str) -> TempHome {
         let home = seed_discovery_cache(&AuthEndpoints {
             resource: resource_base_url().to_string(),
             authorization_endpoint: format!("{server_uri}/authorize"),
@@ -1599,7 +1956,7 @@ mod tests {
     /// Points `HOME` (and `XDG_CONFIG_HOME`, which the Linux branch prefers)
     /// at a temp directory, restoring both on drop. Holding one keeps a
     /// test off the developer's real config directory.
-    struct TempHome {
+    pub(crate) struct TempHome {
         _dir: tempfile::TempDir,
         previous_home: Option<std::ffi::OsString>,
         previous_xdg: Option<std::ffi::OsString>,
@@ -1635,7 +1992,7 @@ mod tests {
 
     /// Every login-plane call mints a fresh JWT first, so a mint test needs
     /// the token leg mocked too.
-    async fn mock_token_refresh(server: &MockServer) {
+    pub(crate) async fn mock_token_refresh(server: &MockServer) {
         Mock::given(method("POST"))
             .and(path("/token"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
@@ -1644,6 +2001,56 @@ mod tests {
             })))
             .mount(server)
             .await;
+    }
+
+    /// A mint whose only local copy cannot be saved must fail, loudly.
+    ///
+    /// It used to print "minted and stored in the keyring" and exit zero,
+    /// having created a key server-side and dropped the sole copy of its
+    /// secret — a live credential on the account that nobody could see, use
+    /// or revoke through this CLI.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_mint_that_cannot_be_saved_fails_instead_of_reporting_success() {
+        clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "credential": "key_w2:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Born Free", "organization_id": null,
+                "expires_at": "2026-08-21T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+        let store = keyring_that_cannot_save_keys();
+        let _home = seed_live_session(&store, &server.uri());
+        mock_token_refresh(&server).await;
+
+        let err = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("key_w2"),
+            "the error must name the key that now exists on the account: {msg}"
+        );
+        assert!(
+            msg.contains("revoke"),
+            "and must tell the user how to clean it up: {msg}"
+        );
+        assert!(
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .is_none(),
+            "nothing was persisted, so nothing must resolve"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -1668,7 +2075,13 @@ mod tests {
         let _home = seed_live_session(&store, &server.uri());
         mock_token_refresh(&server).await;
 
-        let minted = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap();
+        let minted = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap();
 
         assert_eq!(minted.key_id, "key_w2");
         assert_eq!(minted.workspace_name.as_deref(), Some("Born Free"));
@@ -1707,7 +2120,13 @@ mod tests {
         mock_token_refresh(&server).await;
         store.set("test-cli", KEY_SCHEME, "key_held:stay").unwrap();
 
-        let err = mint_for_workspace_at("test-cli", &server.uri(), "w2").unwrap_err();
+        let err = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap_err();
         let msg = err.to_string();
         assert!(
             msg.contains("w1") && msg.contains("w2"),
@@ -1779,6 +2198,53 @@ mod tests {
         assert_eq!(stored.refresh_token.as_deref(), Some("rotated"));
     }
 
+    /// If the rotated token cannot be stored, the command must fail rather
+    /// than return a working JWT.
+    ///
+    /// The exchange has already consumed the previous refresh token
+    /// server-side, so a silently-dropped replacement leaves the stored
+    /// session dead: the next login-plane call presents an invalidated token
+    /// and is refused, sending the user through a browser login for no
+    /// visible reason. Failing here costs one retryable command instead.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_rotation_that_cannot_be_stored_fails_the_call() {
+        clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "brand-new", "refresh_token": "rotated",
+                "token_type": "Bearer", "expires_in": 3600,
+            })))
+            .mount(&server)
+            .await;
+
+        // Seed through a plain store, then swap in one that cannot write the
+        // OAuth slot — the seeding itself has to succeed.
+        let mock = std::sync::Arc::new(MockKeyringStore::new());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(mock.clone()));
+        let _home = seed_live_session(&mock, &server.uri());
+        fern_cli_sdk::auth::set_active_store(super::super::active_key::project(
+            std::sync::Arc::new(FailingWrites {
+                inner: mock.clone(),
+                slot: SCHEME,
+            }),
+        ));
+
+        let err = fresh_login_jwt("test-cli").unwrap_err();
+        let msg = err.to_string();
+
+        assert!(
+            msg.contains("auth login"),
+            "the user must be told how to recover: {msg}"
+        );
+        assert!(
+            msg.contains("consumed"),
+            "and why the stored session is now unusable: {msg}"
+        );
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]
     async fn fresh_login_jwt_without_a_session_says_log_in() {
@@ -1792,6 +2258,42 @@ mod tests {
 
         let err = fresh_login_jwt("test-cli").unwrap_err().to_string();
         assert!(err.contains("auth login"), "unexpected: {err}");
+        assert!(
+            err.contains("Not logged in"),
+            "with no credential at all, the flat message is the true one: {err}"
+        );
+    }
+
+    /// Someone who pasted an API key IS authenticated — `auth status` says so
+    /// and every generated command works — so "Not logged in" is a false
+    /// statement that sends them hunting for a problem they do not have. The
+    /// message has to name what they actually lack: a user identity.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_key_only_user_is_told_what_they_lack_not_that_they_are_logged_out() {
+        clear_endpoint_override();
+        let store = fresh_keyring();
+        let _home = seed_discovery_cache(&AuthEndpoints {
+            resource: resource_base_url().to_string(),
+            authorization_endpoint: "https://example.invalid/a".to_string(),
+            token_endpoint: "https://example.invalid/t".to_string(),
+        });
+        store.set("test-cli", KEY_SCHEME, "key_1:secret").unwrap();
+
+        let err = fresh_login_jwt("test-cli").unwrap_err().to_string();
+
+        assert!(
+            !err.contains("Not logged in"),
+            "they are logged in — just not with the credential this needs: {err}"
+        );
+        assert!(
+            err.contains("browser login") && err.contains("auth login"),
+            "it must say what to do: {err}"
+        );
+        assert!(
+            err.contains("API key"),
+            "and acknowledge the credential they already hold: {err}"
+        );
     }
 
     // ── the endpoint cache is a plain file, not a keyring item ──────────
