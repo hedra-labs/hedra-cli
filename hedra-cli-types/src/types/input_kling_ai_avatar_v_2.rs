@@ -18,7 +18,7 @@ pub struct InputKlingAiAvatarV2 {
     pub resolution: Option<InputKlingAiAvatarV2Resolution>,
     /// Start frame (image-to-video). At most 10.4 MB.
     pub start_image: InputKlingAiAvatarV2StartImage,
-    /// Driving audio. At most 104.8 MB.
+    /// Driving audio. From 2s to 60s and at most 5 MB.
     pub audio: InputKlingAiAvatarV2Audio,
     /// Quality level to generate at.
     pub quality: InputKlingAiAvatarV2Quality,

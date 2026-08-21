@@ -14,6 +14,9 @@ pub struct ModelSummary {
     /// One-line summary of what the model does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Short USD pricing summary for this model. Exact cost depends on input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_description: Option<String>,
     /// URL of the provider's logo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
@@ -32,6 +35,7 @@ pub struct ModelSummaryBuilder {
     modality: Option<Modality>,
     name: Option<String>,
     description: Option<String>,
+    price_description: Option<String>,
     logo_url: Option<String>,
 }
 
@@ -56,6 +60,11 @@ impl ModelSummaryBuilder {
         self
     }
 
+    pub fn price_description(mut self, value: impl Into<String>) -> Self {
+        self.price_description = Some(value.into());
+        self
+    }
+
     pub fn logo_url(mut self, value: impl Into<String>) -> Self {
         self.logo_url = Some(value.into());
         self
@@ -71,6 +80,7 @@ impl ModelSummaryBuilder {
             modality: self.modality.ok_or_else(|| BuildError::missing_field("modality"))?,
             name: self.name,
             description: self.description,
+            price_description: self.price_description,
             logo_url: self.logo_url,
         })
     }

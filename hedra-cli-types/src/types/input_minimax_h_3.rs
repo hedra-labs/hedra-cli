@@ -22,16 +22,16 @@ pub struct InputMinimaxH3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame (image-to-video). From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3StartImage>,
-    /// End frame (first-last-frame-to-video). At most 10.4 MB.
+    /// End frame (first-last-frame-to-video). From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxH3AspectRatio>,
-    /// Reference images. 1 to 5 images, each at most 10.4 MB.
+    /// Reference images. 1 to 5 images, each from 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMinimaxH3ImagesItem>>,
     /// Reference videos. 1 to 3 videos, each from 2s to 15s and at most 524.2 MB, at most 15s in total.

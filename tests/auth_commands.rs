@@ -164,6 +164,17 @@ fn stderr(out: &Output) -> String {
 /// logged-out install must produce, and asserting it is the whole point:
 /// "the item was deleted" and "the CLI stopped sending the key" are
 /// different claims, and #102 satisfied only the first.
+///
+/// The probe command must hit an endpoint the spec still declares
+/// **authenticated**. It used to be `models list`, until API spec 3.9.0
+/// marked `GET /models` (and `/models/{model}`, its `openapi.json`, its
+/// `voices`, plus `/webhooks/public-key`) as `security: []` — explicitly
+/// anonymous. The CLI honours that and sends no credential there, so the
+/// oracle reported `None` for every install and seven cases in this file
+/// went red on a regeneration that changed no auth code at all. `jobs list`
+/// (`GET /jobs`) still carries `KeyAuth`/`BearerToken` and takes no required
+/// arguments. If it ever goes public too, move the probe again — do not
+/// weaken the assertion.
 fn authorization_header(sandbox: &Sandbox) -> Option<String> {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     rt.block_on(async {
@@ -175,7 +186,7 @@ fn authorization_header(sandbox: &Sandbox) -> Option<String> {
             .mount(&server)
             .await;
 
-        let out = sandbox.run(&["models", "list", "--base-url", &server.uri()]);
+        let out = sandbox.run(&["jobs", "list", "--base-url", &server.uri()]);
 
         let requests = server
             .received_requests()

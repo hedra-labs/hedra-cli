@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 113 types for API operations
-//! - **Model Types**: 381 types for data representation
+//! - **Request/Response Types**: 114 types for API operations
+//! - **Model Types**: 387 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -215,6 +215,8 @@ pub mod input_kling_o_1_start_image;
 pub mod input_kling_o_1_end_image;
 pub mod input_kling_o_1_images_item;
 pub mod input_kling_o_1;
+pub mod input_kling_o_3_multi_prompt_item;
+pub mod input_kling_o_3_shot_type;
 pub mod input_kling_o_3_aspect_ratio;
 pub mod input_kling_o_3_resolution;
 pub mod input_kling_o_3_start_image;
@@ -230,6 +232,8 @@ pub mod input_kling_o_3_reference_source_video;
 pub mod input_kling_o_3_reference_images_item;
 pub mod input_kling_o_3_reference_resolution;
 pub mod input_kling_o_3_reference;
+pub mod input_kling_v_3_multi_prompt_item;
+pub mod input_kling_v_3_shot_type;
 pub mod input_kling_v_3_aspect_ratio;
 pub mod input_kling_v_3_resolution;
 pub mod input_kling_v_3_start_image;
@@ -376,6 +380,8 @@ pub mod input_veed_fabric_10_resolution;
 pub mod input_veed_fabric_10_start_image;
 pub mod input_veed_fabric_10_audio;
 pub mod input_veed_fabric_10;
+pub mod input_veed_video_background_removal_source_video;
+pub mod input_veed_video_background_removal;
 pub mod input_veo_2_aspect_ratio;
 pub mod input_veo_2_resolution;
 pub mod input_veo_2_start_image;
@@ -479,6 +485,7 @@ pub mod submit_body_seedream50_lite;
 pub mod submit_body_seedream50_pro;
 pub mod submit_body_sora2_pro;
 pub mod submit_body_veed_fabric10;
+pub mod submit_body_veed_video_background_removal;
 pub mod submit_body_veo2;
 pub mod submit_body_veo3;
 pub mod submit_body_veo31;
@@ -710,6 +717,8 @@ pub use input_kling_o_1_start_image::InputKlingO1StartImage;
 pub use input_kling_o_1_end_image::InputKlingO1EndImage;
 pub use input_kling_o_1_images_item::InputKlingO1ImagesItem;
 pub use input_kling_o_1::InputKlingO1;
+pub use input_kling_o_3_multi_prompt_item::InputKlingO3MultiPromptItem;
+pub use input_kling_o_3_shot_type::InputKlingO3ShotType;
 pub use input_kling_o_3_aspect_ratio::InputKlingO3AspectRatio;
 pub use input_kling_o_3_resolution::InputKlingO3Resolution;
 pub use input_kling_o_3_start_image::InputKlingO3StartImage;
@@ -725,6 +734,8 @@ pub use input_kling_o_3_reference_source_video::InputKlingO3ReferenceSourceVideo
 pub use input_kling_o_3_reference_images_item::InputKlingO3ReferenceImagesItem;
 pub use input_kling_o_3_reference_resolution::InputKlingO3ReferenceResolution;
 pub use input_kling_o_3_reference::InputKlingO3Reference;
+pub use input_kling_v_3_multi_prompt_item::InputKlingV3MultiPromptItem;
+pub use input_kling_v_3_shot_type::InputKlingV3ShotType;
 pub use input_kling_v_3_aspect_ratio::InputKlingV3AspectRatio;
 pub use input_kling_v_3_resolution::InputKlingV3Resolution;
 pub use input_kling_v_3_start_image::InputKlingV3StartImage;
@@ -871,6 +882,8 @@ pub use input_veed_fabric_10_resolution::InputVeedFabric10Resolution;
 pub use input_veed_fabric_10_start_image::InputVeedFabric10StartImage;
 pub use input_veed_fabric_10_audio::InputVeedFabric10Audio;
 pub use input_veed_fabric_10::InputVeedFabric10;
+pub use input_veed_video_background_removal_source_video::InputVeedVideoBackgroundRemovalSourceVideo;
+pub use input_veed_video_background_removal::InputVeedVideoBackgroundRemoval;
 pub use input_veo_2_aspect_ratio::InputVeo2AspectRatio;
 pub use input_veo_2_resolution::InputVeo2Resolution;
 pub use input_veo_2_start_image::InputVeo2StartImage;
@@ -974,6 +987,7 @@ pub use submit_body_seedream50_lite::SubmitBodySeedream50Lite;
 pub use submit_body_seedream50_pro::SubmitBodySeedream50Pro;
 pub use submit_body_sora2_pro::SubmitBodySora2Pro;
 pub use submit_body_veed_fabric10::SubmitBodyVeedFabric10;
+pub use submit_body_veed_video_background_removal::SubmitBodyVeedVideoBackgroundRemoval;
 pub use submit_body_veo2::SubmitBodyVeo2;
 pub use submit_body_veo3::SubmitBodyVeo3;
 pub use submit_body_veo31::SubmitBodyVeo31;

@@ -14,6 +14,9 @@ pub struct ModelDetail {
     /// One-line summary of what the model does.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+    /// Short USD pricing summary for this model. Exact cost depends on input.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub price_description: Option<String>,
     /// URL of the provider's logo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
@@ -38,6 +41,7 @@ pub struct ModelDetailBuilder {
     modality: Option<Modality>,
     name: Option<String>,
     description: Option<String>,
+    price_description: Option<String>,
     logo_url: Option<String>,
     input_schema: Option<HashMap<String, serde_json::Value>>,
     output_schema: Option<HashMap<String, serde_json::Value>>,
@@ -61,6 +65,11 @@ impl ModelDetailBuilder {
 
     pub fn description(mut self, value: impl Into<String>) -> Self {
         self.description = Some(value.into());
+        self
+    }
+
+    pub fn price_description(mut self, value: impl Into<String>) -> Self {
+        self.price_description = Some(value.into());
         self
     }
 
@@ -89,6 +98,7 @@ impl ModelDetailBuilder {
             modality: self.modality.ok_or_else(|| BuildError::missing_field("modality"))?,
             name: self.name,
             description: self.description,
+            price_description: self.price_description,
             logo_url: self.logo_url,
             input_schema: self.input_schema,
             output_schema: self.output_schema,
