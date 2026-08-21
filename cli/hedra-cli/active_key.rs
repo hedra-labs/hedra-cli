@@ -64,7 +64,7 @@
 //! authorization prompt on every `workspaces select`, permanently, to spare
 //! a downgrade one command. The choice was cheap to make because the
 //! map-only store had not shipped in any release when it was taken
-//! (ENG-10414; v2.0.2 was current and predates it).
+//! (v2.0.2 was current and predates it).
 //!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
