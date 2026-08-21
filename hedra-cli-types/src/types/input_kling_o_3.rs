@@ -5,20 +5,26 @@ use super::*;
 /// Model-specific inputs for `kling-o3`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: aspect_ratio, duration_ms, prompt, resolution, start_image; accepts quality: pro; resolution: 1080p | 4K
-/// (2) requires: aspect_ratio, duration_ms, images, prompt, resolution; accepts quality: pro; resolution: 1080p | 4K
-/// (3) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: end_image, images, start_image; accepts quality: pro; resolution: 1080p | 4K
-/// (4) requires: aspect_ratio, duration_ms, prompt, start_image; accepts quality: standard; resolution: 720p
-/// (5) requires: aspect_ratio, duration_ms, images, prompt; accepts quality: standard; resolution: 720p
-/// (6) requires: aspect_ratio, duration_ms, prompt; must omit: end_image, images, start_image; accepts quality: standard; resolution: 720p
+/// (1) requires: aspect_ratio, duration_ms, resolution, start_image; accepts quality: pro; resolution: 1080p | 4K
+/// (2) requires: aspect_ratio, duration_ms, images, resolution; accepts quality: pro; resolution: 1080p | 4K
+/// (3) requires: aspect_ratio, duration_ms, resolution; must omit: end_image, images, start_image; accepts quality: pro; resolution: 1080p | 4K
+/// (4) requires: aspect_ratio, duration_ms, start_image; accepts quality: standard; resolution: 720p
+/// (5) requires: aspect_ratio, duration_ms, images; accepts quality: standard; resolution: 720p
+/// (6) requires: aspect_ratio, duration_ms; must omit: end_image, images, start_image; accepts quality: standard; resolution: 720p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputKlingO3 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
     /// Generation prompt. At most 2500 characters.
-    #[serde(default)]
-    pub prompt: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
+    /// Multi-shot storyboard; each shot carries its own prompt and duration. Shot durations must sum to at most 15000 ms, and the storyboard replaces `prompt` — supply one or the other, never both. A shot's prompt has no length limit, unlike the single `prompt` field. 1 to 6 items.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub multi_prompt: Option<Vec<InputKlingO3MultiPromptItem>>,
+    /// How a multi-shot storyboard is cut. 'customize' honours each shot's declared duration; 'intelligent' lets the model determine the shot structure. Ignored unless `multi_prompt` is supplied.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub shot_type: Option<InputKlingO3ShotType>,
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
@@ -54,6 +60,8 @@ impl InputKlingO3 {
 pub struct InputKlingO3Builder {
     num_outputs: Option<i64>,
     prompt: Option<String>,
+    multi_prompt: Option<Vec<InputKlingO3MultiPromptItem>>,
+    shot_type: Option<InputKlingO3ShotType>,
     generate_audio: Option<bool>,
     aspect_ratio: Option<InputKlingO3AspectRatio>,
     resolution: Option<InputKlingO3Resolution>,
@@ -72,6 +80,16 @@ impl InputKlingO3Builder {
 
     pub fn prompt(mut self, value: impl Into<String>) -> Self {
         self.prompt = Some(value.into());
+        self
+    }
+
+    pub fn multi_prompt(mut self, value: Vec<InputKlingO3MultiPromptItem>) -> Self {
+        self.multi_prompt = Some(value);
+        self
+    }
+
+    pub fn shot_type(mut self, value: InputKlingO3ShotType) -> Self {
+        self.shot_type = Some(value);
         self
     }
 
@@ -117,14 +135,15 @@ impl InputKlingO3Builder {
 
     /// Consumes the builder and constructs a [`InputKlingO3`].
     /// This method will fail if any of the following fields are not set:
-    /// - [`prompt`](InputKlingO3Builder::prompt)
     /// - [`aspect_ratio`](InputKlingO3Builder::aspect_ratio)
     /// - [`duration_ms`](InputKlingO3Builder::duration_ms)
     /// - [`quality`](InputKlingO3Builder::quality)
     pub fn build(self) -> Result<InputKlingO3, BuildError> {
         Ok(InputKlingO3 {
             num_outputs: self.num_outputs,
-            prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
+            prompt: self.prompt,
+            multi_prompt: self.multi_prompt,
+            shot_type: self.shot_type,
             generate_audio: self.generate_audio,
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             resolution: self.resolution,
