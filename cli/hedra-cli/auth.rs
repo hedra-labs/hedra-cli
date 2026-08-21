@@ -515,17 +515,35 @@ fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow 
 /// call therefore exchanges the refresh token for a brand-new access token
 /// rather than reusing the stored one.
 ///
+/// "There is no login session", phrased for what the user actually holds.
+///
+/// A flat "Not logged in" is false for anyone who pasted an API key: they are
+/// authenticated — `auth status` shows the key active and every generated
+/// command works — and it sends them hunting for a problem they do not have.
+/// What they lack is a *user* identity, which only the login plane carries.
+fn no_login_session(cli_name: &str) -> String {
+    let has_key = std::env::var_os("HEDRA_API_KEY").is_some()
+        || matches!(active_store().get(cli_name, KEY_SCHEME), Ok(Some(_)));
+    if has_key {
+        format!(
+            "An API key identifies a workspace, not a person, so workspace commands \
+             need a browser login. Run `{cli_name} auth login` — your key still works \
+             for everything else."
+        )
+    } else {
+        format!("Not logged in. Run `{cli_name} auth login` to authenticate.")
+    }
+}
+
 /// The rotated refresh token is written back: the identity provider
 /// rotates it on every
 /// exchange, so dropping the new one would break the *next* call.
 pub(crate) fn fresh_login_jwt(cli_name: &str) -> Result<String, CliError> {
     let endpoints =
         resolve_auth_endpoints(cli_name, &resource_base()?, true).map_err(CliError::Auth)?;
-    let raw = active_store().get(cli_name, SCHEME)?.ok_or_else(|| {
-        CliError::Auth(format!(
-            "Not logged in. Run `{cli_name} auth login` to authenticate."
-        ))
-    })?;
+    let raw = active_store()
+        .get(cli_name, SCHEME)?
+        .ok_or_else(|| CliError::Auth(no_login_session(cli_name)))?;
     let bundle: TokenBundle = serde_json::from_str(&raw)
         .map_err(|e| CliError::Auth(format!("stored OAuth bundle is not valid JSON: {e}")))?;
     let refresh = bundle.refresh_token.clone().ok_or_else(|| {
@@ -2240,6 +2258,42 @@ pub(crate) mod tests {
 
         let err = fresh_login_jwt("test-cli").unwrap_err().to_string();
         assert!(err.contains("auth login"), "unexpected: {err}");
+        assert!(
+            err.contains("Not logged in"),
+            "with no credential at all, the flat message is the true one: {err}"
+        );
+    }
+
+    /// Someone who pasted an API key IS authenticated — `auth status` says so
+    /// and every generated command works — so "Not logged in" is a false
+    /// statement that sends them hunting for a problem they do not have. The
+    /// message has to name what they actually lack: a user identity.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn a_key_only_user_is_told_what_they_lack_not_that_they_are_logged_out() {
+        clear_endpoint_override();
+        let store = fresh_keyring();
+        let _home = seed_discovery_cache(&AuthEndpoints {
+            resource: resource_base_url().to_string(),
+            authorization_endpoint: "https://example.invalid/a".to_string(),
+            token_endpoint: "https://example.invalid/t".to_string(),
+        });
+        store.set("test-cli", KEY_SCHEME, "key_1:secret").unwrap();
+
+        let err = fresh_login_jwt("test-cli").unwrap_err().to_string();
+
+        assert!(
+            !err.contains("Not logged in"),
+            "they are logged in — just not with the credential this needs: {err}"
+        );
+        assert!(
+            err.contains("browser login") && err.contains("auth login"),
+            "it must say what to do: {err}"
+        );
+        assert!(
+            err.contains("API key"),
+            "and acknowledge the credential they already hold: {err}"
+        );
     }
 
     // ── the endpoint cache is a plain file, not a keyring item ──────────
