@@ -154,6 +154,17 @@ release-check:
     tag="v$version"
     echo "preflight for $tag"
 
+    # 0. Between releases main carries an X.Y.Z-dev version, which fern promotes
+    #    to X.Y.Z when it cuts a release. Tagging a -dev is the quiet failure
+    #    worth catching: cargo-dist reads the pre-release suffix as
+    #    announcement_is_prerelease, and publish_prereleases is off, so the
+    #    GitHub Release is still created while npm and Homebrew silently skip.
+    #    You get a release that looks fine and ships to nobody.
+    case "$version" in
+        *-*) bad "$version is a pre-release — npm and Homebrew would be skipped; promote it to ${version%%-*} first" ;;
+        *)   ok "$version is not a pre-release" ;;
+    esac
+
     # 1. The tag must name a commit on the released branch. Nothing in
     #    release.yml enforces this: `dist host` takes github.ref_name as the tag
     #    and github.sha as the release target, so a tag on any commit ships.
