@@ -107,15 +107,22 @@ async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value,
 }
 
 fn resolve_format_from_argv() -> OutputFormat {
-    let probe = || -> Option<OutputFormat> {
-        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli").ok()?;
-        let cli = commands::build_cli(&doc).ignore_errors(true);
-        let matches = cli.try_get_matches_from(std::env::args_os()).ok()?;
-        OutputPipeline::from_matches(&matches, "hedra-cli")
-            .ok()
-            .map(|p| p.format)
-    };
-    probe().unwrap_or_else(|| {
+    resolve_format(std::env::args_os())
+}
+
+/// The format the hooks below gate on, resolved from `argv` alone.
+///
+/// Split from [`resolve_format_from_argv`] so the flag handling can be
+/// tested against a synthetic command line: the fallback arm reads the
+/// environment and the TTY, but the probe arm — the one that decides
+/// whether a hook runs at all — does not, so every case that reaches it
+/// is deterministic under `cargo test`.
+fn resolve_format<I, T>(argv: I) -> OutputFormat
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    probe_format(argv).unwrap_or_else(|| {
         // parse failed (--help, custom command, exotic argv): env/TTY default
         use std::io::IsTerminal;
         std::env::var("HEDRA_CLI_OUTPUT")
@@ -127,4 +134,101 @@ fn resolve_format_from_argv() -> OutputFormat {
                 OutputFormat::Json
             })
     })
+}
+
+fn probe_format<I, T>(argv: I) -> Option<OutputFormat>
+where
+    I: IntoIterator<Item = T>,
+    T: Into<std::ffi::OsString> + Clone,
+{
+    let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli").ok()?;
+    let cli = commands::build_cli(&doc)
+        .ignore_errors(true)
+        // `--human` is the other way to ask for a table, and it is
+        // declared on the `CliApp` root rather than on the binding
+        // root `build_cli` returns — so this probe CLI does not know
+        // the flag, `ignore_errors` swallows it, and
+        // `OutputPipeline::from_matches` falls through to the
+        // env/TTY default. Piping `--human` therefore resolved to
+        // Json and skipped every hook below, which is precisely the
+        // case the flag exists for: a human reading a table through
+        // a pager or a redirect. Re-declaring it here is enough —
+        // `from_matches` consults `human` only when `--format` is
+        // absent, so a real `--format` still wins.
+        .arg(
+            clap::Arg::new("human")
+                .long("human")
+                .action(clap::ArgAction::SetTrue)
+                .global(true),
+        );
+    let matches = cli.try_get_matches_from(argv).ok()?;
+    OutputPipeline::from_matches(&matches, "hedra-cli")
+        .ok()
+        .map(|p| p.format)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        std::iter::once("hedra-cli")
+            .chain(args.iter().copied())
+            .map(str::to_string)
+            .collect()
+    }
+
+    #[test]
+    fn human_asks_for_a_table() {
+        // The regression this guards: `--human` is declared on the
+        // `CliApp` root, not on the binding root the probe is built
+        // from, so it used to be swallowed by `ignore_errors` and the
+        // resolved format fell back to the env/TTY default. Piped —
+        // which is the only time anyone types `--human` — that meant
+        // Json, and every table view was skipped. `jobs get --human`
+        // rendered its `logs` array and dropped the other ten fields.
+        assert_eq!(
+            probe_format(argv(&["jobs", "get", "--job-id", "job_x", "--human"])),
+            Some(OutputFormat::Table)
+        );
+    }
+
+    #[test]
+    fn human_asks_for_a_table_on_a_streaming_leaf_too() {
+        assert_eq!(
+            probe_format(argv(&["jobs", "stream", "--job-id", "job_x", "--human"])),
+            Some(OutputFormat::Table)
+        );
+    }
+
+    #[test]
+    fn an_explicit_format_still_wins() {
+        // `from_matches` consults `human` only when `--format` is
+        // absent. The real root marks the two `conflicts_with`, so this
+        // combination never reaches a request — the point is that
+        // re-declaring `--human` on the probe cannot hijack a format
+        // the caller named.
+        assert_eq!(
+            probe_format(argv(&[
+                "jobs", "get", "--job-id", "job_x", "--format", "json"
+            ])),
+            Some(OutputFormat::Json)
+        );
+        assert_eq!(
+            probe_format(argv(&[
+                "jobs", "get", "--job-id", "job_x", "--format", "json", "--human"
+            ])),
+            Some(OutputFormat::Json)
+        );
+    }
+
+    #[test]
+    fn format_table_resolves_without_the_human_flag() {
+        assert_eq!(
+            probe_format(argv(&[
+                "jobs", "stream", "--job-id", "job_x", "--format", "table"
+            ])),
+            Some(OutputFormat::Table)
+        );
+    }
 }
