@@ -8,6 +8,14 @@
 //! no workspace selector, because the identity provider's organization
 //! cannot name an org-less ("born-free") workspace.
 //!
+//! That last point is why a login-time mint has a second leg. Left to the
+//! server, an untargeted mint resolves the workspace from the JWT's
+//! organization and refuses outright when that organization has none —
+//! stranding an account whose only workspaces are org-less, even though
+//! `workspaces select` would mint for one of them without a second login.
+//! So a refusal of that specific shape retries against the listing this
+//! flow already holds; see [`mint_for_a_listed_workspace`].
+//!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
 //! Declared from `custom.rs` via `#[path]` so the generated `main.rs`
@@ -657,10 +665,12 @@ impl LoginFlow for EnvPkceLoginFlow {
         self.base.scheme_name()
     }
     fn run(&self, ctx: &LoginContext) -> Result<(), CliError> {
-        eprintln!(
-            "Login environment: {:?} (set HEDRA_ENV=staging to switch)",
-            hedra_env()
-        );
+        if matches!(hedra_env(), HedraEnv::Staging) {
+            eprintln!(
+                "Login environment: {:?} (set HEDRA_ENV=staging|prod to switch)",
+                hedra_env()
+            );
+        }
         // Fresh discovery on every login (the on-disk cache is skipped):
         // login is
         // the natural point to re-validate the chain and rewrite the cache.
@@ -784,7 +794,10 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
         .build()
         .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
 
-    // 1. The picker listing, authenticated with the login JWT.
+    // 1. The picker listing, authenticated with the login JWT. It renders
+    //    the summary at the end, and it is also what a mint refused for
+    //    lack of an organization workspace falls back to — which is why it
+    //    is fetched up front rather than after the key is settled.
     let listing = workspaces::fetch_workspaces(&http, api_base, jwt).await?;
 
     // 2. Renew the held key if there is one; mint on any refusal. One JWT
@@ -810,9 +823,9 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
                     false,
                 )
             }
-            None => mint_and_store(&http, api_base, jwt, cli_name).await?,
+            None => mint_and_store(&http, api_base, jwt, cli_name, &listing).await?,
         },
-        None => mint_and_store(&http, api_base, jwt, cli_name).await?,
+        None => mint_and_store(&http, api_base, jwt, cli_name, &listing).await?,
     };
 
     // 3. Render: the mint/renew response's workspace is the authoritative
@@ -824,13 +837,13 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
         .as_deref()
         .map(describe_expiry)
         .unwrap_or_else(|| "no expiry reported".to_string());
-    eprintln!(
-        "API key {key_id} {} — {expiry}.",
-        if minted { "minted" } else { "renewed" }
-    );
     eprint!(
         "{}",
         workspaces::render_login_summary(&listing, workspace_id.as_deref(), &map.keys)
+    );
+    eprintln!(
+        "API key: {key_id} {} — {expiry}.",
+        if minted { "minted" } else { "renewed" }
     );
     if std::env::var("HEDRA_API_KEY").is_ok() {
         eprintln!(
@@ -877,33 +890,158 @@ async fn try_renew(
         .map_err(|e| CliError::Auth(format!("unexpected renew response: {e}")))
 }
 
-/// POST the mint and parse the response. The builder must already carry a
-/// login credential (the login-fresh JWT, or the stored OAuth session via
-/// [`fresh_login_jwt`]). `workspace_id` names the target workspace when the
-/// caller has one; omitted, the server picks — today's behavior.
-async fn post_bootstrap_mint(
+/// The distinguishing fragment of the login plane's org-has-no-workspace
+/// refusal — the one mint refusal a workspace-targeted retry can clear.
+///
+/// Matching prose is not the first choice, but the v3 envelope offers
+/// nothing finer: every 403 on this route carries `PERMISSION_DENIED`
+/// (`ApiAccessForbiddenError`), so the membership, key-cap and
+/// no-linked-user refusals are indistinguishable from this one by code.
+///
+/// The failure mode is deliberately one-sided. A reworded server message
+/// stops the retry engaging and the user gets exactly today's error — a
+/// safe degradation. Only a *false* match would be harmful, by retrying a
+/// refusal that a different workspace must not paper over (a key cap, most
+/// of all, where a retry would bill a workspace the login never named), and
+/// no other refusal on this route can plausibly contain this phrase.
+const ORG_HAS_NO_WORKSPACE: &str = "has no Hedra workspace";
+
+/// A mint the server answered and refused, with the status still attached.
+///
+/// [`post_bootstrap_mint`] flattens this into a `CliError` for callers that
+/// only report it; the login bootstrap needs the status and message intact
+/// to tell the one recoverable refusal from every other.
+struct MintRefusal {
+    status: reqwest::StatusCode,
+    /// Already rendered by [`login_plane_error`], so becoming the error
+    /// message re-derives nothing.
+    line: String,
+}
+
+impl MintRefusal {
+    fn is_org_without_workspace(&self) -> bool {
+        self.status == reqwest::StatusCode::FORBIDDEN && self.line.contains(ORG_HAS_NO_WORKSPACE)
+    }
+
+    fn into_error(self) -> CliError {
+        CliError::Auth(format!("key mint refused — {}", self.line))
+    }
+}
+
+/// Either the server refused, or something else went wrong entirely
+/// (transport, or a success body that would not parse). Only the first is
+/// worth inspecting; the second is reported as-is.
+enum MintError {
+    Refused(MintRefusal),
+    Other(CliError),
+}
+
+impl From<MintError> for CliError {
+    fn from(e: MintError) -> Self {
+        match e {
+            MintError::Refused(refusal) => refusal.into_error(),
+            MintError::Other(err) => err,
+        }
+    }
+}
+
+/// POST the mint and parse the response, keeping a refusal inspectable.
+/// The builder must already carry a login credential (the login-fresh JWT,
+/// or the stored OAuth session via [`fresh_login_jwt`]). `workspace_id`
+/// names the target workspace when the caller has one; omitted, the server
+/// resolves one from the JWT's organization.
+async fn try_bootstrap_mint(
     req: reqwest::RequestBuilder,
     workspace_id: Option<&str>,
-) -> Result<BootstrapMintResponse, CliError> {
+) -> Result<BootstrapMintResponse, MintError> {
     let mut body = serde_json::json!({ "name": device_name() });
     if let Some(ws) = workspace_id {
         body["workspace_id"] = Value::String(ws.to_string());
     }
-    let resp = req
-        .json(&body)
-        .send()
-        .await
-        .map_err(|e| CliError::Auth(format!("POST /v3/keys/bootstrap failed: {e}")))?;
+    let resp = req.json(&body).send().await.map_err(|e| {
+        MintError::Other(CliError::Auth(format!(
+            "POST /v3/keys/bootstrap failed: {e}"
+        )))
+    })?;
     let status = resp.status();
     let text = resp.text().await.unwrap_or_default();
     if !status.is_success() {
-        return Err(CliError::Auth(format!(
-            "key mint refused — {}",
-            login_plane_error(status, &text)
-        )));
+        return Err(MintError::Refused(MintRefusal {
+            status,
+            line: login_plane_error(status, &text),
+        }));
     }
     serde_json::from_str(&text)
-        .map_err(|e| CliError::Auth(format!("unexpected mint response: {e}")))
+        .map_err(|e| MintError::Other(CliError::Auth(format!("unexpected mint response: {e}"))))
+}
+
+/// [`try_bootstrap_mint`] for callers that only report a refusal.
+async fn post_bootstrap_mint(
+    req: reqwest::RequestBuilder,
+    workspace_id: Option<&str>,
+) -> Result<BootstrapMintResponse, CliError> {
+    try_bootstrap_mint(req, workspace_id)
+        .await
+        .map_err(CliError::from)
+}
+
+/// The login's organization named no workspace — mint for one the account
+/// can actually reach, taken from the listing fetched moments ago.
+///
+/// Two server guarantees make this a retry rather than a second login.
+/// The mint accepts an explicit `workspace_id` that bypasses the org claim
+/// entirely (ENG-10403), and a refusal deliberately does NOT consume the
+/// single-use login JWT — the plane spends it "only once every refusal path
+/// is behind us" — so the very same token carries the second attempt, with
+/// no browser round-trip and no refresh-token rotation.
+///
+/// Without this, a login whose identity-provider organization has no linked
+/// workspace dead-ends on `auth login` while `workspaces select` would mint
+/// for the same account happily: the CLI would be refusing to do at login
+/// what it offers as its next command.
+///
+/// `refusal` is threaded through so that a case this cannot resolve reports
+/// what the *server* said, not a paraphrase of it.
+async fn mint_for_a_listed_workspace(
+    http: &reqwest::Client,
+    api_base: &str,
+    jwt: &str,
+    cli_name: &str,
+    listing: &[workspaces::WorkspaceSummary],
+    refusal: MintRefusal,
+) -> Result<BootstrapMintResponse, CliError> {
+    let (workspace_id, workspace_name) = match workspaces::fallback_mint_target(cli_name, listing) {
+        workspaces::FallbackTarget::One {
+            workspace_id,
+            workspace_name,
+        } => (workspace_id, workspace_name),
+        // Nothing to fall back to: the refusal is the whole truth, so
+        // it is what the user sees.
+        workspaces::FallbackTarget::Nothing => return Err(refusal.into_error()),
+        workspaces::FallbackTarget::Ambiguous(candidates) => {
+            return Err(CliError::Auth(format!(
+                "key mint refused — {}\n\
+                     This account can reach {} workspaces and none is selected, so the \
+                     CLI will not pick one for you — the key would bind this device's \
+                     billing to a workspace you never named:\n  {}\n\
+                     Run `hedra-cli workspaces select --workspace-id <id>` to mint for \
+                     one of them; no second login is needed.",
+                refusal.line,
+                candidates.len(),
+                candidates.join("\n  "),
+            )));
+        }
+    };
+    eprintln!(
+        "(this login's organization names no workspace — minting for \
+         \"{workspace_name}\" ({workspace_id}) instead)"
+    );
+    post_bootstrap_mint(
+        http.post(format!("{api_base}/v3/keys/bootstrap"))
+            .bearer_auth(jwt),
+        Some(&workspace_id),
+    )
+    .await
 }
 
 async fn mint_and_store(
@@ -911,11 +1049,23 @@ async fn mint_and_store(
     api_base: &str,
     jwt: &str,
     cli_name: &str,
+    listing: &[workspaces::WorkspaceSummary],
 ) -> Result<(String, Option<String>, Option<String>, bool), CliError> {
     let req = http
         .post(format!("{api_base}/v3/keys/bootstrap"))
         .bearer_auth(jwt);
-    let minted = post_bootstrap_mint(req, None).await?;
+    // The untargeted mint stays the primary path: when the login's
+    // organization does name a workspace, that IS the user's selection,
+    // expressed through the identity provider, and naming one locally would
+    // override it. Only the refusal that leaves the login with nothing at
+    // all falls through to the listing.
+    let minted = match try_bootstrap_mint(req, None).await {
+        Ok(minted) => minted,
+        Err(MintError::Refused(refusal)) if refusal.is_org_without_workspace() => {
+            mint_for_a_listed_workspace(http, api_base, jwt, cli_name, listing, refusal).await?
+        }
+        Err(other) => return Err(other.into()),
+    };
     record_workspace_key(
         cli_name,
         minted.workspace_id.as_deref(),
@@ -936,6 +1086,79 @@ async fn mint_and_store(
 /// without paying for discovery or a refresh to find out.
 pub(crate) fn has_oauth_session(cli_name: &str) -> bool {
     matches!(active_store().get(cli_name, SCHEME), Ok(Some(t)) if !t.is_empty())
+}
+
+/// Verify the key held for `workspace_id` by renewing it, and make it the
+/// active credential when it survives.
+///
+/// Renewal is the verification: it is the one call that asks the login
+/// plane "is this credential still good for this account?" and, when the
+/// answer is yes, extends it in the same round-trip. A cheaper probe
+/// against some data-plane endpoint would answer the first half only, and
+/// would leave a key that is alive but about to expire exactly as it found
+/// it.
+///
+/// `Ok(Some(expires_at))` = alive, extended, and now active.
+/// `Ok(None)` = the plane refused it — expired, revoked, past its age cap,
+/// or bound to an identity this login no longer matches — so it is dead and
+/// the caller must mint a replacement.
+/// `Err` = the login plane itself could not be reached, which a mint would
+/// only repeat.
+///
+/// `jwt` must be login-plane fresh, and is taken as a parameter for the
+/// same reason [`mint_for_workspace_at`] takes one: the caller that renews
+/// may go on to mint, and each refresh rotates the token server-side, so
+/// two in one command is one rotation too many.
+pub(crate) fn renew_held_key_at(
+    cli_name: &str,
+    api_base: &str,
+    jwt: &str,
+    workspace_id: &str,
+    credential: &str,
+) -> Result<Option<String>, CliError> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
+    let renewed = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(try_renew(&http, api_base, credential, jwt))
+    })?;
+    let Some(renewed) = renewed else {
+        return Ok(None);
+    };
+
+    // The same "the response is the only trustworthy source" stance the
+    // targeted mint takes. The local map said this key belongs to
+    // `workspace_id`; if the server disagrees, activating it would present
+    // a credential for one workspace while reporting another — the
+    // wrong-billing-target hazard, reached through stale local state
+    // instead of a stale deployment. Treated as not-renewable so the caller
+    // mints a key that genuinely belongs to the target.
+    if renewed
+        .workspace_id
+        .as_deref()
+        .is_some_and(|landed| landed != workspace_id)
+    {
+        eprintln!(
+            "(the key filed under workspace {workspace_id} actually belongs to {} — \
+             minting one for {workspace_id} instead)",
+            renewed.workspace_id.as_deref().unwrap_or("<none>"),
+        );
+        return Ok(None);
+    }
+
+    // Renewals carry no new secret and no name: the held credential stays,
+    // and `None` preserves whatever name the map already had.
+    record_workspace_key(
+        cli_name,
+        Some(workspace_id),
+        &renewed.key_id,
+        credential,
+        None,
+        Some(&renewed.expires_at),
+        true,
+    )?;
+    Ok(Some(renewed.expires_at))
 }
 
 /// What `workspaces select` needs back from a targeted mint.
@@ -1904,6 +2127,237 @@ pub(crate) mod tests {
                 .as_deref(),
             Some("key_2:fresh"),
             "refused renewal must be replaced by the freshly minted credential"
+        );
+    }
+
+    // ── login-time fallback: the org names no workspace ─────────────────
+
+    /// A login plane whose listing is exactly `data`.
+    async fn mock_login_plane_listing(data: serde_json::Value) -> MockServer {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/workspaces"))
+            .and(header("authorization", format!("Bearer {JWT}").as_str()))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(serde_json::json!({"data": data, "next_cursor": null})),
+            )
+            .mount(&server)
+            .await;
+        server
+    }
+
+    /// The login plane's refusal, verbatim: the CLI's recovery hinges on
+    /// recognizing *this* message, so a test that paraphrased it would pass
+    /// while the product failed.
+    fn org_without_workspace() -> ResponseTemplate {
+        ResponseTemplate::new(403).set_body_json(serde_json::json!({
+            "error": {
+                "code": "PERMISSION_DENIED",
+                "message": "This login's organization has no Hedra workspace. List your \
+                            workspaces with GET /v3/workspaces and log in again for one of them.",
+            },
+        }))
+    }
+
+    /// Two mints differ only by whether the body names a workspace, and
+    /// "carries the field at all" is not something `body_partial_json` can
+    /// say — so the two mocks on this path are told apart by a closure.
+    fn names_a_workspace(req: &wiremock::Request) -> bool {
+        req.body_json::<Value>()
+            .ok()
+            .is_some_and(|b| b.get("workspace_id").is_some())
+    }
+
+    fn names_no_workspace(req: &wiremock::Request) -> bool {
+        !names_a_workspace(req)
+    }
+
+    /// The reported bug: the login's identity-provider organization names no
+    /// Hedra workspace, so the untargeted mint is refused — while the
+    /// listing fetched moments earlier shows a workspace the account owns.
+    /// The login must mint for it instead of dead-ending, because
+    /// `workspaces select` would have minted for that very workspace.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_mints_for_the_only_listed_workspace_when_the_org_names_none() {
+        let server = mock_login_plane_listing(serde_json::json!([
+            {"workspace_id": "w9", "workspace_name": "My Workspace", "role": "owner",
+             "workos_organization_id": null},
+        ]))
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(names_no_workspace)
+            .respond_with(org_without_workspace())
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(names_a_workspace)
+            // The same login JWT carries the retry: a refusal does not
+            // consume it, so no second browser round-trip is needed.
+            .and(header("authorization", format!("Bearer {JWT}").as_str()))
+            .and(body_partial_json(serde_json::json!({"workspace_id": "w9"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w9", "credential": "key_w9:s3cret", "kind": "personal",
+                "workspace_id": "w9", "workspace_name": "My Workspace",
+                "organization_id": null, "expires_at": "2026-08-19T00:00:00Z",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+
+        bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_w9:s3cret"),
+            "the fallback mint's key must become the active credential"
+        );
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w9"));
+        assert_eq!(map.keys["w9"].credential, "key_w9:s3cret");
+    }
+
+    /// With several reachable workspaces, an earlier `workspaces select`
+    /// is the tie-break — a login must not silently move the active key to
+    /// a different workspace than the one the user chose.
+    ///
+    /// This is the reported failure end to end: a held key that no longer
+    /// renews, then an untargeted mint the login's organization cannot
+    /// satisfy.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_fallback_honors_the_previously_selected_workspace() {
+        let server = mock_login_plane().await; // lists w1 and w2
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {"code": "UNAUTHORIZED", "message": "Invalid API key."},
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(names_no_workspace)
+            .respond_with(org_without_workspace())
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(body_partial_json(serde_json::json!({"workspace_id": "w2"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "credential": "key_w2:fresh", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme",
+                "organization_id": null, "expires_at": "2026-08-19T00:00:00Z",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+        workspaces::record_key(
+            "test-cli",
+            Some("w2"),
+            "key_old",
+            "key_old:stale",
+            Some("Acme"),
+            None,
+            true,
+        )
+        .unwrap();
+
+        bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap();
+
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+        assert_eq!(map.keys["w2"].credential, "key_w2:fresh");
+    }
+
+    /// Several reachable workspaces and nothing selected: the CLI must not
+    /// guess. A key binds what it bills, so the refusal is reported with the
+    /// candidates and the command that resolves it.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_fallback_refuses_to_guess_between_several_workspaces() {
+        let server = mock_login_plane().await; // lists w1 and w2
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(org_without_workspace())
+            // Exactly one attempt: with no defensible target there is
+            // nothing to retry.
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+
+        let msg = bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(
+            msg.contains("w1") && msg.contains("w2"),
+            "the candidates must be named: {msg}"
+        );
+        // Spelled the way the command actually parses. `select` takes a
+        // named flag, so a bare-positional hint would be a command the user
+        // copies and watches fail.
+        assert!(
+            msg.contains("workspaces select --workspace-id"),
+            "and the runnable command that resolves it: {msg}"
+        );
+        assert!(
+            msg.contains("has no Hedra workspace"),
+            "without losing what the server actually said: {msg}"
+        );
+    }
+
+    /// The retry is scoped to the one refusal a different workspace can
+    /// clear. A key-cap refusal must NOT be retried elsewhere: the login's
+    /// organization DID name a workspace, and minting into another would
+    /// bill a target the user never chose.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_does_not_retry_a_refusal_another_workspace_cannot_fix() {
+        let server = mock_login_plane_listing(serde_json::json!([
+            {"workspace_id": "w9", "workspace_name": "My Workspace", "role": "owner",
+             "workos_organization_id": null},
+        ]))
+        .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(403).set_body_json(serde_json::json!({
+                "error": {"code": "PERMISSION_DENIED",
+                          "message": "this workspace is at its API key limit"},
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+
+        let msg = bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap_err()
+            .to_string();
+
+        assert!(msg.contains("API key limit"), "unexpected: {msg}");
+        assert!(
+            workspaces::WorkspaceKeyMap::load("test-cli")
+                .keys
+                .is_empty(),
+            "no key may be minted anywhere on an unrelated refusal"
         );
     }
 
