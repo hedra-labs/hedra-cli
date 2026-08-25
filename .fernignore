@@ -43,6 +43,11 @@ Cargo.lock
 dist-workspace.toml
 .github/
 
+# The task runner. Hand-written and never emitted, so this entry is load-bearing
+# in the .gitattributes sense below — it is the only thing standing between the
+# file and deletion on the next regeneration, not a guard against overwriting.
+justfile
+
 # The generator never emits .gitattributes — which is exactly why this entry has
 # to stay. For a file that exists in the repo but is not emitted, .fernignore is
 # the only thing stopping regeneration from DELETING it: PR #29 removed the file
