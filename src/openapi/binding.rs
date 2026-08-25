@@ -716,7 +716,19 @@ impl Binding for OpenApiBinding {
             let use_pager = pagination.page_all
                 && !pagination.no_pager
                 && std::io::stdout().is_terminal();
-            let capture_output = !pipeline.is_raw() && !pipeline.is_http() && !use_pager;
+            // A streaming operation emits one value per event as it
+            // arrives; capturing collects the whole stream into a single
+            // value and prints it only once the server closes, which
+            // defeats `x-fern-streaming` entirely. `--no-stream` is the
+            // opt-in buffered shape, so it keeps the capture path.
+            let streams_live =
+                executor::streams_incrementally(method.streaming.as_ref(), no_stream);
+            let capture_output = executor::should_capture_output(
+                pipeline.is_raw(),
+                pipeline.is_http(),
+                use_pager,
+                streams_live,
+            );
 
             let result = executor::execute_method(
                 doc,

@@ -1612,6 +1612,40 @@ async fn handle_binary_response(
 // without spinning up a wiremock server.
 // ---------------------------------------------------------------------------
 
+/// Whether this invocation emits stream events incrementally as they
+/// arrive, rather than collecting the whole response into one value.
+///
+/// True only when the operation declares `x-fern-streaming` and the caller
+/// did not ask for the buffered shape with `--no-stream`. Programmatic
+/// callers pass `no_stream = false` and stream too.
+pub(crate) fn streams_incrementally(
+    streaming: Option<&StreamingConfig>,
+    no_stream: bool,
+) -> bool {
+    streaming.is_some() && !no_stream
+}
+
+/// Whether the executor should collect the response into a single `Value`
+/// and hand it back to the caller instead of writing it out as it goes.
+///
+/// Four cases cannot be represented as one captured value, and each writes
+/// to stdout itself: `--format raw` and `--format http` stream bytes
+/// verbatim, `--page-all` on a TTY writes into a pager, and a live stream
+/// emits one value per event. Everything else captures, so the binding
+/// layer can print it once or return it to a programmatic caller.
+///
+/// Pure so the decision is unit-testable without a live request — the
+/// streaming case in particular is invisible to output-content assertions,
+/// since a buffered stream prints the same bytes, just all at the end.
+pub(crate) fn should_capture_output(
+    is_raw: bool,
+    is_http: bool,
+    use_pager: bool,
+    streams_incrementally: bool,
+) -> bool {
+    !is_raw && !is_http && !use_pager && !streams_incrementally
+}
+
 /// Outcome of decoding a single raw stream line.
 #[derive(Debug, PartialEq, Eq)]
 enum StreamEvent {
@@ -2156,7 +2190,14 @@ pub async fn execute_method(
         method.path
     );
     let pager_label = method.id.as_deref().unwrap_or(&fallback_label);
-    let mut pager_handle = if pagination.page_all && !pagination.no_pager && !capture_output {
+    // A live stream writes each event straight to stdout and never through
+    // the pager handle, so paging one spawns a pager that receives nothing
+    // and then waits on an empty pipe. Streaming operations never page.
+    let mut pager_handle = if pagination.page_all
+        && !pagination.no_pager
+        && !capture_output
+        && !streams_incrementally(method.streaming.as_ref(), no_stream)
+    {
         let pager_config = crate::pager::PagerConfig::from_env(&pagination.cli_name);
         crate::pager::spawn_pager(&pager_config, pager_label)
     } else {
@@ -10913,6 +10954,84 @@ mod tests {
         )
         .expect("text projection must succeed");
         assert_eq!(value, Value::String("raw line".to_string()));
+    }
+
+    // ---------------------------------------------------------------
+    // Capture-vs-stream routing (`streams_incrementally`,
+    // `should_capture_output`)
+    //
+    // These guard a bug that content assertions cannot see: a buffered
+    // stream prints exactly the same bytes as a live one, just all at
+    // once when the server closes. Only the routing decision
+    // distinguishes them, so the decision is asserted directly.
+    // ---------------------------------------------------------------
+
+    #[test]
+    fn streams_incrementally_requires_a_streaming_config() {
+        assert!(!streams_incrementally(None, false));
+        assert!(!streams_incrementally(None, true));
+    }
+
+    #[test]
+    fn streams_incrementally_true_for_declared_stream() {
+        let sse = StreamingConfig::Sse {
+            terminator: Some("[STREAM_DONE]".to_string()),
+        };
+        assert!(streams_incrementally(Some(&sse), false));
+    }
+
+    #[test]
+    fn streams_incrementally_false_when_no_stream_requested() {
+        let sse = StreamingConfig::Sse {
+            terminator: Some("[STREAM_DONE]".to_string()),
+        };
+        assert!(
+            !streams_incrementally(Some(&sse), true),
+            "--no-stream opts into the buffered shape"
+        );
+    }
+
+    /// The regression this fix exists for: a declared stream on an
+    /// ordinary output format must NOT capture. Capturing routes the
+    /// response through `buffer_streaming_response`, which holds every
+    /// event until the server closes.
+    #[test]
+    fn streaming_op_does_not_capture_on_ordinary_formats() {
+        assert!(
+            !should_capture_output(false, false, false, true),
+            "a live stream must print as it arrives, not be captured"
+        );
+    }
+
+    /// `--no-stream` on a declared stream composes back to the capture
+    /// path — the flag is the opt-in buffered shape, so it must keep
+    /// working after the routing change.
+    #[test]
+    fn streaming_op_captures_under_no_stream() {
+        let sse = StreamingConfig::Sse {
+            terminator: Some("[STREAM_DONE]".to_string()),
+        };
+        let streams = streams_incrementally(Some(&sse), true);
+        assert!(
+            should_capture_output(false, false, false, streams),
+            "--no-stream must fall back to the buffered/capture path"
+        );
+    }
+
+    #[test]
+    fn non_streaming_op_still_captures() {
+        let streams = streams_incrementally(None, false);
+        assert!(
+            should_capture_output(false, false, false, streams),
+            "a unary operation is unaffected by the streaming carve-out"
+        );
+    }
+
+    #[test]
+    fn raw_http_and_pager_never_capture() {
+        assert!(!should_capture_output(true, false, false, false), "raw");
+        assert!(!should_capture_output(false, true, false, false), "http");
+        assert!(!should_capture_output(false, false, true, false), "pager");
     }
 
     // ---------------------------------------------------------------
