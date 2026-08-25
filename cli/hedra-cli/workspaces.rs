@@ -2,13 +2,16 @@
 //! source), the local per-workspace key map, and the `workspaces`
 //! command (`list` / `select`).
 //!
-//! The CLI can only ever HOLD keys it got from logins — the bootstrap mint
-//! takes no workspace parameter (the JWT's org is the sole selector) and a
-//! bootstrapped key deliberately lacks KEYS_MANAGE, so it cannot mint keys
-//! for other workspaces. Keys therefore accumulate here, one per workspace
-//! logged into, and `select` switches the active `KeyAuth` slot between
-//! them — auto-launching a login when no
-//! key is held for the target.
+//! The CLI can only ever HOLD keys it got from logins — a bootstrapped key
+//! deliberately lacks KEYS_MANAGE, so it cannot mint keys for other
+//! workspaces. Keys therefore accumulate here, one per workspace logged
+//! into, and `select` switches the active `KeyAuth` slot between them —
+//! auto-launching a login when no key is held for the target.
+//!
+//! The mint itself does take a workspace (ENG-10403), which is what lets
+//! `select` reach a workspace the login's organization does not name, and
+//! what [`fallback_mint_target`] feeds when a login-time mint is refused
+//! for exactly that reason.
 //!
 //! Hand-written and .fernignore-protected — the generator never emits this
 //! file; the ignore entry is what stops regeneration from deleting it.
@@ -158,6 +161,73 @@ pub(crate) fn record_key(
         None => {}
     }
     map.save(cli_name)
+}
+
+/// Where a login-time mint should bind when the login's *organization*
+/// names no workspace of its own.
+///
+/// The login plane resolves an untargeted mint from the JWT's `org_id`
+/// claim and refuses when that organization has no (non-draft) Hedra
+/// workspace. That refusal is not the end of the story: the account can
+/// still be a member of workspaces the organization does not name — an
+/// org-less "born-free" workspace has no organization to log in with at
+/// all — and the mint accepts an explicit `workspace_id` that bypasses the
+/// org claim entirely. This is the choice of which one to name.
+///
+/// Deliberately never guesses between several. Binding a key also binds
+/// what it bills, so a tie the user has not already broken is reported
+/// rather than resolved.
+pub(crate) enum FallbackTarget {
+    /// One defensible target — name it on the retry.
+    One {
+        workspace_id: String,
+        workspace_name: String,
+    },
+    /// The account reaches no workspace at all. There is nothing to fall
+    /// back to, and the server's refusal is simply the truth.
+    Nothing,
+    /// Several reachable workspaces and no prior selection to break the
+    /// tie. Each entry is a display line, `<id> — <name> (<role>)`.
+    Ambiguous(Vec<String>),
+}
+
+/// Pick the workspace a refused login-time mint should retry against.
+///
+/// Precedence:
+///   1. the workspace already selected locally, when the listing still
+///      shows it — `workspaces select` is an explicit choice, and a login
+///      must not silently move the active key off it;
+///   2. the only workspace in the listing, which is no guess at all;
+///   3. otherwise nothing is picked.
+///
+/// A stale selection — one no longer in the listing, after access was
+/// revoked or a workspace was left — falls through to 2 rather than being
+/// retried: naming it would only earn a membership refusal.
+pub(crate) fn fallback_mint_target(cli_name: &str, listing: &[WorkspaceSummary]) -> FallbackTarget {
+    fn one(ws: &WorkspaceSummary) -> FallbackTarget {
+        FallbackTarget::One {
+            workspace_id: ws.workspace_id.clone(),
+            workspace_name: ws.workspace_name.clone(),
+        }
+    }
+
+    let selected = WorkspaceKeyMap::load(cli_name).active_workspace_id;
+    if let Some(ws) = selected
+        .as_deref()
+        .and_then(|id| listing.iter().find(|w| w.workspace_id == id))
+    {
+        return one(ws);
+    }
+    match listing {
+        [] => FallbackTarget::Nothing,
+        [only] => one(only),
+        several => FallbackTarget::Ambiguous(
+            several
+                .iter()
+                .map(|w| format!("{} — {} ({})", w.workspace_id, w.workspace_name, w.role))
+                .collect(),
+        ),
+    }
 }
 
 pub(crate) enum SelectOutcome {
@@ -1039,6 +1109,78 @@ mod tests {
 
         assert_eq!(run("data[?active != '']"), ["Acme"]);
         assert_eq!(run("data[?api_key]"), ["Personal", "Acme"]);
+    }
+
+    /// The fallback names the sole workspace, and only the sole one — with
+    /// two in play and nothing selected, guessing would bind this device's
+    /// billing to a workspace the user never chose.
+    #[test]
+    #[serial_test::serial]
+    fn fallback_target_takes_the_only_workspace_but_never_guesses() {
+        let _store = fresh_keyring();
+
+        assert!(matches!(
+            fallback_mint_target("test-cli", &[]),
+            FallbackTarget::Nothing
+        ));
+        assert!(matches!(
+            fallback_mint_target("test-cli", &[ws("w1", "Personal")]),
+            FallbackTarget::One { ref workspace_id, ref workspace_name }
+                if workspace_id == "w1" && workspace_name == "Personal"
+        ));
+
+        let FallbackTarget::Ambiguous(candidates) =
+            fallback_mint_target("test-cli", &[ws("w1", "Personal"), ws("w2", "Acme")])
+        else {
+            panic!("two workspaces and no selection must not resolve to one");
+        };
+        assert_eq!(candidates.len(), 2);
+        // Each line has to carry the id, because the id is what the user
+        // then passes to `workspaces select`.
+        assert!(candidates[0].contains("w1") && candidates[0].contains("Personal"));
+        assert!(candidates[1].contains("w2") && candidates[1].contains("Acme"));
+    }
+
+    /// A prior `workspaces select` breaks the tie — but only while the
+    /// listing still shows it. A selection pointing at a workspace the
+    /// account can no longer reach (access revoked, or written by an older
+    /// CLI) must not be retried: naming it would only earn a membership
+    /// refusal, so it falls through to the sole-workspace rule.
+    #[test]
+    #[serial_test::serial]
+    fn fallback_target_prefers_a_live_selection_and_ignores_a_stale_one() {
+        let _store = fresh_keyring();
+        let listing = [ws("w1", "Personal"), ws("w2", "Acme")];
+
+        record_key(
+            "test-cli",
+            Some("w2"),
+            "k2",
+            "k2:s",
+            Some("Acme"),
+            None,
+            true,
+        )
+        .unwrap();
+        assert!(matches!(
+            fallback_mint_target("test-cli", &listing),
+            FallbackTarget::One { ref workspace_id, .. } if workspace_id == "w2"
+        ));
+
+        // Selected a workspace that is no longer listed at all.
+        record_key("test-cli", Some("w9"), "k9", "k9:s", None, None, true).unwrap();
+        assert!(
+            matches!(
+                fallback_mint_target("test-cli", &listing),
+                FallbackTarget::Ambiguous(_)
+            ),
+            "a stale selection must not be treated as a live choice"
+        );
+        // …and with one workspace left, the stale selection still yields to it.
+        assert!(matches!(
+            fallback_mint_target("test-cli", &listing[..1]),
+            FallbackTarget::One { ref workspace_id, .. } if workspace_id == "w1"
+        ));
     }
 
     #[test]
