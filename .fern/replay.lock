@@ -84,14 +84,20 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.35.1
-current_generation: 5cb22b1b6ee2e24fee47655342d1e42ff807dad8
+  - commit_sha: c7930d0f33ebc357723a2d77a24616d33600bba1
+    tree_hash: 45e152e524862273b1650d50da95f87cffe062ef
+    timestamp: 2026-08-25T04:59:07.218Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.37.0
+current_generation: c7930d0f33ebc357723a2d77a24616d33600bba1
 patches:
   - id: patch-d871322c
     content_hash: sha256:b6528bbfadb1d6b6d24ac20f2778f2a5c31fb41469f6068a7ab40b19a8a0c5bf
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 5cb22b1b6ee2e24fee47655342d1e42ff807dad8
+    base_generation: c7930d0f33ebc357723a2d77a24616d33600bba1
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -1941,7 +1947,7 @@ patches:
     original_commit: dc9d31e73fc6994c2cb07c28384590d569546196
     original_message: "feat(cli): workspace switching and runtime auth-server discovery (#102)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 5cb22b1b6ee2e24fee47655342d1e42ff807dad8
+    base_generation: c7930d0f33ebc357723a2d77a24616d33600bba1
     files:
       - cli/hedra-cli/main.rs
       - hedra-types/.gitignore
@@ -1986,16 +1992,16 @@ patches:
         }
     user_owned: true
   - id: patch-9784c080
-    content_hash: sha256:880922af25c4825c579b024b5a17eefc368891d7dc6c1a0cfd21831298a14d40
+    content_hash: sha256:3332367f99d547c205414031c1082ecaceb004dde6a47f399d4c537bd1552747
     original_commit: 9784c08053b70839c12fa328ed0a316a22cfdfa0
     original_message: "fix(auth): repair the auth and workspace regressions from PR #102 (#104)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 5cb22b1b6ee2e24fee47655342d1e42ff807dad8
+    base_generation: c7930d0f33ebc357723a2d77a24616d33600bba1
     files:
       - src/auth/login.rs
     patch_content: |
       diff --git a/src/auth/login.rs b/src/auth/login.rs
-      index a114d0b..b4833b5 100644
+      index a2c396c..88a5b4f 100644
       --- a/src/auth/login.rs
       +++ b/src/auth/login.rs
       @@ -340,6 +340,10 @@ fn handle_login(
@@ -2124,7 +2130,7 @@ patches:
        }
        
        fn handle_status<W: Write>(
-      @@ -822,6 +912,102 @@ mod tests {
+      @@ -831,6 +921,102 @@ mod tests {
                }
            }
        
@@ -2720,7 +2726,16 @@ patches:
             login_flows: &[DynLoginFlow],
             out: &mut W,
         ) -> Result<(), CliError> {
-            let as_json = matches.get_flag("json");
+            // `--json` is this subcommand's own boolean and predates the global
+            // `--format`. Honouring only that made `auth status --format json` print
+            // the human table with no error and no hint — the one command an agent
+            // needs before anything else, silently ignoring the flag it was taught to
+            // use everywhere else. `--format` (and the piped default behind it) now
+            // decides too; `--json` stays as an alias so existing scripts keep working.
+            let as_json = matches.get_flag("json")
+                || crate::formatter::OutputPipeline::from_matches(matches, cli_name)
+                    .map(|pipeline| pipeline.format.is_machine_readable())
+                    .unwrap_or(false);
             let store = active_store();
             let backend = store.backend_label();
 
@@ -3494,6 +3509,325 @@ patches:
             }
         }
     user_owned: true
+  - id: patch-53dcd2de
+    content_hash: sha256:c2ca3197ad2333c74f3bfc0356530f016c306db13a5e4b3a159ac5135d42d848
+    original_commit: 53dcd2de726e0582af8df02ac9c7101795dcc316
+    original_message: "fix(auth): never leave login or select holding a key that does not work (#109)"
+    original_author: Mihai Claudiu Toader <mihai@hedra.com>
+    base_generation: ba8d6cfc6e23d3cda2bfdb045aeb24ae687c51e0
+    files:
+      - Cargo.toml
+      - hedra-cli-sdk/Cargo.toml
+      - hedra-cli-sdk/src/config.rs
+      - hedra-cli-types/Cargo.toml
+    patch_content: |
+      diff --git a/Cargo.toml b/Cargo.toml
+      index 18173a2..e6a394b 100644
+      --- a/Cargo.toml
+      +++ b/Cargo.toml
+      @@ -1,6 +1,6 @@
+       [package]
+       name = "hedra-cli"
+      -version = "3.0.0"
+      +version = "3.0.1"
+       edition = "2021"
+       description = "Command-line interface for the Hedra Web API — API spec 3.9.0"
+       license = "Apache-2.0"
+      diff --git a/hedra-cli-sdk/Cargo.toml b/hedra-cli-sdk/Cargo.toml
+      index 538011c..3eff8f5 100644
+      --- a/hedra-cli-sdk/Cargo.toml
+      +++ b/hedra-cli-sdk/Cargo.toml
+      @@ -1,6 +1,6 @@
+       [package]
+       name = "hedra_cli_sdk"
+      -version = "3.0.0"
+      +version = "3.0.1"
+       edition = "2021"
+       description = "Rust SDK for hedra_cli_sdk generated by Fern"
+       license = "MIT"
+      diff --git a/hedra-cli-sdk/src/config.rs b/hedra-cli-sdk/src/config.rs
+      index 8be31bf..2200b0b 100644
+      --- a/hedra-cli-sdk/src/config.rs
+      +++ b/hedra-cli-sdk/src/config.rs
+      @@ -40,7 +40,7 @@ impl Default for ClientConfig {
+                   custom_headers: HashMap::from([
+                       ("X-Fern-Language".to_string(), "Rust".to_string()),
+                       ("X-Fern-SDK-Name".to_string(), "hedra_cli_sdk".to_string()),
+      -                ("X-Fern-SDK-Version".to_string(), "3.0.0".to_string()),
+      +                ("X-Fern-SDK-Version".to_string(), "3.0.1".to_string()),
+                   ]),
+                   user_agent: "Api Rust SDK".to_string(),
+                   reqwest_client: None,
+      diff --git a/hedra-cli-types/Cargo.toml b/hedra-cli-types/Cargo.toml
+      index 1c388f0..e0c9e0f 100644
+      --- a/hedra-cli-types/Cargo.toml
+      +++ b/hedra-cli-types/Cargo.toml
+      @@ -1,6 +1,6 @@
+       [package]
+       name = "hedra_cli_types"
+      -version = "3.0.0"
+      +version = "3.0.1"
+       edition = "2021"
+       
+       [lib]
+    theirs_snapshot:
+      Cargo.toml: |
+        [package]
+        name = "hedra-cli"
+        version = "3.0.1"
+        edition = "2021"
+        description = "Command-line interface for the Hedra Web API — API spec 3.9.0"
+        license = "Apache-2.0"
+        repository = "https://github.com/hedra-labs/hedra-cli"
+        homepage = "https://github.com/hedra-labs/hedra-cli"
+        authors = ["Hedra <support@hedra.com>"]
+        keywords = ["cli", "hedra", "api"]
+        categories = ["command-line-utilities", "web-programming"]
+
+        [lib]
+        name = "fern_cli_sdk"
+        path = "src/lib.rs"
+
+        [[bin]]
+        name = "hedra-cli"
+        path = "cli/hedra-cli/main.rs"
+
+        [features]
+        # TLS backend selection.
+        #
+        # The backend is chosen per target by the `[target.'cfg(...)'.dependencies]`
+        # tables below, so a plain `cargo build` produces a working binary for every
+        # target we distribute: musl targets get rustls (a static binary cannot link
+        # the system OpenSSL), everything else gets the platform's native stack.
+        # `default` is therefore empty — a non-empty default would re-enable
+        # native-tls on musl and break the build, including under build systems that
+        # offer no way to pass per-target cargo flags (cargo-dist).
+        #
+        # The two features remain as explicit overrides:
+        #
+        #   native-tls   (cargo build --features native-tls)
+        #       The OS's native TLS stack (Secure Transport on macOS, SChannel on
+        #       Windows, OpenSSL on Linux). Honors the OS keychain / cert store —
+        #       what users typically expect for an interactive CLI.
+        #
+        #   rustls       (cargo build --features rustls)
+        #       The pure-Rust rustls crate. Produces self-contained binaries that
+        #       don't depend on system OpenSSL — preferred for distribution to varied
+        #       Linux servers, scratch Docker images, and cross-compiled musl/ARM
+        #       builds. Does NOT read the OS keychain; users must use
+        #       `<NAME>_CA_BUNDLE` for custom roots.
+        default = []
+        native-tls = ["reqwest/native-tls", "tokio-tungstenite/native-tls"]
+        rustls = ["reqwest/rustls-tls-native-roots", "tokio-tungstenite/rustls-tls-native-roots"]
+
+        [dependencies]
+        anyhow = "1"
+        base64 = "0.22"
+        bytes = "1"
+        clap = { version = "4", features = ["derive", "string", "env"] }
+        clap_complete = "4"
+        clap_mangen = "0.2"
+        hmac = "0.12"
+        dotenvy = "0.15"
+        futures-util = "0.3"
+        httpdate = "1"
+        libc = "0.2"
+        percent-encoding = "2.3.2"
+        # `gzip` is not used by this crate directly — it is declared so the shipped
+        # Cargo.lock contains the gzip dependency closure. The generated API SDK crate
+        # enables `reqwest/gzip`, and because Cargo unifies features across a workspace
+        # reqwest is built with it regardless; without it declared here the lock is
+        # missing `async-compression` & friends and the generated output fails
+        # `cargo build --locked` / `cargo audit`. See patchCargoToml.ts, which inserts
+        # the generated crates into the lock but cannot resolve their registry closure.
+        reqwest = { version = "0.12", features = ["json", "multipart", "stream", "gzip"], default-features = false }
+
+        # --- Lock-closure-only dependencies ---
+        #
+        # Not used by this crate. They are declared `optional` and enabled by no
+        # feature, so they never enter the build graph — but Cargo.lock records the
+        # whole dependency graph regardless of features, so declaring them here pins
+        # them (and their transitive closure) in the shipped lock.
+        #
+        # Why that is needed: the generated model/SDK crates depend on these, and
+        # `patchCargoToml.ts` inserts those crates into the lock as workspace members
+        # without being able to resolve their registry closure. Any package they need
+        # that is absent from this lock makes the generated output fail
+        # `cargo build --locked`, `cargo metadata --locked` and `cargo audit` — which
+        # fails silently in the sense that the build still works, so dependency
+        # auditing is quietly disabled instead of erroring.
+        #
+        # Versions must match what the model generator emits (see
+        # generators/rust/model). If a generated crate gains a dependency, add it here.
+        chrono = { version = "0.4", features = ["serde"], optional = true }
+        num-bigint = { version = "0.4", features = ["serde"], optional = true }
+        ordered-float = { version = "4.5", features = ["serde"], optional = true }
+        # Added by the generated SDK crate for specs with server-sent events (see
+        # AbstractRustGeneratorContext, which declares these two behind an `sse` feature).
+        reqwest-sse = { version = "0.1", optional = true }
+        pin-project = { version = "1.1", optional = true }
+
+        serde = { version = "1", features = ["derive"] }
+        serde_json = "1"
+        serde_json_path = "0.7"
+        serde_yaml = "0.9.34"
+        secrecy = "0.10"
+        serde_qs = "1.1.1"
+        sha2 = "0.10"
+        thiserror = "2"
+        webbrowser = "1"
+        rand = "0.8"
+        tokio = { version = "1", features = ["full"] }
+        tokio-tungstenite = { version = "0.24", default-features = false, features = ["connect", "handshake"] }
+        tokio-util = { version = "0.7", features = ["io"] }
+        tracing = "0.1"
+        tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+        tracing-appender = "0.2"
+        unicode-normalization = "0.1.25"
+        form_urlencoded = "1"
+        jmespath = "0.3"
+
+        # Per-target TLS backend (see [features] above). Cargo unions the features
+        # requested here with those in [dependencies], so each table only names the
+        # TLS feature; the rest of the reqwest/tungstenite feature set stays in one
+        # place.
+        [target.'cfg(target_env = "musl")'.dependencies]
+        reqwest = { version = "0.12", default-features = false, features = ["rustls-tls-native-roots"] }
+        tokio-tungstenite = { version = "0.24", default-features = false, features = ["rustls-tls-native-roots"] }
+
+        [target.'cfg(not(target_env = "musl"))'.dependencies]
+        reqwest = { version = "0.12", default-features = false, features = ["native-tls"] }
+        tokio-tungstenite = { version = "0.24", default-features = false, features = ["native-tls"] }
+        # The OS keyring backend, absent on musl: `sync-secret-service` reaches D-Bus
+        # through libdbus, which cannot be linked into a static binary. A musl build
+        # is a static/container build, where secret-service is unreachable anyway, so
+        # those binaries use the file-backed credential store (see ADR-0008 and the
+        # matching `cfg(not(target_env = "musl"))` gates in src/auth/keyring_store.rs).
+        keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "vendored"] }
+
+        [package.metadata.dist]
+        dist = true
+
+        # The profile that 'cargo dist' will build with
+        [dependencies.hedra_cli_sdk]
+        path = "hedra-cli-sdk"
+
+        [profile.dist]
+        inherits = "release"
+        lto = "thin"
+
+        [build-dependencies]
+        serde = "1"
+        serde_yaml = "0.9.34"
+
+        [dev-dependencies]
+        serial_test = "3.4.0"
+        tempfile = "3"
+        wiremock = "0.6"
+        tokio = { version = "1", features = ["full"] }
+      hedra-cli-sdk/Cargo.toml: |
+        [package]
+        name = "hedra_cli_sdk"
+        version = "3.0.1"
+        edition = "2021"
+        description = "Rust SDK for hedra_cli_sdk generated by Fern"
+        license = "MIT"
+        repository = "https://github.com/fern-api/fern"
+        documentation = "https://docs.rs/hedra_cli_sdk"
+
+        [lib]
+        doctest = false
+
+        [dependencies]
+        base64 = "0.22"
+        bytes = "1.0"
+        chrono = { version = "0.4", features = ["serde"] }
+        futures = "0.3"
+        pin-project = { version = "1.1", optional = true }
+        reqwest = { version = "0.12", features = ["json", "stream", "gzip"], default-features = false }
+        reqwest-sse = { version = "0.1", optional = true }
+        serde = { version = "1.0", features = ["derive"] }
+        serde_json = "1.0"
+        thiserror = "1.0"
+        tokio = { version = "1.0", features = ["full"] }
+
+        [dev-dependencies]
+        tokio-test = "0.4"
+
+        [features]
+        default = ["multipart", "sse"]
+        multipart = ["reqwest/multipart"]
+        sse = ["reqwest-sse", "pin-project"]
+
+        [dependencies.hedra_cli_types]
+        path = "../hedra-cli-types"
+      hedra-cli-sdk/src/config.rs: |
+        use crate::Environment;
+        use std::collections::HashMap;
+        use std::time::Duration;
+
+        #[derive(Debug, Clone)]
+        pub struct ClientConfig {
+            pub base_url: String,
+            pub api_key: Option<String>,
+            pub token: Option<String>,
+            pub username: Option<String>,
+            pub password: Option<String>,
+            pub client_id: Option<String>,
+            pub client_secret: Option<String>,
+            pub oauth_token_endpoint: Option<String>,
+            pub oauth_token_exchange: Option<crate::OAuthTokenExchangeConfig>,
+            pub timeout: Duration,
+            pub max_retries: u32,
+            pub custom_headers: HashMap<String, String>,
+            pub user_agent: String,
+            /// Optional custom `reqwest` client, used as-is for every request.
+            /// When set, it owns all transport-level configuration (TLS, proxies, timeout,
+            /// user agent); when `None` the SDK builds its own client from `timeout` and
+            /// `user_agent`.
+            pub reqwest_client: Option<reqwest::Client>,
+        }
+        impl Default for ClientConfig {
+            fn default() -> Self {
+                Self {
+                    base_url: Environment::default().url().to_string(),
+                    api_key: None,
+                    token: None,
+                    username: None,
+                    password: None,
+                    client_id: None,
+                    client_secret: None,
+                    oauth_token_endpoint: None,
+                    oauth_token_exchange: None,
+                    timeout: Duration::from_secs(60),
+                    max_retries: 3,
+                    custom_headers: HashMap::from([
+                        ("X-Fern-Language".to_string(), "Rust".to_string()),
+                        ("X-Fern-SDK-Name".to_string(), "hedra_cli_sdk".to_string()),
+                        ("X-Fern-SDK-Version".to_string(), "3.0.1".to_string()),
+                    ]),
+                    user_agent: "Api Rust SDK".to_string(),
+                    reqwest_client: None,
+                }
+            }
+        }
+      hedra-cli-types/Cargo.toml: |
+        [package]
+        name = "hedra_cli_types"
+        version = "3.0.1"
+        edition = "2021"
+
+        [lib]
+        doctest = false
+
+        [dependencies]
+        serde = { version = "1", features = ["derive"] }
+        serde_json = "1"
+        chrono = { version = "0.4", features = ["serde"] }
+        base64 = "0.22"
+        num-bigint = { version = "0.4", features = ["serde"] }
+        ordered-float = { version = "4.5", features = ["serde"] }
+        reqwest = { version = "0.12", features = ["multipart"], default-features = false }
 dismissals:
   - patch_id: patch-6c702a15
     original_commit: 6c702a15979c075c6307bb1d932eb7bfa4f78912
