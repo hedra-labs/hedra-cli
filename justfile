@@ -177,12 +177,18 @@ release-check:
         bad "HEAD differs from {{ remote }}/{{ branch }} — push or pull first"
     fi
 
-    # 2. cargo-dist announces all three crates at once and requires lockstep.
+    # 2. Advisory, not a blocker — cargo-dist reads the ROOT crate's version
+    #    alone, exactly as ci.yml's own comment says. Verified rather than
+    #    assumed: with the members drifted to 0.1.0/0.0.0, `dist plan` still
+    #    announces v3.0.0, because a library crate with no binaries is not
+    #    dist-able and never joins the announcement. Drift is still a real
+    #    regeneration bug (ENG-10219) that fails a PR, so it is worth saying —
+    #    it just cannot break the release you are about to cut.
     if python3 {{ scripts }}/set-version.py --check "$version" \
             {{ sdk_dir }}/Cargo.toml {{ types_dir }}/Cargo.toml >/dev/null 2>&1; then
         ok "all three manifests at $version"
     else
-        bad "manifest versions drifted — run: just sync-version"
+        warn "member manifests drifted — harmless here; fix with: just sync-version"
     fi
 
     # 3. Re-tagging is not a release. cargo-dist would collide with a GitHub
