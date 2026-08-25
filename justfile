@@ -5,16 +5,16 @@
 # has to equal it, and the tag is the only gate: pushing it publishes to GitHub
 # Releases, npm (@hedra/cli) and the Homebrew tap with no further approval.
 #
-# Everything under the `release` group is the tribal knowledge that check makes
-# executable. `just release-check` writes nothing and can be run any time.
+# Everything under the `release` group is that knowledge, made executable.
+# `just release-check` writes nothing and can be run at any time.
 
 set shell := ["bash", "-euo", "pipefail", "-c"]
 
-sdk_dir   := "hedra-cli-sdk"
+sdk_dir := "hedra-cli-sdk"
 types_dir := "hedra-cli-types"
-scripts   := ".github/scripts"
-remote    := "origin"
-branch    := "main"
+scripts := ".github/scripts"
+remote := "origin"
+branch := "main"
 
 # Required status checks on `main` — keep in sync with branch protection.
 required_checks := "rust regen-shape"
