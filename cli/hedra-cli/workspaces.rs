@@ -8,6 +8,14 @@
 //! into, and `select` switches the active `KeyAuth` slot between them —
 //! auto-launching a login when no key is held for the target.
 //!
+//! `select` renews the key it is about to activate rather than trusting it.
+//! Holding a key is not the same as holding a working one, and activating
+//! one blind made "the CLI says I am on this workspace" and "the CLI can
+//! call this workspace" two different facts: a revoked key got a green
+//! marker and then a 401 on every request. The renewal answers the question
+//! and extends the key in one round-trip; a refusal means it is dead and a
+//! replacement is minted.
+//!
 //! The mint itself does take a workspace (ENG-10403), which is what lets
 //! `select` reach a workspace the login's organization does not name, and
 //! what [`fallback_mint_target`] feeds when a login-time mint is refused
@@ -499,11 +507,13 @@ pub(crate) fn command() -> clap::Command {
             clap::Command::new("select")
                 .about("Make the API key bound to a workspace the active credential")
                 .long_about(
-                    "Switch the active credential to the held key for the given \
-                     workspace. When no key is held for it, one is minted for that \
-                     workspace from the current login — no browser round-trip \
-                     unless you are not logged in at all. Works for workspaces with \
-                     no linked organization, which no login can select by itself.",
+                    "Switch the active credential to the key for the given \
+                     workspace. A held key is renewed first, which both proves it \
+                     still works and extends it; one that the API refuses is \
+                     replaced, as is a workspace with no key held at all. All of \
+                     that runs from the current login — no browser round-trip \
+                     unless you are not logged in. Works for workspaces with no \
+                     linked organization, which no login can select by itself.",
                 )
                 .arg(
                     clap::Arg::new("workspace-id")
@@ -603,28 +613,40 @@ fn run_select(
     workspace_id: &str,
     matches: &clap::ArgMatches,
 ) -> Result<(), CliError> {
-    if let SelectOutcome::Activated(key) = activate(cli_name, workspace_id)? {
-        announce_active(
-            matches,
-            cli_name,
-            workspace_id,
-            key.workspace_name.as_deref(),
-            Some(&key.key_id),
-        )?;
-        return Ok(());
-    }
+    // A held key is looked up but NOT trusted. Activating one without
+    // checking it made "the CLI says I am on this workspace" and "the CLI
+    // can call this workspace" two different facts: a revoked key earned a
+    // green marker and then a 401 on every request, with no way back short
+    // of `auth logout`. So the marker moves only once the key is known good
+    // — or once a replacement has been minted.
+    let held = WorkspaceKeyMap::load(cli_name)
+        .keys
+        .get(workspace_id)
+        .cloned();
 
-    // No key held for the target. A browser login is needed only when there
-    // is no session at all — the workspace itself is named at mint time, so
-    // an existing session (refreshed) can mint for any workspace the account
-    // is a member of, whether or not it has a linked organization.
+    // Everything that can verify or replace a key needs a login session.
+    // With a key in hand but no session, switching to it unverified still
+    // beats refusing to switch: the key is probably fine, this is what the
+    // command did before it verified anything, and the note names the fix
+    // if it turns out not to be.
     if !auth::has_oauth_session(cli_name) {
+        if let Some(key) = &held {
+            return activate_unverified(
+                matches,
+                cli_name,
+                workspace_id,
+                key,
+                "not logged in",
+            );
+        }
         eprintln!("Not logged in — launching browser login…");
         auth::EnvPkceLoginFlow::new().run(&LoginContext {
             cli_name: cli_name.to_string(),
             no_browser: false,
         })?;
-        // The login's own bootstrap may already have landed on the target.
+        // The login's own bootstrap may already have landed on the target,
+        // and it verified what it left behind — renewing or minting — so
+        // this activation needs no check of its own.
         if let SelectOutcome::Activated(key) = activate(cli_name, workspace_id)? {
             announce_active(
                 matches,
@@ -637,13 +659,52 @@ fn run_select(
         }
     }
 
+    // One forced refresh for the whole command — it covers the renewal, the
+    // listing and the mint below. Each refresh rotates the token
+    // server-side, so refreshing again for a later leg would invalidate the
+    // one just used, and if the first rotation failed to persist, the second
+    // would present a dead token and fail outright.
+    let jwt = match auth::fresh_login_jwt(cli_name) {
+        Ok(jwt) => jwt,
+        // A session that cannot be refreshed must not make a held key
+        // unreachable: before verification existed this command never
+        // needed the network at all, and a stale session is no reason to
+        // refuse a switch.
+        Err(_) if held.is_some() => {
+            let key = held.as_ref().expect("held is Some in this arm");
+            return activate_unverified(
+                matches,
+                cli_name,
+                workspace_id,
+                key,
+                "the login session could not be refreshed",
+            );
+        }
+        Err(e) => return Err(e),
+    };
+
+    // Renew rather than trust. The renewal is what proves the key still
+    // works, and it extends it in the same round-trip; a refusal is exactly
+    // the signal that it has to be replaced, and falls through to the mint
+    // below (which reports itself — `try_renew` already said why).
+    if let Some(key) = &held {
+        if let Some(expires_at) =
+            auth::renew_held_key_at(cli_name, api_base, &jwt, workspace_id, &key.credential)?
+        {
+            announce_active(
+                matches,
+                cli_name,
+                workspace_id,
+                key.workspace_name.as_deref(),
+                Some(&key.key_id),
+            )?;
+            eprintln!("(key {} verified and renewed — {expires_at})", key.key_id);
+            return Ok(());
+        }
+    }
+
     // Fail on a typo'd or invisible id before minting anything; the listing
     // also supplies the display name for the confirmation line.
-    // One forced refresh for the whole command. Each refresh rotates the
-    // token server-side, so refreshing again for the mint would invalidate
-    // the one just used — and if the first rotation failed to persist, the
-    // second would present a dead token and fail outright.
-    let jwt = auth::fresh_login_jwt(cli_name)?;
     let listing = fetch_listing_with_jwt(api_base, &jwt)?;
     let Some(target) = listing.iter().find(|w| w.workspace_id == workspace_id) else {
         return Err(CliError::Validation(format!(
@@ -657,7 +718,12 @@ fn run_select(
     };
 
     eprintln!(
-        "No API key held for {} ({workspace_id}) — minting one…",
+        "{} for {} ({workspace_id}) — minting one…",
+        if held.is_some() {
+            "The held API key is no longer usable"
+        } else {
+            "No API key held"
+        },
         target.workspace_name
     );
     let minted = auth::mint_for_workspace_at(cli_name, api_base, &jwt, workspace_id)?;
@@ -675,6 +741,37 @@ fn run_select(
         eprintln!("(key expires {expiry})");
     }
     Ok(())
+}
+
+/// Switch to a held key that could not be checked, and say so.
+///
+/// Reached only when the login plane is out of reach — no session, or one
+/// that will not refresh — so there is no way to renew the key or mint a
+/// replacement. Switching anyway is the lesser evil: it is what this command
+/// did before it verified anything, the key is very likely live, and a
+/// refusal would strand a user who is merely offline. The note is what keeps
+/// the silent-401 failure from coming back: it says the marker moved on
+/// trust, and names the command that would settle it.
+fn activate_unverified(
+    matches: &clap::ArgMatches,
+    cli_name: &str,
+    workspace_id: &str,
+    key: &HeldKey,
+    why: &str,
+) -> Result<(), CliError> {
+    activate(cli_name, workspace_id)?;
+    eprintln!(
+        "({why} — key {} was activated without being verified; run \
+         `hedra-cli auth login` if requests come back 401)",
+        key.key_id
+    );
+    announce_active(
+        matches,
+        cli_name,
+        workspace_id,
+        key.workspace_name.as_deref(),
+        Some(&key.key_id),
+    )
 }
 
 /// Report the newly active workspace through the standard pipeline, so
@@ -1340,7 +1437,7 @@ mod tests {
 
     // ── listing fetch (wire) ────────────────────────────────────────────
 
-    use wiremock::matchers::{header, method, path};
+    use wiremock::matchers::{body_partial_json, header, method, path};
     use wiremock::{Mock, MockServer, ResponseTemplate};
 
     #[tokio::test]
@@ -1430,24 +1527,7 @@ mod tests {
             .await;
 
         let base = server.uri();
-        // The deepest matches, as `dispatch` hands them over. Built off the
-        // real root CLI rather than `command()` alone: the output pipeline
-        // reads the SDK's *global* `--format`/`--quiet`, which the bare
-        // subcommand does not declare, and `OutputPipeline::from_matches`
-        // panics on a matches object that lacks them. This test is about the
-        // refresh count, but it still has to run the real rendering path.
-        use fern_cli_sdk::openapi::{commands, load_openapi_spec};
-        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli")
-            .expect("the bundled spec parses");
-        let m = commands::build_cli(&doc)
-            .subcommand(command())
-            .try_get_matches_from(["hedra-cli", "workspaces", "select", "--workspace-id", "w2"])
-            .expect("select parses");
-        let sub = m
-            .subcommand_matches("workspaces")
-            .and_then(|ws| ws.subcommand_matches("select"))
-            .expect("deepest matches")
-            .clone();
+        let sub = select_matches("w2");
         tokio::task::spawn_blocking(move || run_select("test-cli", &base, "w2", &sub))
             .await
             .unwrap()
@@ -1455,5 +1535,228 @@ mod tests {
 
         let map = WorkspaceKeyMap::load("test-cli");
         assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+    }
+
+    // ── select verifies the key it activates ────────────────────────────
+
+    /// The deepest matches, as `dispatch` hands them over. Built off the
+    /// real root CLI rather than `command()` alone: the output pipeline
+    /// reads the SDK's *global* `--format`/`--quiet`, which the bare
+    /// subcommand does not declare, and `OutputPipeline::from_matches`
+    /// panics on a matches object that lacks them — so every `run_select`
+    /// test has to go through the real rendering path.
+    fn select_matches(workspace_id: &str) -> clap::ArgMatches {
+        use fern_cli_sdk::openapi::{commands, load_openapi_spec};
+        let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli")
+            .expect("the bundled spec parses");
+        let m = commands::build_cli(&doc)
+            .subcommand(command())
+            .try_get_matches_from([
+                "hedra-cli",
+                "workspaces",
+                "select",
+                "--workspace-id",
+                workspace_id,
+            ])
+            .expect("select parses");
+        m.subcommand_matches("workspaces")
+            .and_then(|ws| ws.subcommand_matches("select"))
+            .expect("deepest matches")
+            .clone()
+    }
+
+    /// File a key for `workspace_id` and make it active, the state a prior
+    /// `select` or login leaves behind.
+    fn seed_held_key(workspace_id: &str, key_id: &str, credential: &str) {
+        record_key(
+            "test-cli",
+            Some(workspace_id),
+            key_id,
+            credential,
+            Some("Acme"),
+            Some("2026-08-19T00:00:00Z"),
+            true,
+        )
+        .unwrap();
+    }
+
+    async fn mock_token_endpoint(server: &MockServer) {
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "access_token": "fresh-jwt", "refresh_token": "rotated",
+                "token_type": "Bearer", "expires_in": 3600,
+            })))
+            .mount(server)
+            .await;
+    }
+
+    async fn run_select_against(base: String, workspace_id: &'static str) -> Result<(), CliError> {
+        let sub = select_matches(workspace_id);
+        tokio::task::spawn_blocking(move || run_select("test-cli", &base, workspace_id, &sub))
+            .await
+            .unwrap()
+    }
+
+    /// A held key is renewed, not trusted. The renewal doubles as the
+    /// check — and it must NOT mint, because the key was fine.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_renews_a_held_key_rather_than_trusting_it() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .and(header("authorization", "Bearer key_w2:held"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "expires_at": "2027-01-01T00:00:00Z", "workspace_id": "w2",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        // The assertion that matters as much as the renewal: a live key is
+        // never replaced. wiremock verifies the count on drop.
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        mock_token_endpoint(&server).await;
+        seed_held_key("w2", "key_w2", "key_w2:held");
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+        assert_eq!(
+            map.keys["w2"].credential, "key_w2:held",
+            "a renewal carries no new secret — the held credential stays"
+        );
+        assert_eq!(
+            map.keys["w2"].expires_at.as_deref(),
+            Some("2027-01-01T00:00:00Z"),
+            "…but the extension has to be recorded, or the key was not really renewed"
+        );
+    }
+
+    /// The reported defect: a held key that the login plane refuses used to
+    /// be activated anyway, giving a green marker and then a 401 on every
+    /// request. It must be replaced instead.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_remints_when_the_held_key_is_dead() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {"code": "UNAUTHORIZED", "message": "Invalid API key."},
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v3/workspaces"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"workspace_id": "w2", "workspace_name": "Acme", "role": "admin",
+                          "workos_organization_id": "org_1"}],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(body_partial_json(serde_json::json!({"workspace_id": "w2"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_new", "credential": "key_new:fresh", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2027-01-01T00:00:00Z",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        mock_token_endpoint(&server).await;
+        seed_held_key("w2", "key_dead", "key_dead:revoked");
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+        assert_eq!(
+            map.keys["w2"].credential, "key_new:fresh",
+            "the dead credential must be replaced, not left active"
+        );
+        assert_eq!(
+            active_store()
+                .get("test-cli", super::super::auth::KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_new:fresh"),
+            "and the projection the SDK reads must follow"
+        );
+    }
+
+    /// Verification needs the login plane. Offline, switching to the held
+    /// key unverified still beats refusing to switch — but the user has to
+    /// be told the marker moved on trust.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_activates_unverified_when_there_is_no_login_session() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        // No mocks at all: reaching the network would 404 and fail the run.
+        let server = MockServer::start().await;
+        let _store = fresh_keyring(); // no OAuth session seeded
+        seed_held_key("w2", "key_w2", "key_w2:held");
+        // `record_key` activated it; prove `select` is what re-activates.
+        activate("test-cli", "w1").ok();
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+        assert_eq!(map.keys["w2"].credential, "key_w2:held");
+        assert!(
+            server.received_requests().await.unwrap_or_default().is_empty(),
+            "with no session there is nothing to ask the login plane"
+        );
+    }
+
+    /// A session that will not refresh must not strand a held key either —
+    /// this command needed no network at all before it verified anything.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_activates_unverified_when_the_session_cannot_refresh() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        // The refresh leg is mounted, and refuses.
+        Mock::given(method("POST"))
+            .and(path("/token"))
+            .respond_with(ResponseTemplate::new(400).set_body_json(serde_json::json!({
+                "error": "invalid_grant",
+            })))
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        seed_held_key("w2", "key_w2", "key_w2:held");
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(
+            map.active_workspace_id.as_deref(),
+            Some("w2"),
+            "a stale session is no reason to refuse a switch"
+        );
+        assert_eq!(map.keys["w2"].credential, "key_w2:held");
     }
 }

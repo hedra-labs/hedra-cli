@@ -665,10 +665,12 @@ impl LoginFlow for EnvPkceLoginFlow {
         self.base.scheme_name()
     }
     fn run(&self, ctx: &LoginContext) -> Result<(), CliError> {
-        eprintln!(
-            "Login environment: {:?} (set HEDRA_ENV=staging to switch)",
-            hedra_env()
-        );
+        if matches!(hedra_env(), HedraEnv::Staging) {
+            eprintln!(
+                "Login environment: {:?} (set HEDRA_ENV=staging|prod to switch)",
+                hedra_env()
+            );
+        }
         // Fresh discovery on every login (the on-disk cache is skipped):
         // login is
         // the natural point to re-validate the chain and rewrite the cache.
@@ -835,13 +837,13 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
         .as_deref()
         .map(describe_expiry)
         .unwrap_or_else(|| "no expiry reported".to_string());
-    eprintln!(
-        "API key {key_id} {} — {expiry}.",
-        if minted { "minted" } else { "renewed" }
-    );
     eprint!(
         "{}",
         workspaces::render_login_summary(&listing, workspace_id.as_deref(), &map.keys)
+    );
+    eprintln!(
+        "API key: {key_id} {} — {expiry}.",
+        if minted { "minted" } else { "renewed" }
     );
     if std::env::var("HEDRA_API_KEY").is_ok() {
         eprintln!(
@@ -1084,6 +1086,79 @@ async fn mint_and_store(
 /// without paying for discovery or a refresh to find out.
 pub(crate) fn has_oauth_session(cli_name: &str) -> bool {
     matches!(active_store().get(cli_name, SCHEME), Ok(Some(t)) if !t.is_empty())
+}
+
+/// Verify the key held for `workspace_id` by renewing it, and make it the
+/// active credential when it survives.
+///
+/// Renewal is the verification: it is the one call that asks the login
+/// plane "is this credential still good for this account?" and, when the
+/// answer is yes, extends it in the same round-trip. A cheaper probe
+/// against some data-plane endpoint would answer the first half only, and
+/// would leave a key that is alive but about to expire exactly as it found
+/// it.
+///
+/// `Ok(Some(expires_at))` = alive, extended, and now active.
+/// `Ok(None)` = the plane refused it — expired, revoked, past its age cap,
+/// or bound to an identity this login no longer matches — so it is dead and
+/// the caller must mint a replacement.
+/// `Err` = the login plane itself could not be reached, which a mint would
+/// only repeat.
+///
+/// `jwt` must be login-plane fresh, and is taken as a parameter for the
+/// same reason [`mint_for_workspace_at`] takes one: the caller that renews
+/// may go on to mint, and each refresh rotates the token server-side, so
+/// two in one command is one rotation too many.
+pub(crate) fn renew_held_key_at(
+    cli_name: &str,
+    api_base: &str,
+    jwt: &str,
+    workspace_id: &str,
+    credential: &str,
+) -> Result<Option<String>, CliError> {
+    let http = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()
+        .map_err(|e| CliError::Auth(format!("could not build HTTP client: {e}")))?;
+    let renewed = tokio::task::block_in_place(|| {
+        tokio::runtime::Handle::current().block_on(try_renew(&http, api_base, credential, jwt))
+    })?;
+    let Some(renewed) = renewed else {
+        return Ok(None);
+    };
+
+    // The same "the response is the only trustworthy source" stance the
+    // targeted mint takes. The local map said this key belongs to
+    // `workspace_id`; if the server disagrees, activating it would present
+    // a credential for one workspace while reporting another — the
+    // wrong-billing-target hazard, reached through stale local state
+    // instead of a stale deployment. Treated as not-renewable so the caller
+    // mints a key that genuinely belongs to the target.
+    if renewed
+        .workspace_id
+        .as_deref()
+        .is_some_and(|landed| landed != workspace_id)
+    {
+        eprintln!(
+            "(the key filed under workspace {workspace_id} actually belongs to {} — \
+             minting one for {workspace_id} instead)",
+            renewed.workspace_id.as_deref().unwrap_or("<none>"),
+        );
+        return Ok(None);
+    }
+
+    // Renewals carry no new secret and no name: the held credential stays,
+    // and `None` preserves whatever name the map already had.
+    record_workspace_key(
+        cli_name,
+        Some(workspace_id),
+        &renewed.key_id,
+        credential,
+        None,
+        Some(&renewed.expires_at),
+        true,
+    )?;
+    Ok(Some(renewed.expires_at))
 }
 
 /// What `workspaces select` needs back from a targeted mint.
