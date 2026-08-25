@@ -45,15 +45,41 @@ sync-version:
     cargo fetch
     echo "aligned all three manifests on $version"
 
-# Force a version across all three manifests. Rare — fern normally stamps it.
+# Force a version across all three manifests, then re-stamp the one piece of
+# source derived from the root version. Rare — fern normally stamps it.
+#
+# Only Patch 1 of patch-headers is version-derived: the X-Fern-SDK-Version
+# literal in the SDK's config.rs, which patch-sdk-headers.py reads from the root
+# [package].version. Patches 2 and 3 are source re-application and no-op here.
+# Without this call a hand-run promotion moves the manifests and leaves that
+# literal behind, and wire_contract.rs::openapi_path_reports_the_real_crate_version
+# goes red — it compares the header against CARGO_PKG_VERSION across crates
+# precisely so a stale number cannot reach the wire.
+#
+# `sync-version` above needs no such call: it writes the root version to the
+# members and never moves the root, so it cannot invalidate the literal. (After
+# a local regeneration you still want both, because the generator resets
+# config.rs to 0.1.0 — not because sync-version changed anything.)
+#
+# Called from the body, not declared as a dependency: `just` runs dependencies
+# *before* the body, so it would read the pre-change version out of Cargo.toml
+# and re-stamp what was already there — the same trap the `[confirm]` attribute
+# sets on `release` below. Placed before `cargo fetch`, as refresh-lockfile.yml
+# orders the same two scripts; being source-only it cannot invalidate the
+# lockfile either way.
+#
+# The listing takes the LAST comment line as the doc string, which for a note
+# this long is a stray fragment; `[doc]` names it explicitly, as on sync-version.
+[doc('Force a version across all three manifests and re-stamp the SDK version literal.')]
 [group('version')]
 set-version v:
     #!/usr/bin/env bash
     set -euo pipefail
     python3 {{ scripts }}/set-version.py "{{ v }}" \
         Cargo.toml {{ sdk_dir }}/Cargo.toml {{ types_dir }}/Cargo.toml
+    just patch-headers
     cargo fetch
-    echo "set all three manifests to {{ v }}"
+    echo "set all three manifests to {{ v }} and re-stamped the SDK version literal"
 
 # Re-apply the X-Fern-* header patches the generator drops (ENG-10234).
 [group('version')]
