@@ -491,6 +491,43 @@ pub(crate) fn derive_base_url_from_hedra_env() {
     }
 }
 
+/// The Hedra-branded page the loopback listener hands the browser once a
+/// login completes, replacing the generator's built-in "Built with Fern"
+/// card as the last screen of `auth login`. Added by hedra-labs/website#7057.
+///
+/// `www` is canonical: the apex 308-redirects here, so naming `hedra.com`
+/// would spend a redundant round trip on the one page a user watches
+/// mid-login. Both `HEDRA_ENV` values point at the same origin because
+/// there is no staging website, and nothing here wants one — these pages
+/// read query parameters and talk to no backend.
+///
+/// Deliberately NOT derived from `resource_base_url()`: they live on the
+/// marketing site, not the API, so deriving them would aim a
+/// `HEDRA_CLI_BASE_URL=http://localhost:8000` run at a page that does not
+/// exist there. A local stack still gets the real pages, which is right —
+/// they render the callback and nothing else.
+///
+/// The redirect carries NO parameters. `CallbackResponder::success` writes
+/// this string into `Location` verbatim, so the success page cannot greet
+/// the user by name without establishing identity itself; it is static by
+/// contract rather than by choice.
+const SUCCESS_PAGE_URL: &str = "https://www.hedra.com/cli/auth/success";
+
+/// Sibling of [`SUCCESS_PAGE_URL`], and the asymmetric half: the listener
+/// appends `error` — and `error_description` when there is one — as
+/// form-urlencoded query parameters, so this page can say what actually
+/// failed rather than that something did.
+///
+/// Four failures reach it, because the listener synthesizes an OAuth code
+/// for the callbacks that carry none: the authorization server's own error
+/// passed through, `invalid_request` for a callback missing `code` or
+/// `state`, `invalid_request` again for a `state` that does not match, and
+/// `server_error` for a token exchange or keyring write that failed after
+/// an otherwise good callback. The last two `invalid_request` cases are
+/// distinguishable only by their description — see
+/// `tests/callback_page_contract.rs`, which pins that wording.
+const ERROR_PAGE_URL: &str = "https://www.hedra.com/cli/auth/error";
+
 /// Graft the discovered endpoints onto the env-independent base flow.
 /// Callers must only invoke this at dispatch/request time — `register()`
 /// runs before `run_with_args` loads `.env`, so an eager call would freeze
@@ -505,6 +542,13 @@ fn concretize(base: &PkceLoginFlow, endpoints: &AuthEndpoints) -> PkceLoginFlow 
         .client_id(format!("{resource}/.well-known/hedra-cli.json"))
         .authorization_url(endpoints.authorization_endpoint.clone())
         .token_url(endpoints.token_endpoint.clone())
+        // Hand the browser to Hedra's own pages instead of the generator's
+        // built-in card. Neither depends on `endpoints`, so either this or
+        // `EnvPkceLoginFlow::new` would work; they sit here because this is
+        // the one place every wire-facing field is grafted on, and splitting
+        // them across both would hide half the flow's shape.
+        .success_redirect_url(SUCCESS_PAGE_URL)
+        .error_redirect_url(ERROR_PAGE_URL)
         // RFC 8707 resource indicator on all three legs; refresh_params ride
         // into OAuth2KeyringProvider via build_auth_provider.
         .authorization_params([("resource", resource)])
@@ -1529,6 +1573,60 @@ pub(crate) mod tests {
             Some(1787097600)
         );
         assert_eq!(iso8601_to_epoch("not a date"), None);
+    }
+
+    /// The failure mode a hosted callback page has and an inlined one does
+    /// not is a typo: a wrong path is a 404 on the last screen of a login
+    /// that actually succeeded. So assert the exact strings, and assert
+    /// which slot each landed in — swapping them would send every failed
+    /// login to a page reading "You're connected."
+    ///
+    /// Asserted against the flow's `Debug` rendering because the generated
+    /// builder exposes no getters and `callback_pages()` is private to the
+    /// SDK crate. That couples this test to a derive, which is a real cost;
+    /// it is worth it because the alternative is asserting nothing.
+    #[test]
+    fn concretize_hands_the_browser_to_the_hosted_hedra_pages() {
+        let endpoints = AuthEndpoints {
+            resource: "https://api.hedra.com".to_string(),
+            authorization_endpoint: "https://api.hedra.com/oauth2/authorize".to_string(),
+            token_endpoint: "https://api.hedra.com/oauth2/token".to_string(),
+        };
+        let rendered = format!("{:?}", concretize(&PkceLoginFlow::new(SCHEME), &endpoints));
+
+        assert!(
+            rendered.contains(&format!("success_redirect_url: Some({SUCCESS_PAGE_URL:?})")),
+            "success page missing or in the wrong slot: {rendered}"
+        );
+        assert!(
+            rendered.contains(&format!("error_redirect_url: Some({ERROR_PAGE_URL:?})")),
+            "error page missing or in the wrong slot: {rendered}"
+        );
+    }
+
+    /// `is_header_safe_url` drops an unsafe URL and silently serves the
+    /// built-in Fern page instead — a fallback that would restore exactly the
+    /// branding this wiring exists to replace, without failing anything. It
+    /// is a runtime backstop, so it cannot report on values that never reach
+    /// it; this asserts ours could never trip it.
+    #[test]
+    fn the_page_urls_survive_the_listeners_header_safety_check() {
+        for url in [SUCCESS_PAGE_URL, ERROR_PAGE_URL] {
+            assert!(!url.is_empty());
+            assert!(
+                !url.chars().any(char::is_control),
+                "a control character would fall back to the built-in page: {url:?}"
+            );
+            // The error page's parameters are appended with `?` or `&`
+            // depending on what the URL already carries, and inserted before
+            // any fragment. Both are handled, but neither is intended here.
+            assert!(!url.contains('?') && !url.contains('#'), "{url:?}");
+            assert!(
+                url.starts_with("https://"),
+                "cleartext login callback: {url:?}"
+            );
+        }
+        assert_ne!(SUCCESS_PAGE_URL, ERROR_PAGE_URL);
     }
 
     #[test]
