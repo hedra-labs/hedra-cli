@@ -30,6 +30,14 @@
 //! | `webhooks redeliver`          | `redeliveries` | 13 fields            |
 //! | `log-drains create-log-drain` | `header_names` | 15 fields            |
 //!
+//! `jobs stream` fails differently. It is not hijacked — it really is a
+//! list — but the list is the whole SSE run buffered into one array
+//! (`--format table` is a captured call, so the executor buffers instead
+//! of streaming), and it interleaves `status` frames with `log` frames.
+//! The renderer unions two unrelated schemas into one header, leaving
+//! most of every row empty and the status progression lost among the log
+//! rows.
+//!
 //! ## The fix
 //!
 //! Two layers, both applied as `transform_response` hooks registered from
@@ -43,6 +51,10 @@
 //! 2. [`jobs`] additionally reshapes the job envelopes for human reading:
 //!    humanised cost and duration, the error envelope surfaced, and
 //!    follow-up commands after a submit.
+//! 3. [`job_stream`] drops the `log` frames from a buffered `jobs stream`
+//!    and renders the surviving `status` frames the way `jobs get-status`
+//!    renders one. `--format json`, `--format raw` and `jobs logs` are
+//!    untouched, so no way of reading the log is taken away.
 //!
 //! ## Known limitation
 //!
@@ -57,16 +69,17 @@ use serde_json::{Map, Value};
 
 /// `transform_response` hook for `["jobs", "*"]`.
 ///
-/// One registration covers `get`, `get-status`, `submit` and all ~80
-/// generated `submit-<model>` leaves; the operation is selected from the
-/// path rather than by registering a pattern per command. Operations the
-/// generic renderer already handles correctly (`list`, `list-job-logs`)
-/// pass through untouched.
+/// One registration covers `get`, `get-status`, `stream`, `submit` and
+/// all ~80 generated `submit-<model>` leaves; the operation is selected
+/// from the path rather than by registering a pattern per command.
+/// Operations the generic renderer already handles correctly (`list`,
+/// `list-job-logs`) pass through untouched.
 pub(crate) async fn jobs(value: Value, path: Vec<String>) -> Result<Value, CliError> {
     let op = path.get(1).map(String::as_str).unwrap_or_default();
     Ok(match op {
         "get" => job_result(&value),
         "get-status" => job_status(&value),
+        "stream" => job_stream(&value),
         // `submit` plus every `submit-<model>` variant.
         _ if op.starts_with("submit") => job_submit(&value),
         _ => value,
@@ -236,6 +249,68 @@ fn job_status(value: &Value) -> Value {
     Value::Object(out)
 }
 
+/// `jobs stream` — the buffered list of SSE frames.
+///
+/// In every format a table can be rendered from, `jobs stream` does not
+/// actually stream. `binding.rs` sets `capture_output` for anything that
+/// is not `--format raw` or `--format http`, and the executor answers a
+/// captured call with `buffer_streaming_response`, so the whole run
+/// arrives here as one value: a JSON array of frame payloads, or a bare
+/// object when a single frame arrived. Live frame-at-a-time output is
+/// `--format raw`, which is emitted inside the executor and never
+/// reaches a hook.
+///
+/// That array interleaves two unrelated schemas — `status` frames
+/// (`StatusResponse`) and `log` frames (`JobLogItem`) — and the renderer
+/// unions their columns, so two thirds of every row is empty padding and
+/// the status progression, the only reason to watch a job, is buried in
+/// it. The `event:` name that told the two apart is gone by the time the
+/// payloads are buffered, so [`is_log_frame`] tells them apart by shape.
+///
+/// Log rows are dropped and the survivors go through [`job_status`], so
+/// a streamed status row and a `jobs get-status` row are the same row.
+/// No data is lost: `--format json` and `--format raw` still carry every
+/// frame, and `hedra-cli jobs logs --job-id <id>` serves the same rows
+/// from their own endpoint.
+fn job_stream(value: &Value) -> Value {
+    let Some(frames) = value.as_array() else {
+        // A one-frame stream is unwrapped to a bare object upstream, and
+        // an empty one is `null`.
+        return match value {
+            Value::Object(_) if !is_log_frame(value) => job_status(value),
+            other => other.clone(),
+        };
+    };
+    let kept: Vec<Value> = frames
+        .iter()
+        .filter(|frame| !is_log_frame(frame))
+        .map(job_status)
+        .collect();
+    // Never trade a populated response for an empty screen. A conforming
+    // stream opens with a `status` snapshot and ends with another, so
+    // this only fires if the server stopped sending them — and showing
+    // the log rows we meant to hide beats showing nothing at all.
+    if kept.is_empty() {
+        return value.clone();
+    }
+    Value::Array(kept)
+}
+
+/// True when `frame` is a `JobLogItem` rather than a `StatusResponse`.
+///
+/// The two schemas are disjoint in their required fields: a log row
+/// carries `level`, `event` and `message`, a status frame carries
+/// `job_id` and `status`. The test is deliberately on the log side —
+/// anything not positively identified as a log row survives, so an
+/// unrecognised future frame type is shown rather than swallowed.
+fn is_log_frame(frame: &Value) -> bool {
+    frame.as_object().is_some_and(|o| {
+        ["level", "event", "message"]
+            .iter()
+            .all(|key| o.contains_key(*key))
+    })
+}
+
 /// `jobs submit` and every `jobs submit-<model>` — the 202 acknowledgement.
 ///
 /// The two URL fields are server paths (`/v3/jobs/{id}/status`), which are
@@ -253,13 +328,17 @@ fn job_submit(value: &Value) -> Value {
         out.insert("eta".into(), Value::String(instant(eta)));
     }
     if let Some(id) = job.get("job_id").and_then(Value::as_str) {
+        // `--job-id` is a flag, not a positional: the spec declares the
+        // path parameter and the generator renders every parameter as a
+        // flag. `hedra-cli jobs get job_...` fails with "unexpected
+        // argument", so a hint that omits the flag is not runnable.
         out.insert(
             "next".into(),
-            Value::String(format!("hedra-cli jobs get {id}")),
+            Value::String(format!("hedra-cli jobs get --job-id {id}")),
         );
         out.insert(
             "watch".into(),
-            Value::String(format!("hedra-cli jobs stream {id}")),
+            Value::String(format!("hedra-cli jobs stream --job-id {id}")),
         );
     }
     Value::Object(out)
@@ -758,11 +837,11 @@ mod tests {
         let rendered = render(&job_submit(&ack));
         assert_eq!(
             field(&rendered, "next").as_deref(),
-            Some("hedra-cli jobs get job_01JQ8ZK")
+            Some("hedra-cli jobs get --job-id job_01JQ8ZK")
         );
         assert_eq!(
             field(&rendered, "watch").as_deref(),
-            Some("hedra-cli jobs stream job_01JQ8ZK")
+            Some("hedra-cli jobs stream --job-id job_01JQ8ZK")
         );
         assert_eq!(
             field(&rendered, "eta").as_deref(),
@@ -806,6 +885,128 @@ mod tests {
         assert!(rendered.contains("Generation started"));
     }
 
+    // ── Stream ────────────────────────────────────────────────────
+
+    /// What the executor hands the hook for `jobs stream`: the whole SSE
+    /// run buffered into one array, `status` frames interleaved with
+    /// `log` frames, the `event:` names already discarded.
+    fn buffered_stream() -> Value {
+        json!([
+            {"job_id": "job_01JQ8ZK", "status": "QUEUED", "progress": Value::Null},
+            {"id": 1, "timestamp": "2026-08-20T18:40:02.113Z", "level": "INFO",
+             "event": "queued", "message": "Job accepted and queued",
+             "source": "hedra", "data": {}},
+            {"job_id": "job_01JQ8ZK", "status": "IN_PROGRESS", "progress": 0.25},
+            {"id": 2, "timestamp": "2026-08-20T18:40:59.004Z", "level": "WARNING",
+             "event": "retry", "message": "Transient upstream error, retrying",
+             "source": "worker", "data": {"attempt": 2}},
+            {"job_id": "job_01JQ8ZK", "status": "COMPLETED", "progress": 1.0}
+        ])
+    }
+
+    #[test]
+    fn untransformed_stream_unions_two_schemas_into_one_header() {
+        // Guards the premise. Without the hook the renderer builds one
+        // header out of `StatusResponse` and `JobLogItem` together, so
+        // every row carries the other schema's columns as empty padding.
+        let rendered = render(&buffered_stream());
+        let header = rendered.lines().next().unwrap();
+        for column in ["job_id", "status", "progress", "level", "message", "source"] {
+            assert!(
+                header.contains(column),
+                "premise changed: {column} missing from {header:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stream_drops_the_log_frames() {
+        let rendered = render(&job_stream(&buffered_stream()));
+        assert!(!rendered.contains("Job accepted and queued"), "{rendered}");
+        assert!(
+            !rendered.contains("Transient upstream error, retrying"),
+            "{rendered}"
+        );
+        let header = rendered.lines().next().unwrap();
+        for column in ["level", "message", "source"] {
+            assert!(
+                !header.contains(column),
+                "{column} column survived: {header:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn stream_keeps_every_status_frame_in_arrival_order() {
+        // Array *rows* keep their order (only object keys are sorted), so
+        // the progression is the one thing the table can show honestly.
+        let rendered = render(&job_stream(&buffered_stream()));
+        let queued = rendered.find("QUEUED").expect("QUEUED missing");
+        let running = rendered.find("IN_PROGRESS").expect("IN_PROGRESS missing");
+        let done = rendered.find("COMPLETED").expect("COMPLETED missing");
+        assert!(queued < running && running < done, "{rendered}");
+    }
+
+    #[test]
+    fn streamed_status_rows_render_like_get_status() {
+        // Same schema, same view — a streamed row and a polled row must
+        // not drift into two renderings of one `StatusResponse`.
+        let rendered = render(&job_stream(&buffered_stream()));
+        let header = rendered.lines().next().unwrap();
+        assert!(header.contains("job"), "{header:?}");
+        assert!(header.contains("progress"), "{header:?}");
+        assert!(
+            rendered.contains("25%"),
+            "progress not humanised: {rendered}"
+        );
+    }
+
+    #[test]
+    fn a_single_frame_stream_is_still_a_status_view() {
+        // `buffer_streaming_response` unwraps a lone event to a bare
+        // object rather than a one-element array.
+        let lone = json!({"job_id": "job_01JQ8ZK", "status": "COMPLETED", "progress": 1.0});
+        let rendered = render(&job_stream(&lone));
+        assert_eq!(field(&rendered, "status").as_deref(), Some("COMPLETED"));
+        assert_eq!(field(&rendered, "progress").as_deref(), Some("100%"));
+    }
+
+    #[test]
+    fn a_log_only_stream_is_shown_rather_than_blanked() {
+        // Unreachable against a conforming server, which always opens
+        // with a status snapshot. If one ever stops, the user sees the
+        // frames that did arrive instead of an empty screen.
+        let logs_only = json!([
+            {"id": 1, "timestamp": "2026-08-20T18:40:02.113Z", "level": "INFO",
+             "event": "queued", "message": "Job accepted and queued",
+             "source": "hedra", "data": {}}
+        ]);
+        assert_eq!(job_stream(&logs_only), logs_only);
+    }
+
+    #[test]
+    fn an_empty_stream_stays_empty() {
+        assert_eq!(job_stream(&Value::Null), Value::Null);
+    }
+
+    #[test]
+    fn an_unrecognised_frame_type_is_not_swallowed() {
+        // The filter tests for a log row, not against a status row, so a
+        // frame type the API adds later still reaches the user.
+        let future = json!([
+            {"job_id": "job_01JQ8ZK", "status": "IN_PROGRESS", "progress": 0.5},
+            {"job_id": "job_01JQ8ZK", "heartbeat_at": "2026-08-20T18:41:00Z"}
+        ]);
+        assert_eq!(job_stream(&future).as_array().map(Vec::len), Some(2));
+    }
+
+    #[tokio::test]
+    async fn stream_takes_the_stream_view_through_the_hook() {
+        let path = vec!["jobs".to_string(), "stream".to_string()];
+        let out = jobs(buffered_stream(), path).await.unwrap();
+        assert_eq!(out.as_array().map(Vec::len), Some(3), "{out}");
+    }
+
     // ── Pass-through ────────────────────────────────────────────────
 
     #[tokio::test]
@@ -831,7 +1032,7 @@ mod tests {
             let out = jobs(ack.clone(), path).await.unwrap();
             assert_eq!(
                 out.get("next").and_then(Value::as_str),
-                Some("hedra-cli jobs get job_01JQ8ZK"),
+                Some("hedra-cli jobs get --job-id job_01JQ8ZK"),
                 "{op} did not take the submit view"
             );
         }
