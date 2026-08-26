@@ -21,7 +21,7 @@ pub struct InputElevenlabsFlashV2 {
     /// Language code; 'auto' by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-    /// Voice to speak with (`voice_<uuid>`). List valid voices at GET /v3/models/elevenlabs-flash-v2/voices.
+    /// Voice to speak with (`voice_<uuid>`). List the library voices at GET /v3/models/elevenlabs-flash-v2/voices, or use the voice a voice-clone job returned.
     #[serde(default)]
     pub voice_id: String,
 }
