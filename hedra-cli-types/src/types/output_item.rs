@@ -10,6 +10,10 @@ use super::*;
 /// `fps: null`, an audio output `width: null` — so the shape is one object
 /// rather than one per modality. `url` and `asset_id` go null on an expired
 /// output, which has metadata but no retrievable bytes.
+/// 
+/// A voice-clone job's output is a voice rather than a file: it reports
+/// `voice_id` and leaves `url`, `content_type`, and `asset_id` null, since
+/// there are no bytes to fetch and nothing to pass back as a media input.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct OutputItem {
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -17,6 +21,9 @@ pub struct OutputItem {
     /// This output's asset id — server-issued, and opaque. Pass it as `{"source": "asset", "asset_id": ...}` in a later submit's media inputs to reuse this output as a reference. Null once the output has expired, since its bytes are no longer retrievable.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub asset_id: Option<String>,
+    /// The voice a voice-clone job created (`voice_<uuid>`). Send it back as `voice_id` on a text-to-speech submit to speak with this voice; it stays usable by the account that created it. Null for every other kind of output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub voice_id: Option<String>,
     /// Presigned download URL for the output bytes. Null once the output has expired.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
@@ -51,6 +58,7 @@ impl OutputItem {
 pub struct OutputItemBuilder {
     status: Option<OutputStatus>,
     asset_id: Option<String>,
+    voice_id: Option<String>,
     url: Option<String>,
     content_type: Option<String>,
     width: Option<i64>,
@@ -68,6 +76,11 @@ impl OutputItemBuilder {
 
     pub fn asset_id(mut self, value: impl Into<String>) -> Self {
         self.asset_id = Some(value.into());
+        self
+    }
+
+    pub fn voice_id(mut self, value: impl Into<String>) -> Self {
+        self.voice_id = Some(value.into());
         self
     }
 
@@ -111,6 +124,7 @@ impl OutputItemBuilder {
         Ok(OutputItem {
             status: self.status,
             asset_id: self.asset_id,
+            voice_id: self.voice_id,
             url: self.url,
             content_type: self.content_type,
             width: self.width,

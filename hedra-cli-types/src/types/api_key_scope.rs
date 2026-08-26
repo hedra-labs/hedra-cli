@@ -18,6 +18,7 @@ pub enum ApiKeyScope {
     LogDrainsManage,
     UsageRead,
     KeysManage,
+    ChatWrite,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -34,6 +35,7 @@ impl Serialize for ApiKeyScope {
             Self::LogDrainsManage => serializer.serialize_str("log_drains:manage"),
             Self::UsageRead => serializer.serialize_str("usage:read"),
             Self::KeysManage => serializer.serialize_str("keys:manage"),
+            Self::ChatWrite => serializer.serialize_str("chat:write"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -51,6 +53,7 @@ impl<'de> Deserialize<'de> for ApiKeyScope {
             "log_drains:manage" => Ok(Self::LogDrainsManage),
             "usage:read" => Ok(Self::UsageRead),
             "keys:manage" => Ok(Self::KeysManage),
+            "chat:write" => Ok(Self::ChatWrite),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -67,6 +70,7 @@ impl fmt::Display for ApiKeyScope {
             Self::LogDrainsManage => write!(f, "log_drains:manage"),
             Self::UsageRead => write!(f, "usage:read"),
             Self::KeysManage => write!(f, "keys:manage"),
+            Self::ChatWrite => write!(f, "chat:write"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }

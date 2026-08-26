@@ -13,6 +13,9 @@ pub struct UsageBucket {
     /// Jobs submitted in this bucket.
     #[serde(default)]
     pub jobs: i64,
+    /// Settled LLM chat requests in this bucket. Unlike `jobs` (which counts submits, charged or not), this counts requests whose usage settled — a request refused before any work never appears, and a late settlement lands in the window the request was created in.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub requests: Option<i64>,
     /// Net amount spent in this bucket.
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]
@@ -30,6 +33,7 @@ impl UsageBucket {
 pub struct UsageBucketBuilder {
     key: Option<String>,
     jobs: Option<i64>,
+    requests: Option<i64>,
     spent: Option<f64>,
 }
 
@@ -41,6 +45,11 @@ impl UsageBucketBuilder {
 
     pub fn jobs(mut self, value: i64) -> Self {
         self.jobs = Some(value);
+        self
+    }
+
+    pub fn requests(mut self, value: i64) -> Self {
+        self.requests = Some(value);
         self
     }
 
@@ -58,6 +67,7 @@ impl UsageBucketBuilder {
         Ok(UsageBucket {
             key: self.key.ok_or_else(|| BuildError::missing_field("key"))?,
             jobs: self.jobs.ok_or_else(|| BuildError::missing_field("jobs"))?,
+            requests: self.requests,
             spent: self.spent.ok_or_else(|| BuildError::missing_field("spent"))?,
         })
     }

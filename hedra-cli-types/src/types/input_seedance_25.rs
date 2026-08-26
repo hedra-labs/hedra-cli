@@ -21,13 +21,13 @@ pub struct InputSeedance25 {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video). With an aspect ratio from 0.4 to 2.5 and at most 30 MB.
+    /// Start frame (image-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputSeedance25StartImage>,
-    /// End frame (first-last-frame-to-video). With an aspect ratio from 0.4 to 2.5 and at most 30 MB.
+    /// End frame (first-last-frame-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputSeedance25EndImage>,
-    /// Reference images. 1 to 30 images, each at most 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    /// Reference images. 1 to 30 images, each from 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputSeedance25ImagesItem>>,
     /// Reference videos. 1 to 10 videos, each from 2s to 30s and at most 524.2 MB, at most 30s in total.
