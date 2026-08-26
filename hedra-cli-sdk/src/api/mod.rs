@@ -10,8 +10,8 @@
 pub mod resources;
 
 pub use resources::{
-    ApiClient, BillingClient, ChatClient, FilesClient, JobsClient, KeysClient, LogDrainsClient,
-    ModelsClient, TokensClient, WebhooksClient,
+    ApiClient, BillingClient, FilesClient, JobsClient, KeysClient, LogDrainsClient, ModelsClient,
+    TokensClient, WebhooksClient,
 };
 
 pub use hedra_cli_types::*;

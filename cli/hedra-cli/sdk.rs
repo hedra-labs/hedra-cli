@@ -63,7 +63,6 @@ pub fn client(ctx: &AppContext) -> hedra_cli_sdk::api::ApiClient {
         billing: hedra_cli_sdk::api::BillingClient { http_client: http_client.clone() },
         webhooks: hedra_cli_sdk::api::WebhooksClient { http_client: http_client.clone() },
         log_drains: hedra_cli_sdk::api::LogDrainsClient { http_client: http_client.clone() },
-        chat: hedra_cli_sdk::api::ChatClient { http_client: http_client.clone() },
     }
 }
 

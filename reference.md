@@ -5,7 +5,6 @@ Full command reference for `hedra-cli`.
 ## Commands
 
 - [`hedra-cli billing`](#hedra-cli-billing)
-- [`hedra-cli chat`](#hedra-cli-chat)
 - [`hedra-cli files`](#hedra-cli-files)
 - [`hedra-cli jobs`](#hedra-cli-jobs)
 - [`hedra-cli keys`](#hedra-cli-keys)
@@ -35,32 +34,6 @@ Get Usage
 | `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time. |
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
-
----
-
-### `hedra-cli chat`
-
-#### `hedra-cli chat completions-create`
-
-OpenAI-compatible chat completions. Errors use the OpenAI error body, not the v3 envelope. An empty API wallet answers 402 (deliberate divergence from OpenAI's 429 `insufficient_quota`: retrying cannot fix an empty wallet).
-
-`POST /chat/completions`
-
-#### `hedra-cli chat llms-get`
-
-A single OpenAI-shaped model object with additive extensions.
-
-`GET /llms/{model}`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
-
-#### `hedra-cli chat llms-list`
-
-OpenAI-compatible model list for the chat surface: exactly `{"object": "list", "data": [...]}` with additive extension fields per model. The published rate card here is the pricing reference for chat completions.
-
-`GET /llms`
 
 ---
 
@@ -1375,7 +1348,7 @@ List Model Jobs
 
 #### `hedra-cli models list-voices`
 
-Voices this model accepts — scoped to the model's voice provider.
+Voices this model accepts — the shared library, plus the caller's own cloned voices when the request carries credentials.
 
 `GET /models/{model}/voices`
 
