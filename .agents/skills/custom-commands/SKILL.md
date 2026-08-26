@@ -73,7 +73,6 @@ with the following sub-clients:
 | `client.billing` | `hedra_cli_sdk::api::BillingClient` | billing operations |
 | `client.webhooks` | `hedra_cli_sdk::api::WebhooksClient` | webhooks operations |
 | `client.log_drains` | `hedra_cli_sdk::api::LogDrainsClient` | log_drains operations |
-| `client.chat` | `hedra_cli_sdk::api::ChatClient` | chat operations |
 
 ### 3. Key Patterns
 

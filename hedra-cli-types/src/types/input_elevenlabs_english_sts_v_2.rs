@@ -7,7 +7,7 @@ use super::*;
 pub struct InputElevenlabsEnglishStsV2 {
     /// Speech to re-voice. The delivery, pacing, and timing of this recording are preserved; only the voice changes. At most 104.8 MB.
     pub audio: InputElevenlabsEnglishStsV2Audio,
-    /// Voice to speak with (`voice_<uuid>`). List the library voices at GET /v3/models/elevenlabs-english-sts-v2/voices, or use the voice a voice-clone job returned.
+    /// Voice to speak with (`voice_<uuid>`). List the voices you can use at GET /v3/models/elevenlabs-english-sts-v2/voices; sent with your credentials, the list includes the voices you cloned.
     #[serde(default)]
     pub voice_id: String,
 }

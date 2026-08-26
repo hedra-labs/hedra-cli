@@ -21,7 +21,7 @@ pub struct InputElevenlabsMultilingualV2 {
     /// Language code; 'auto' by default.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub language: Option<String>,
-    /// Voice to speak with (`voice_<uuid>`). List the library voices at GET /v3/models/elevenlabs-multilingual-v2/voices, or use the voice a voice-clone job returned.
+    /// Voice to speak with (`voice_<uuid>`). List the voices you can use at GET /v3/models/elevenlabs-multilingual-v2/voices; sent with your credentials, the list includes the voices you cloned.
     #[serde(default)]
     pub voice_id: String,
 }

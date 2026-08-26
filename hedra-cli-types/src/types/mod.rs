@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 128 types for API operations
-//! - **Model Types**: 438 types for data representation
+//! - **Request/Response Types**: 127 types for API operations
+//! - **Model Types**: 431 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -36,12 +36,6 @@ pub mod key_list_response;
 pub mod key_rotate_response;
 pub mod key_status;
 pub mod key_summary;
-pub mod llm_capabilities_object;
-pub mod llm_model_list_object;
-pub mod llm_model_list;
-pub mod llm_model_object_object;
-pub mod llm_model_object;
-pub mod llm_pricing;
 pub mod log_drain_config;
 pub mod log_drain_format;
 pub mod log_drain_list_response;
@@ -51,8 +45,6 @@ pub mod modality;
 pub mod model_detail;
 pub mod model_list_response;
 pub mod model_summary;
-pub mod open_ai_error;
-pub mod open_ai_error_response;
 pub mod output_item;
 pub mod output_status;
 pub mod result_response;
@@ -603,12 +595,6 @@ pub use key_list_response::KeyListResponse;
 pub use key_rotate_response::KeyRotateResponse;
 pub use key_status::KeyStatus;
 pub use key_summary::KeySummary;
-pub use llm_capabilities_object::LlmCapabilitiesObject;
-pub use llm_model_list_object::LlmModelListObject;
-pub use llm_model_list::LlmModelList;
-pub use llm_model_object_object::LlmModelObjectObject;
-pub use llm_model_object::LlmModelObject;
-pub use llm_pricing::LlmPricing;
 pub use log_drain_config::LogDrainConfig;
 pub use log_drain_format::LogDrainFormat;
 pub use log_drain_list_response::LogDrainListResponse;
@@ -618,8 +604,6 @@ pub use modality::Modality;
 pub use model_detail::ModelDetail;
 pub use model_list_response::ModelListResponse;
 pub use model_summary::ModelSummary;
-pub use open_ai_error::OpenAiError;
-pub use open_ai_error_response::OpenAiErrorResponse;
 pub use output_item::OutputItem;
 pub use output_status::OutputStatus;
 pub use result_response::ResultResponse;
