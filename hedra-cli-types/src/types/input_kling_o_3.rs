@@ -36,17 +36,18 @@ pub struct InputKlingO3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKlingO3StartImage>,
-    /// End frame (first-last-frame-to-video). At most 10.4 MB.
+    /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputKlingO3EndImage>,
     /// Reference images. 1 to 3 images, each at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputKlingO3ImagesItem>>,
-    /// Quality level to generate at.
-    pub quality: InputKlingO3Quality,
+    /// Quality level to generate at. `standard` — the 720p tier. `pro` — the high-resolution tier, at 1080p and 4K.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputKlingO3Quality>,
 }
 
 impl InputKlingO3 {
@@ -137,7 +138,6 @@ impl InputKlingO3Builder {
     /// This method will fail if any of the following fields are not set:
     /// - [`aspect_ratio`](InputKlingO3Builder::aspect_ratio)
     /// - [`duration_ms`](InputKlingO3Builder::duration_ms)
-    /// - [`quality`](InputKlingO3Builder::quality)
     pub fn build(self) -> Result<InputKlingO3, BuildError> {
         Ok(InputKlingO3 {
             num_outputs: self.num_outputs,
@@ -151,7 +151,7 @@ impl InputKlingO3Builder {
             start_image: self.start_image,
             end_image: self.end_image,
             images: self.images,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

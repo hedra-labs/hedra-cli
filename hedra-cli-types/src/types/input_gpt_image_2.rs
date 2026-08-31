@@ -28,8 +28,9 @@ pub struct InputGptImage2 {
     /// Output image format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<InputGptImage2OutputFormat>,
-    /// Quality level to generate at.
-    pub quality: InputGptImage2Quality,
+    /// Quality level to generate at. `low` — the quickest and cheapest pass, for drafts, thumbnails, and rapid exploration. `medium` — balanced cost and fidelity, for everyday work and iterative refinement. `high` — the most rendering effort, for final deliverables and text-heavy designs.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputGptImage2Quality>,
 }
 
 impl InputGptImage2 {
@@ -97,7 +98,6 @@ impl InputGptImage2Builder {
     /// - [`prompt`](InputGptImage2Builder::prompt)
     /// - [`aspect_ratio`](InputGptImage2Builder::aspect_ratio)
     /// - [`resolution`](InputGptImage2Builder::resolution)
-    /// - [`quality`](InputGptImage2Builder::quality)
     pub fn build(self) -> Result<InputGptImage2, BuildError> {
         Ok(InputGptImage2 {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
@@ -107,7 +107,7 @@ impl InputGptImage2Builder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             images: self.images,
             output_format: self.output_format,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

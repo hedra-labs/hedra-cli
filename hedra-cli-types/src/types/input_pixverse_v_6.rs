@@ -29,7 +29,7 @@ pub struct InputPixverseV6 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputPixverseV6StartImage>,
     /// Output aspect ratio.

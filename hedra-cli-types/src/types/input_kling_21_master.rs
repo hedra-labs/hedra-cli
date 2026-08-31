@@ -23,7 +23,7 @@ pub struct InputKling21Master {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKling21MasterStartImage>,
     /// What to avoid in the generated video. At most 2500 characters.

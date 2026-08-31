@@ -14,9 +14,9 @@ pub struct InputKlingV3MotionControl {
     /// Whether the output character's orientation follows the reference video ('video' — better for complex motion) or the character image ('image' — better for camera movement). Also caps the source video: 30s for 'video', 10s for 'image'.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub character_orientation: Option<InputKlingV3MotionControlCharacterOrientation>,
-    /// Start frame (image-to-video). From 340px to 3850px on each side and at most 10.4 MB.
+    /// Start frame. From 340px to 3850px on each side and at most 10.4 MB.
     pub start_image: InputKlingV3MotionControlStartImage,
-    /// Source video (video-to-video). From 3s to 30s, from 340px to 3850px on each side, and at most 104.8 MB.
+    /// Source video. From 3s to 30s, from 340px to 3850px on each side, and at most 104.8 MB.
     pub source_video: InputKlingV3MotionControlSourceVideo,
     /// Output resolution to generate at.
     pub resolution: InputKlingV3MotionControlResolution,

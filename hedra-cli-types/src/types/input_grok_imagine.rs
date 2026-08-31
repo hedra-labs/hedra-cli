@@ -5,8 +5,10 @@ use super::*;
 /// Model-specific inputs for `grok-imagine`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: images, prompt; must omit: aspect_ratio
-/// (2) requires: aspect_ratio, prompt; must omit: images
+/// (1) requires: images, prompt; must omit: aspect_ratio, resolution; accepts quality: standard
+/// (2) requires: aspect_ratio, images, prompt, resolution; accepts quality: quality
+/// (3) requires: aspect_ratio, prompt, resolution; must omit: images; accepts aspect_ratio: 2:1 | 20:9 | 19.5:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:19.5 | 9:20 | 1:2; quality: quality
+/// (4) requires: aspect_ratio, prompt; must omit: images, resolution; accepts aspect_ratio: 2:1 | 20:9 | 19.5:9 | 16:9 | 4:3 | 3:2 | 1:1 | 2:3 | 3:4 | 9:16 | 9:19.5 | 9:20 | 1:2; quality: standard
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputGrokImagine {
     /// Generation prompt. At most 8000 characters.
@@ -27,6 +29,12 @@ pub struct InputGrokImagine {
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputGrokImagineAspectRatio>,
+    /// Output resolution.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub resolution: Option<InputGrokImagineResolution>,
+    /// Quality level to generate at. `standard` — the base tier, at a flat rate whatever the output size. `quality` — xAI's higher-fidelity tier, and the only one offering 2k.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputGrokImagineQuality>,
 }
 
 impl InputGrokImagine {
@@ -44,6 +52,8 @@ pub struct InputGrokImagineBuilder {
     images: Option<Vec<InputGrokImagineImagesItem>>,
     output_format: Option<InputGrokImagineOutputFormat>,
     aspect_ratio: Option<InputGrokImagineAspectRatio>,
+    resolution: Option<InputGrokImagineResolution>,
+    quality: Option<InputGrokImagineQuality>,
 }
 
 impl InputGrokImagineBuilder {
@@ -77,6 +87,16 @@ impl InputGrokImagineBuilder {
         self
     }
 
+    pub fn resolution(mut self, value: InputGrokImagineResolution) -> Self {
+        self.resolution = Some(value);
+        self
+    }
+
+    pub fn quality(mut self, value: InputGrokImagineQuality) -> Self {
+        self.quality = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputGrokImagine`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputGrokImagineBuilder::prompt)
@@ -88,6 +108,8 @@ impl InputGrokImagineBuilder {
             images: self.images,
             output_format: self.output_format,
             aspect_ratio: self.aspect_ratio,
+            resolution: self.resolution,
+            quality: self.quality,
         })
     }
 }

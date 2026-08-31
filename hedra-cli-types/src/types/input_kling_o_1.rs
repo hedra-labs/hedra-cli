@@ -23,10 +23,10 @@ pub struct InputKlingO1 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKlingO1StartImage>,
-    /// End frame (first-last-frame-to-video). At most 10.4 MB.
+    /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputKlingO1EndImage>,
     /// Reference images. 1 to 3 images, each at most 10.4 MB.

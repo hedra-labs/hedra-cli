@@ -18,7 +18,7 @@ pub struct InputHedraCharacter3 {
     /// Duration in ms. At most 600000.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     pub start_image: InputHedraCharacter3StartImage,
     /// Driving audio: a single reference, or a list of references for multi-speaker generation — one audio per speaker, played in list order. 1 to 4 audio files, each from 0.5s to 600s and at most 104.8 MB.
     pub audio: InputHedraCharacter3Audio,

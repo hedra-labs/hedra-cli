@@ -6,6 +6,7 @@ use super::*;
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputNanoBanana2Resolution {
+    FiveHundredTwelvePx,
     OneK,
     TwoK,
     FourK,
@@ -17,6 +18,7 @@ pub enum InputNanoBanana2Resolution {
 impl Serialize for InputNanoBanana2Resolution {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
+            Self::FiveHundredTwelvePx => serializer.serialize_str("512px"),
             Self::OneK => serializer.serialize_str("1K"),
             Self::TwoK => serializer.serialize_str("2K"),
             Self::FourK => serializer.serialize_str("4K"),
@@ -29,6 +31,7 @@ impl<'de> Deserialize<'de> for InputNanoBanana2Resolution {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
         match value.as_str() {
+            "512px" => Ok(Self::FiveHundredTwelvePx),
             "1K" => Ok(Self::OneK),
             "2K" => Ok(Self::TwoK),
             "4K" => Ok(Self::FourK),
@@ -40,6 +43,7 @@ impl<'de> Deserialize<'de> for InputNanoBanana2Resolution {
 impl fmt::Display for InputNanoBanana2Resolution {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::FiveHundredTwelvePx => write!(f, "512px"),
             Self::OneK => write!(f, "1K"),
             Self::TwoK => write!(f, "2K"),
             Self::FourK => write!(f, "4K"),

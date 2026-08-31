@@ -9,7 +9,7 @@ use super::*;
 /// (2) requires: duration_ms, prompt, start_image; must omit: aspect_ratio; accepts quality: standard | fast-standard; resolution: 768p
 /// (3) requires: prompt; must omit: start_image; accepts duration_ms: 6000; quality: pro; resolution: 1080p
 /// (4) requires: duration_ms, prompt; must omit: start_image; accepts quality: standard; resolution: 768p
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputMinimaxHailuo23 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -23,14 +23,15 @@ pub struct InputMinimaxHailuo23 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). The output video follows this image's aspect ratio. At most 20 MB.
+    /// Start frame. The output video follows this image's aspect ratio. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxHailuo23StartImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxHailuo23AspectRatio>,
-    /// Quality level to generate at.
-    pub quality: InputMinimaxHailuo23Quality,
+    /// Quality level to generate at. `standard` — 768p, for everyday motion. `pro` — 1080p, with smoother motion and sharper detail. `fast-standard` — 768p on the low-latency path, from a start frame only. `fast-pro` — 1080p on the low-latency path, from a start frame only.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputMinimaxHailuo23Quality>,
 }
 
 impl InputMinimaxHailuo23 {
@@ -91,7 +92,6 @@ impl InputMinimaxHailuo23Builder {
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMinimaxHailuo23Builder::prompt)
     /// - [`duration_ms`](InputMinimaxHailuo23Builder::duration_ms)
-    /// - [`quality`](InputMinimaxHailuo23Builder::quality)
     pub fn build(self) -> Result<InputMinimaxHailuo23, BuildError> {
         Ok(InputMinimaxHailuo23 {
             num_outputs: self.num_outputs,
@@ -100,7 +100,7 @@ impl InputMinimaxHailuo23Builder {
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             start_image: self.start_image,
             aspect_ratio: self.aspect_ratio,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

@@ -25,10 +25,10 @@ pub struct InputSeedance20 {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    /// Start frame. From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputSeedance20StartImage>,
-    /// End frame (first-last-frame-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    /// End frame. From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputSeedance20EndImage>,
     /// Reference images. 1 to 9 images, each from 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
@@ -40,8 +40,9 @@ pub struct InputSeedance20 {
     /// Reference audios. 1 to 3 audio files, each at most 104.8 MB, at most 15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputSeedance20AudiosItem>>,
-    /// Quality level to generate at.
-    pub quality: InputSeedance20Quality,
+    /// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputSeedance20Quality>,
 }
 
 impl InputSeedance20 {
@@ -134,7 +135,6 @@ impl InputSeedance20Builder {
     /// - [`aspect_ratio`](InputSeedance20Builder::aspect_ratio)
     /// - [`resolution`](InputSeedance20Builder::resolution)
     /// - [`duration_ms`](InputSeedance20Builder::duration_ms)
-    /// - [`quality`](InputSeedance20Builder::quality)
     pub fn build(self) -> Result<InputSeedance20, BuildError> {
         Ok(InputSeedance20 {
             num_outputs: self.num_outputs,
@@ -148,7 +148,7 @@ impl InputSeedance20Builder {
             images: self.images,
             videos: self.videos,
             audios: self.audios,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

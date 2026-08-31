@@ -22,7 +22,7 @@ pub struct InputHappyHorse {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At least 300px on each side and at most 10 MB.
+    /// Start frame. At least 300px on each side and at most 10 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputHappyHorseStartImage>,
     /// Reference images. 1 to 9 images, each at least 400px on each side and at most 10 MB.

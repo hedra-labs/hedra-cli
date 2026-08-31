@@ -21,10 +21,10 @@ pub struct InputSeedance15Pro {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    /// Start frame. From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputSeedance15ProStartImage>,
-    /// End frame (first-last-frame-to-video). From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    /// End frame. From 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputSeedance15ProEndImage>,
     /// Seed for reproducible output; omit for a random seed. From 0 to 4294967295.

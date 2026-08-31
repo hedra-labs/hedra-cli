@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `fast` — tuned for turnaround, for iteration. `pro` — the higher-fidelity tier, for final output.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputLtx23Quality {

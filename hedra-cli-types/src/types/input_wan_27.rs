@@ -27,10 +27,10 @@ pub struct InputWan27 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 20 MB.
+    /// Start frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputWan27StartImage>,
-    /// End frame (first-last-frame-to-video). At most 20 MB.
+    /// End frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputWan27EndImage>,
     /// Output aspect ratio.

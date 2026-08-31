@@ -25,7 +25,7 @@ pub struct InputVeo3 {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video). At most 8 MB.
+    /// Start frame. At most 8 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputVeo3StartImage>,
     /// What to avoid in the generated video.
@@ -34,8 +34,9 @@ pub struct InputVeo3 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Quality level to generate at.
-    pub quality: InputVeo3Quality,
+    /// Quality level to generate at. `standard` — the full model, for hero shots. `fast` — the same model tuned for turnaround, at a lower rate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputVeo3Quality>,
 }
 
 impl InputVeo3 {
@@ -116,7 +117,6 @@ impl InputVeo3Builder {
     /// - [`aspect_ratio`](InputVeo3Builder::aspect_ratio)
     /// - [`resolution`](InputVeo3Builder::resolution)
     /// - [`duration_ms`](InputVeo3Builder::duration_ms)
-    /// - [`quality`](InputVeo3Builder::quality)
     pub fn build(self) -> Result<InputVeo3, BuildError> {
         Ok(InputVeo3 {
             num_outputs: self.num_outputs,
@@ -128,7 +128,7 @@ impl InputVeo3Builder {
             start_image: self.start_image,
             negative_prompt: self.negative_prompt,
             seed: self.seed,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

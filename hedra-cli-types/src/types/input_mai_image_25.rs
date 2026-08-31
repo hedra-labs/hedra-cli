@@ -26,8 +26,9 @@ pub struct InputMaiImage25 {
     /// Output image format.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub output_format: Option<InputMaiImage25OutputFormat>,
-    /// Quality level to generate at.
-    pub quality: InputMaiImage25Quality,
+    /// Quality level to generate at. `standard` — photorealistic generation and editing at the base rate. `pro` — the higher-fidelity tier, for final deliverables that need maximum detail and text rendering.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputMaiImage25Quality>,
 }
 
 impl InputMaiImage25 {
@@ -88,7 +89,6 @@ impl InputMaiImage25Builder {
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMaiImage25Builder::prompt)
     /// - [`aspect_ratio`](InputMaiImage25Builder::aspect_ratio)
-    /// - [`quality`](InputMaiImage25Builder::quality)
     pub fn build(self) -> Result<InputMaiImage25, BuildError> {
         Ok(InputMaiImage25 {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
@@ -97,7 +97,7 @@ impl InputMaiImage25Builder {
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             images: self.images,
             output_format: self.output_format,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }
