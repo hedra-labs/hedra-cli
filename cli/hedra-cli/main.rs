@@ -5,12 +5,24 @@ mod custom;
 mod sdk;
 
 use fern_cli_sdk::app::CliApp;
-use fern_cli_sdk::auth::{BearerAuth};
 use fern_cli_sdk::openapi::OpenApiBinding;
+use fern_cli_sdk::auth::{BearerAuth};
+use fern_cli_sdk::openapi::discovery::{GlobalParameter, GlobalParameterApplyMode, GlobalParameterLocation};
 
 fn main() {
     let app = CliApp::new("hedra-cli")
         .auth(BearerAuth::new("KeyAuth").env("HEDRA_API_KEY"))
+        .global_parameter(GlobalParameter {
+            name: "X-Hedra-Spec-Version".into(),
+            location: GlobalParameterLocation::Header,
+            target: "X-Hedra-Spec-Version".into(),
+            env: None,
+            default: Some("3.13.3".into()),
+            optional: true,
+            apply: GlobalParameterApplyMode::Auto,
+            parameter_name: Some("specVersion".into()),
+            docs: None,
+        })
         .binding(
             OpenApiBinding::new()
                 .spec(include_str!("openapi0.json"))

@@ -18,6 +18,25 @@ cli/hedra-cli/views.rs
 cli/hedra-cli/workspaces.rs
 README.md
 
+# The Apache-2.0 notice for the vendored CLI runtime (ENG-10756). Unlike the
+# unemitted files above, the generator DOES emit this one at the current pin
+# (0.37.0) — the entry is pre-emptive. fern-cli-generator 0.38.6 stopped
+# emitting LICENSE by default, on the rationale that shipping the runtime's
+# Apache-2.0 text contradicts the `license` field `packageIdentity` writes into
+# Cargo.toml. That rationale does not apply here: Cargo.toml:6 declares
+# `license = "Apache-2.0"` and the lib target is the vendored runtime itself
+# (`fern_cli_sdk`, src/lib.rs), so file and manifest AGREE — the bump would
+# remove a correct file, not resolve a contradiction. Measured with an A/B on
+# fern-config's `scripts/probe_sdks.py cli`: LICENSE is deleted at 0.38.8 and
+# not at 0.37.0. Nothing else catches it — `regen-shape` gates only .github/,
+# .fernignore edits and version agreement, never deletions, and no Replay patch
+# owns the path. hedra-python and hedra-node both list it already.
+#
+# Upstream compensates by emitting an Attribution section in the generated
+# README; that cannot reach us because README.md is ignored above, so the
+# section is hand-carried there instead. Both halves are load-bearing.
+LICENSE
+
 # NOTE: src/pager.rs is deliberately NOT listed (ENG-10250). It held a hand-carried
 # `#[serial]` fix for the flaky PAGER env-var tests; at the pinned generator (0.30.2)
 # the emitted file is byte-identical, so the entry only risked silently reverting the
