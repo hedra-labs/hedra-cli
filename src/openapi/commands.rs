@@ -210,6 +210,8 @@ pub fn build_cli(doc: &RestDescription) -> Command {
             &doc.group_operation_counts,
             &doc.tag_group_names,
             &doc.tag_description_order,
+            doc.pagination_token_query_param.is_some()
+                || doc.pagination_token_response_path.is_some(),
         )
         {
             root = root.subcommand(cmd);
@@ -522,6 +524,11 @@ fn build_resource_command(
     group_operation_counts: &HashMap<String, usize>,
     tag_group_names: &HashMap<String, Vec<String>>,
     tag_description_order: &[String],
+    // True when the spec root declares the token query-param /
+    // response-path pair the generic pager falls back on. Passed down rather
+    // than read from the doc because this builder is recursive and never
+    // holds it.
+    doc_has_pagination_defaults: bool,
 ) -> Option<Command> {
     let mut cmd = Command::new(name.to_string())
         .about(group_about_text_for_group(
@@ -651,41 +658,51 @@ fn build_resource_command(
         // Skip fields whose kebab name collides with a builtin flag,
         // matching the regular-param convention above.
         for field in &method.multipart_fields {
-            let kebab = to_kebab_flag(&field.wire_name);
-            if is_reserved_flag_name(&kebab) {
+            if resolve_multipart_field_flag_name(&field.wire_name).is_none() {
                 continue;
             }
             method_cmd = method_cmd.arg(build_multipart_field_arg(field));
         }
 
-        // Pagination flags
+        // Pagination flags — only where the spec actually describes how to
+        // page. Registering them unconditionally advertised `--page-all` on
+        // every list operation of a spec with no pagination metadata at all,
+        // and the executor then fell back to guessing `pageToken` /
+        // `nextPageToken`: one request went out and the command exited 0 with
+        // page 1. Silent partial data is the worst outcome for an agent
+        // consumer, so the flags are hidden where they cannot work — the same
+        // treatment `--no-stream` already gets on non-streaming operations.
+        if method_has_pagination(method, doc_has_pagination_defaults) {
+            method_cmd = method_cmd
+                .arg(
+                    Arg::new("page-all")
+                        .long("page-all")
+                        .help("Auto-paginate through all results (NDJSON)")
+                        .action(clap::ArgAction::SetTrue),
+                )
+                .arg(
+                    Arg::new("page-limit")
+                        .long("page-limit")
+                        .help("Maximum number of pages to fetch (default: 10)")
+                        .value_name("N")
+                        .value_parser(clap::value_parser!(u32)),
+                )
+                .arg(
+                    Arg::new("page-delay")
+                        .long("page-delay")
+                        .help("Delay in milliseconds between page fetches (default: 100)")
+                        .value_name("MS")
+                        .value_parser(clap::value_parser!(u64)),
+                )
+                .arg(
+                    Arg::new("no-pager")
+                        .long("no-pager")
+                        .help("Disable pager even on interactive terminals")
+                        .action(clap::ArgAction::SetTrue),
+                );
+        }
+
         method_cmd = method_cmd
-            .arg(
-                Arg::new("page-all")
-                    .long("page-all")
-                    .help("Auto-paginate through all results (NDJSON)")
-                    .action(clap::ArgAction::SetTrue),
-            )
-            .arg(
-                Arg::new("page-limit")
-                    .long("page-limit")
-                    .help("Maximum number of pages to fetch (default: 10)")
-                    .value_name("N")
-                    .value_parser(clap::value_parser!(u32)),
-            )
-            .arg(
-                Arg::new("page-delay")
-                    .long("page-delay")
-                    .help("Delay in milliseconds between page fetches (default: 100)")
-                    .value_name("MS")
-                    .value_parser(clap::value_parser!(u64)),
-            )
-            .arg(
-                Arg::new("no-pager")
-                    .long("no-pager")
-                    .help("Disable pager even on interactive terminals")
-                    .action(clap::ArgAction::SetTrue),
-            )
             .arg(
                 Arg::new("no-extract")
                     .long("no-extract")
@@ -772,17 +789,11 @@ fn build_resource_command(
             }
             flag_to_wire.insert(kebab_name.clone(), param_name.clone());
 
-            let base_value_name = match param.param_type.as_deref() {
-                Some("string") => "STRING",
-                Some("integer") => "NUMBER",
-                Some("number") => "NUMBER",
-                Some("boolean") => "BOOLEAN",
-                Some("array") => "JSON_ARRAY",
-                Some("object") => "JSON_OBJECT",
-                _ => "VALUE",
-            };
-            // Composite types never set `param.nullable`, so the `|null`
-            // sentinel suffix stays scalar-only without an explicit guard.
+            let base_value_name = value_name_for(param);
+            // A composite only sets `param.nullable` when it came from a
+            // promoted nullable composition (`anyOf: [$ref, null]`), where
+            // the schema genuinely admits `null` — so the sentinel suffix
+            // is accurate for `JSON_OBJECT|null` too.
             let value_name: Cow<'static, str> = if param.nullable {
                 Cow::Owned(format!("{base_value_name}|null"))
             } else {
@@ -891,6 +902,7 @@ fn build_resource_command(
             &HashMap::new(),
             &HashMap::new(),
             &[],
+            doc_has_pagination_defaults,
         )
         {
             has_children = true;
@@ -953,6 +965,19 @@ pub(crate) fn resolve_param_flag_name(param: &MethodParameter, wire_name: &str) 
     Some(flag)
 }
 
+/// Resolve the CLI flag name for a multipart field, replicating what
+/// `build_resource_command` registers. `None` when the kebab name is
+/// reserved by the runtime: the builder skips those args, so no flag
+/// exists and the field is reachable only through `--params`.
+pub(crate) fn resolve_multipart_field_flag_name(wire_name: &str) -> Option<String> {
+    let kebab = to_kebab_flag(wire_name);
+    if is_reserved_flag_name(&kebab) {
+        None
+    } else {
+        Some(kebab)
+    }
+}
+
 /// Whether a parameter-derived flag long name is reserved by the runtime
 /// and therefore must be mangled (`-param` suffix) to avoid a clap
 /// duplicate-flag panic. Covers the always-present built-in flags plus a
@@ -1007,10 +1032,52 @@ fn build_possible_value(wire: &str, cfg: Option<&FernEnumValue>) -> PossibleValu
     pv
 }
 
+/// `--help` value-name placeholder for a parameter.
+///
+/// On a repeated flag `param_type` is the *flag* surface — clap collects
+/// strings — so the spec's real element type lives in `item_type`. Reading
+/// `param_type` here made an array-of-objects flag advertise `<STRING>` while
+/// `--schema` (correctly) said `items: {type: object}` and the collector
+/// decoded objects: three surfaces, two answers. `item_type: None` means
+/// string, so non-array and string-array flags are unchanged.
+fn value_name_for(param: &MethodParameter) -> &'static str {
+    let value_type = if param.repeated {
+        param.item_type.as_deref().or(param.param_type.as_deref())
+    } else {
+        param.param_type.as_deref()
+    };
+    match value_type {
+        Some("string") => "STRING",
+        Some("integer") => "NUMBER",
+        Some("number") => "NUMBER",
+        Some("boolean") => "BOOLEAN",
+        Some("array") => "JSON_ARRAY",
+        Some("object") => "JSON_OBJECT",
+        _ => "VALUE",
+    }
+}
+
+/// True when the spec says enough for `--page-all` to actually work on this
+/// operation: either the operation carries a resolved `x-fern-pagination`
+/// block, or the spec root declares the token query-parameter / response-path
+/// pair the executor's generic pager uses.
+///
+/// When all three are absent the executor still *runs* — it falls back to
+/// guessing `pageToken` / `nextPageToken` — which is why the flags could not
+/// be left registered: on a spec using any other convention the guess never
+/// matches, so a single page comes back and the command exits 0.
+fn method_has_pagination(
+    method: &crate::openapi::discovery::RestMethod,
+    doc_has_pagination_defaults: bool,
+) -> bool {
+    method.pagination.is_some() || doc_has_pagination_defaults
+}
+
 /// Build a `clap::Arg` for a single [`MultipartField`]. File fields
 /// accept a path (`<PATH>` / `@<PATH>` / `-` for stdin), or a `\@<REST>`
 /// escape that sends the literal text `@<REST>` as the part value;
-/// text fields accept a plain string value.
+/// text fields accept a plain string value. Array-typed fields are
+/// repeatable — each occurrence becomes its own same-named part.
 fn build_multipart_field_arg(field: &MultipartField) -> Arg {
     let kebab = to_kebab_flag(&field.wire_name);
     let (value_name, help_prefix) = if field.is_file {
@@ -1050,6 +1117,10 @@ fn build_multipart_field_arg(field: &MultipartField) -> Arg {
         .help(help_text.clone());
     if long_help_text != help_text {
         arg = arg.long_help(long_help_text);
+    }
+
+    if field.repeated {
+        arg = arg.action(clap::ArgAction::Append);
     }
 
     if field.required {
@@ -3252,6 +3323,7 @@ paths:
             ),
             required: false,
             content_type: None,
+            repeated: false,
         };
         let arg = build_multipart_field_arg(&field);
         let short = arg.get_help().expect("short help missing").to_string();
@@ -3264,6 +3336,80 @@ paths:
         assert!(
             long.ends_with("Each keyterm must be under 50 characters."),
             "long help should keep the pricing/constraint clauses; got: {long}",
+        );
+    }
+
+    #[test]
+    fn test_repeated_flag_value_name_uses_the_element_type() {
+        // An array-of-objects flag advertised `<STRING>` in `--help` while
+        // `--schema` said `items: {type: object}` and the collector decoded
+        // objects — three surfaces, two answers.
+        use crate::openapi::discovery::MethodParameter;
+        let objects = MethodParameter {
+            param_type: Some("string".to_string()),
+            item_type: Some("object".to_string()),
+            repeated: true,
+            location: Some("body".to_string()),
+            ..Default::default()
+        };
+        let strings = MethodParameter {
+            param_type: Some("string".to_string()),
+            repeated: true,
+            location: Some("body".to_string()),
+            ..Default::default()
+        };
+        assert_eq!(value_name_for(&objects), "JSON_OBJECT");
+        // `item_type: None` means string — unchanged from before.
+        assert_eq!(value_name_for(&strings), "STRING");
+    }
+
+    #[test]
+    fn test_pagination_flags_hidden_without_metadata() {
+        // `--page-all` was advertised on every operation. On a spec with no
+        // pagination metadata the executor fell back to guessing `pageToken` /
+        // `nextPageToken`, so the guess never matched, one request went out,
+        // and the command exited 0 with page 1 — silent partial data.
+        let method = crate::openapi::discovery::RestMethod::default();
+        assert!(
+            !method_has_pagination(&method, false),
+            "no per-op config and no spec-root defaults means no pager",
+        );
+        // Spec-root token config is enough — the generic pager can use it.
+        assert!(method_has_pagination(&method, true));
+    }
+
+    #[test]
+    fn test_pagination_flags_shown_with_per_op_config() {
+        // A resolved `x-fern-pagination` block on the operation is the other
+        // way the pager becomes usable, independent of spec-root defaults.
+        let method = crate::openapi::discovery::RestMethod {
+            pagination: Some(crate::openapi::discovery::PaginationConfig::Cursor {
+                cursor: "cursor".to_string(),
+                next_cursor: "next_cursor".to_string(),
+                results: "items".to_string(),
+            }),
+            ..Default::default()
+        };
+        assert!(method_has_pagination(&method, false));
+    }
+
+    #[test]
+    fn test_multipart_array_field_flag_is_repeatable() {
+        // The reported error was `the argument '--files <PATH|...>' cannot be
+        // used multiple times`, which made multi-sample uploads unreachable.
+        let field = crate::openapi::discovery::MultipartField {
+            wire_name: "files".to_string(),
+            is_file: true,
+            description: None,
+            required: false,
+            content_type: None,
+            repeated: true,
+        };
+        let arg = build_multipart_field_arg(&field);
+        assert!(
+            matches!(arg.get_action(), clap::ArgAction::Append),
+            "array multipart field must append, got {:?}",
+            arg.get_action(),
         );
     }
 
@@ -3284,6 +3430,7 @@ paths:
                         description: Some("Collides with builtin --format".to_string()),
                         required: false,
                         content_type: None,
+                        repeated: false,
                     },
                     MultipartField {
                         wire_name: "output".to_string(),
@@ -3291,6 +3438,7 @@ paths:
                         description: Some("Collides with builtin --output".to_string()),
                         required: false,
                         content_type: None,
+                        repeated: false,
                     },
                     MultipartField {
                         wire_name: "file".to_string(),
@@ -3298,6 +3446,7 @@ paths:
                         description: Some("No collision".to_string()),
                         required: true,
                         content_type: Some("application/octet-stream".to_string()),
+                        repeated: false,
                     },
                 ],
                 ..Default::default()

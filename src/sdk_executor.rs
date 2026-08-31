@@ -90,24 +90,6 @@ impl CliExecutor {
         let client = http_config
             .build_client()
             .expect("HttpConfig::build_client failed");
-        // ENG-10226 (patched post-generation; delete when ENG-10234 lands
-        // upstream): `HttpClient::with_executor` skips `apply_custom_headers`
-        // by contract — the executor's transport stack owns those headers — so
-        // the SDK's identity trio must be re-supplied on the global-header
-        // channel that does reach the wire. Entries the caller already
-        // supplies win over the SDK defaults.
-        let mut global_headers = global_headers;
-        let mut identity: Vec<(String, String)> = hedra_cli_sdk::ClientConfig::default()
-            .custom_headers
-            .into_iter()
-            .filter(|(name, _)| {
-                !global_headers
-                    .iter()
-                    .any(|(have, _)| have.eq_ignore_ascii_case(name))
-            })
-            .collect();
-        identity.sort();
-        global_headers.extend(identity);
         Self {
             client,
             auth_provider,
@@ -166,6 +148,18 @@ impl CliExecutor {
 
         let http_method_str = method.as_str().to_uppercase();
 
+        // Retry-safety for a non-idempotent verb hinges on the request
+        // actually carrying an `Idempotency-Key`, not on it being an SDK
+        // request. This used to pass a hardcoded `true`, which made every
+        // custom-command POST retry as if it were idempotent — a 5xx on a
+        // create could duplicate the resource. The header is the only signal
+        // available here (the executor is handed a built `Request` and knows
+        // nothing about the operation), and it is the right one: a key that
+        // is present is a key the caller intends the server to dedupe on.
+        let carries_idempotency_key = headers
+            .keys()
+            .any(|name| name.as_str().eq_ignore_ascii_case("idempotency-key"));
+
         // Borrowed views for the debug dump; `Vec<String>` -> `&[&str]`.
         let sensitive: Vec<&str> = self.sensitive_headers.iter().map(String::as_str).collect();
 
@@ -219,7 +213,7 @@ impl CliExecutor {
                         &outcome,
                         &self.retries,
                         &http_method_str,
-                        true, // SDK requests are treated as idempotent
+                        carries_idempotency_key,
                         false,
                     ) {
                         retry_attempt += 1;
@@ -238,7 +232,7 @@ impl CliExecutor {
                         &outcome,
                         &self.retries,
                         &http_method_str,
-                        true,
+                        carries_idempotency_key,
                         false,
                     ) {
                         retry_attempt += 1;

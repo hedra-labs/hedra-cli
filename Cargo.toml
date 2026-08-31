@@ -1,6 +1,6 @@
 [package]
 name = "hedra-cli"
-version = "4.0.0"
+version = "4.0.1-dev"
 edition = "2021"
 description = "Command-line interface for the Hedra Web API — API spec 3.13.3"
 license = "Apache-2.0"
