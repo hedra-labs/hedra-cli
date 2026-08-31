@@ -5,8 +5,8 @@ mod custom;
 mod sdk;
 
 use fern_cli_sdk::app::CliApp;
-use fern_cli_sdk::auth::{BearerAuth};
 use fern_cli_sdk::openapi::OpenApiBinding;
+use fern_cli_sdk::auth::{BearerAuth};
 use fern_cli_sdk::openapi::discovery::{GlobalParameter, GlobalParameterApplyMode, GlobalParameterLocation};
 
 fn main() {
