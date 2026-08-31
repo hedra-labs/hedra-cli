@@ -16,7 +16,7 @@ pub struct InputOmnihuman15 {
     pub aspect_ratio: Option<InputOmnihuman15AspectRatio>,
     /// Output resolution.
     pub resolution: InputOmnihuman15Resolution,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     pub start_image: InputOmnihuman15StartImage,
     /// Driving audio. At most 59.88s and at most 104.8 MB.
     pub audio: InputOmnihuman15Audio,

@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `standard` — the base tier. `prime` — Wan's higher-fidelity tier over the same options, for final output.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputWan30Quality {

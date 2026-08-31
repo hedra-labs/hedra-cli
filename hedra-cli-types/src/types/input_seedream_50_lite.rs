@@ -22,6 +22,9 @@ pub struct InputSeedream50Lite {
     pub aspect_ratio: InputSeedream50LiteAspectRatio,
     /// Output resolution.
     pub resolution: InputSeedream50LiteResolution,
+    /// Output image format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<InputSeedream50LiteOutputFormat>,
     /// Images to edit or blend. 1 to 14 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputSeedream50LiteImagesItem>>,
@@ -41,6 +44,7 @@ pub struct InputSeedream50LiteBuilder {
     enhance_prompt: Option<bool>,
     aspect_ratio: Option<InputSeedream50LiteAspectRatio>,
     resolution: Option<InputSeedream50LiteResolution>,
+    output_format: Option<InputSeedream50LiteOutputFormat>,
     images: Option<Vec<InputSeedream50LiteImagesItem>>,
 }
 
@@ -70,6 +74,11 @@ impl InputSeedream50LiteBuilder {
         self
     }
 
+    pub fn output_format(mut self, value: InputSeedream50LiteOutputFormat) -> Self {
+        self.output_format = Some(value);
+        self
+    }
+
     pub fn images(mut self, value: Vec<InputSeedream50LiteImagesItem>) -> Self {
         self.images = Some(value);
         self
@@ -87,6 +96,7 @@ impl InputSeedream50LiteBuilder {
             enhance_prompt: self.enhance_prompt,
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
+            output_format: self.output_format,
             images: self.images,
         })
     }

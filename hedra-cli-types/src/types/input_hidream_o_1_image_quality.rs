@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `standard` — the full model, at 50 denoising steps. `dev` — HiDream's distilled checkpoint, at 28 denoising steps instead of 50 — quicker and cheaper for the same prompt.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputHidreamO1ImageQuality {

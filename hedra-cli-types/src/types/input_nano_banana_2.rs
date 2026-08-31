@@ -14,7 +14,7 @@ pub struct InputNanoBanana2 {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// Output aspect ratio.
+    /// Output aspect ratio. 'adaptive' lets the model size the output itself — matching the source image when you pass one.
     pub aspect_ratio: InputNanoBanana2AspectRatio,
     /// Output resolution.
     pub resolution: InputNanoBanana2Resolution,
@@ -24,6 +24,15 @@ pub struct InputNanoBanana2 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
+    /// Ground the generation in live Google Search results, so a prompt about current events or real-world specifics draws on what the web says now. Grounded generations cost more than ungrounded ones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_search: Option<bool>,
+    /// Let the grounding search return images as well as text, so the model sees what it found rather than only reading about it. Turning this on grounds the generation whether or not google_search is also set.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub image_search: Option<bool>,
+    /// How much the model plans before it draws. Omit for the model's own default ('minimal'); 'high' reasons further at the cost of latency.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub thinking_level: Option<InputNanoBanana2ThinkingLevel>,
 }
 
 impl InputNanoBanana2 {
@@ -42,6 +51,9 @@ pub struct InputNanoBanana2Builder {
     resolution: Option<InputNanoBanana2Resolution>,
     images: Option<Vec<InputNanoBanana2ImagesItem>>,
     seed: Option<i64>,
+    google_search: Option<bool>,
+    image_search: Option<bool>,
+    thinking_level: Option<InputNanoBanana2ThinkingLevel>,
 }
 
 impl InputNanoBanana2Builder {
@@ -80,6 +92,21 @@ impl InputNanoBanana2Builder {
         self
     }
 
+    pub fn google_search(mut self, value: bool) -> Self {
+        self.google_search = Some(value);
+        self
+    }
+
+    pub fn image_search(mut self, value: bool) -> Self {
+        self.image_search = Some(value);
+        self
+    }
+
+    pub fn thinking_level(mut self, value: InputNanoBanana2ThinkingLevel) -> Self {
+        self.thinking_level = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputNanoBanana2`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputNanoBanana2Builder::prompt)
@@ -94,6 +121,9 @@ impl InputNanoBanana2Builder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             images: self.images,
             seed: self.seed,
+            google_search: self.google_search,
+            image_search: self.image_search,
+            thinking_level: self.thinking_level,
         })
     }
 }

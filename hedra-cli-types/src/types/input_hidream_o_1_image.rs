@@ -40,8 +40,9 @@ pub struct InputHidreamO1Image {
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputHidreamO1ImageResolution>,
-    /// Quality level to generate at.
-    pub quality: InputHidreamO1ImageQuality,
+    /// Quality level to generate at. `standard` — the full model, at 50 denoising steps. `dev` — HiDream's distilled checkpoint, at 28 denoising steps instead of 50 — quicker and cheaper for the same prompt.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputHidreamO1ImageQuality>,
 }
 
 impl InputHidreamO1Image {
@@ -126,7 +127,6 @@ impl InputHidreamO1ImageBuilder {
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputHidreamO1ImageBuilder::prompt)
     /// - [`aspect_ratio`](InputHidreamO1ImageBuilder::aspect_ratio)
-    /// - [`quality`](InputHidreamO1ImageBuilder::quality)
     pub fn build(self) -> Result<InputHidreamO1Image, BuildError> {
         Ok(InputHidreamO1Image {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
@@ -139,7 +139,7 @@ impl InputHidreamO1ImageBuilder {
             guidance_scale: self.guidance_scale,
             num_inference_steps: self.num_inference_steps,
             resolution: self.resolution,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

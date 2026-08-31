@@ -11,7 +11,7 @@ use super::*;
 /// (4) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, end_image; accepts quality: standard; resolution: 768p
 /// (5) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio; accepts quality: standard; resolution: 768p
 /// (6) requires: duration_ms, prompt; must omit: end_image, start_image; accepts quality: standard; resolution: 768p
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputMinimaxHailuo02 {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -25,17 +25,18 @@ pub struct InputMinimaxHailuo02 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). The output video follows this image's aspect ratio. At most 20 MB.
+    /// Start frame. The output video follows this image's aspect ratio. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxHailuo02StartImage>,
-    /// End frame (first-last-frame-to-video). At most 20 MB.
+    /// End frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxHailuo02EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxHailuo02AspectRatio>,
-    /// Quality level to generate at.
-    pub quality: InputMinimaxHailuo02Quality,
+    /// Quality level to generate at. `standard` — 768p, for everyday motion. `pro` — 1080p, with smoother motion and sharper detail.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputMinimaxHailuo02Quality>,
 }
 
 impl InputMinimaxHailuo02 {
@@ -102,7 +103,6 @@ impl InputMinimaxHailuo02Builder {
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMinimaxHailuo02Builder::prompt)
     /// - [`duration_ms`](InputMinimaxHailuo02Builder::duration_ms)
-    /// - [`quality`](InputMinimaxHailuo02Builder::quality)
     pub fn build(self) -> Result<InputMinimaxHailuo02, BuildError> {
         Ok(InputMinimaxHailuo02 {
             num_outputs: self.num_outputs,
@@ -112,7 +112,7 @@ impl InputMinimaxHailuo02Builder {
             start_image: self.start_image,
             end_image: self.end_image,
             aspect_ratio: self.aspect_ratio,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

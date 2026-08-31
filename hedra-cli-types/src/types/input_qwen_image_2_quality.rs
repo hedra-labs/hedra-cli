@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `standard` — tuned for speed, for rapid iteration. `pro` — the higher-fidelity tier, for fine detail and in-image text accuracy.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputQwenImage2Quality {

@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Output resolution.
+/// Accepted and ignored. gemini-2.5-flash-image takes no `image_size` argument — the aspect ratio alone decides the output geometry — so this value never reaches the provider and never changes the price. It stays on the contract because requests already send it.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputNanoBananaResolution {

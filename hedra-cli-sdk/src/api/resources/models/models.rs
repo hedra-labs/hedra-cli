@@ -46,7 +46,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client
@@ -86,7 +86,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client
@@ -134,7 +134,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client
@@ -186,7 +186,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client
@@ -195,6 +195,77 @@ impl ModelsClient {
                 &format!("models/{}/voices", model),
                 None,
                 None,
+                options,
+            )
+            .await
+    }
+
+    /// The voices this model accepts, ranked against a description — the whole shared library, including the voices the listing does not return.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model's public id (`GET /v3/models`).
+    /// * `q` - What the voice should sound like, in plain words — "warm british narrator", "energetic young announcer". Matched against the whole library for this model's provider, not just the voices `GET /v3/models/{model}/voices` returns.
+    /// * `limit` - Maximum voices to return. Applies to the whole response.
+    /// * `gender` - Only voices curated with this gender.
+    /// * `language` - Only voices curated for this language, as an ISO 639-1 two-letter code (`en`, `es`, `fr`).
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .models
+    ///         .search_voices(
+    ///             &"model".to_string(),
+    ///             &SearchVoicesQueryRequest {
+    ///                 q: "q".to_string(),
+    ///                 limit: None,
+    ///                 gender: None,
+    ///                 language: None,
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
+    pub async fn search_voices(
+        &self,
+        model: &str,
+        request: &SearchVoicesQueryRequest,
+        options: Option<RequestOptions>,
+    ) -> Result<VoiceListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.15.5".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::GET,
+                &format!("models/{}/voices/search", model),
+                None,
+                QueryBuilder::new()
+                    .string("q", request.q.clone())
+                    .int("limit", request.limit.clone())
+                    .serialize("gender", request.gender.clone())
+                    .serialize("language", request.language.clone())
+                    .build(),
                 options,
             )
             .await
@@ -235,7 +306,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client
@@ -283,7 +354,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.13.3".to_string());
+                .or_insert_with(|| "3.15.5".to_string());
             Some(o)
         };
         self.http_client

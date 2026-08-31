@@ -26,7 +26,7 @@ pub struct InputKling26Pro {
     /// Whether to generate native audio for the video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub generate_audio: Option<bool>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKling26ProStartImage>,
     /// What to avoid in the generated video. At most 2500 characters.

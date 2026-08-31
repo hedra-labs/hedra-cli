@@ -16,7 +16,7 @@ pub struct InputNanoBanana {
     pub enhance_prompt: Option<bool>,
     /// Output aspect ratio.
     pub aspect_ratio: InputNanoBananaAspectRatio,
-    /// Output resolution.
+    /// Accepted and ignored. gemini-2.5-flash-image takes no `image_size` argument — the aspect ratio alone decides the output geometry — so this value never reaches the provider and never changes the price. It stays on the contract because requests already send it.
     pub resolution: InputNanoBananaResolution,
     /// Images to edit or blend. 1 to 3 images, each at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]

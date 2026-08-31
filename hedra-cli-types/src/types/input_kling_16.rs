@@ -24,7 +24,7 @@ pub struct InputKling16 {
     /// Duration in ms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKling16StartImage>,
     /// What to avoid in the generated video. At most 2500 characters.

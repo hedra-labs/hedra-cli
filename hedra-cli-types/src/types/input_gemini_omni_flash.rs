@@ -19,10 +19,10 @@ pub struct InputGeminiOmniFlash {
     /// Duration in ms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputGeminiOmniFlashStartImage>,
-    /// Source video (video-to-video). From 1s to 10s and at most 524.2 MB.
+    /// Source video. From 1s to 10s and at most 524.2 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_video: Option<InputGeminiOmniFlashSourceVideo>,
     /// Reference images. 1 to 10 images, each at most 10.4 MB.

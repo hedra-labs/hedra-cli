@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `standard` — photorealistic generation and editing at the base rate. `pro` — the higher-fidelity tier, for final deliverables that need maximum detail and text rendering.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputMaiImage25Quality {

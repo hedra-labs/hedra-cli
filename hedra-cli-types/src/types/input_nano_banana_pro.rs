@@ -14,7 +14,7 @@ pub struct InputNanoBananaPro {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// Output aspect ratio.
+    /// Output aspect ratio. 'adaptive' lets the model size the output itself — matching the source image when you pass one.
     pub aspect_ratio: InputNanoBananaProAspectRatio,
     /// Output resolution.
     pub resolution: InputNanoBananaProResolution,
@@ -24,6 +24,9 @@ pub struct InputNanoBananaPro {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
+    /// Ground the generation in live Google Search results, so a prompt about current events or real-world specifics draws on what the web says now. Grounded generations cost more than ungrounded ones.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub google_search: Option<bool>,
 }
 
 impl InputNanoBananaPro {
@@ -42,6 +45,7 @@ pub struct InputNanoBananaProBuilder {
     resolution: Option<InputNanoBananaProResolution>,
     images: Option<Vec<InputNanoBananaProImagesItem>>,
     seed: Option<i64>,
+    google_search: Option<bool>,
 }
 
 impl InputNanoBananaProBuilder {
@@ -80,6 +84,11 @@ impl InputNanoBananaProBuilder {
         self
     }
 
+    pub fn google_search(mut self, value: bool) -> Self {
+        self.google_search = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputNanoBananaPro`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputNanoBananaProBuilder::prompt)
@@ -94,6 +103,7 @@ impl InputNanoBananaProBuilder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             images: self.images,
             seed: self.seed,
+            google_search: self.google_search,
         })
     }
 }

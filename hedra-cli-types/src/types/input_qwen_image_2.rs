@@ -34,8 +34,9 @@ pub struct InputQwenImage2 {
     /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Quality level to generate at.
-    pub quality: InputQwenImage2Quality,
+    /// Quality level to generate at. `standard` — tuned for speed, for rapid iteration. `pro` — the higher-fidelity tier, for fine detail and in-image text accuracy.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputQwenImage2Quality>,
 }
 
 impl InputQwenImage2 {
@@ -115,7 +116,6 @@ impl InputQwenImage2Builder {
     /// - [`prompt`](InputQwenImage2Builder::prompt)
     /// - [`aspect_ratio`](InputQwenImage2Builder::aspect_ratio)
     /// - [`resolution`](InputQwenImage2Builder::resolution)
-    /// - [`quality`](InputQwenImage2Builder::quality)
     pub fn build(self) -> Result<InputQwenImage2, BuildError> {
         Ok(InputQwenImage2 {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
@@ -127,7 +127,7 @@ impl InputQwenImage2Builder {
             negative_prompt: self.negative_prompt,
             images: self.images,
             seed: self.seed,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

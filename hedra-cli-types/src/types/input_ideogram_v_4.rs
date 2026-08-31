@@ -24,8 +24,9 @@ pub struct InputIdeogramV4 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Quality level to generate at.
-    pub quality: InputIdeogramV4Quality,
+    /// Quality level to generate at. `turbo` — the least rendering effort, for quick exploration. `balanced` — middle rendering effort, the everyday choice. `quality` — the most rendering effort, for poster-ready text and layout.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputIdeogramV4Quality>,
 }
 
 impl InputIdeogramV4 {
@@ -93,7 +94,6 @@ impl InputIdeogramV4Builder {
     /// - [`prompt`](InputIdeogramV4Builder::prompt)
     /// - [`aspect_ratio`](InputIdeogramV4Builder::aspect_ratio)
     /// - [`resolution`](InputIdeogramV4Builder::resolution)
-    /// - [`quality`](InputIdeogramV4Builder::quality)
     pub fn build(self) -> Result<InputIdeogramV4, BuildError> {
         Ok(InputIdeogramV4 {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
@@ -103,7 +103,7 @@ impl InputIdeogramV4Builder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             output_format: self.output_format,
             seed: self.seed,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

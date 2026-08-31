@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `turbo` — the least rendering effort, for quick exploration. `balanced` — middle rendering effort, the everyday choice. `quality` — the most rendering effort, for poster-ready text and layout.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputIdeogramV4Quality {

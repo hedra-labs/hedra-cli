@@ -24,13 +24,13 @@ pub struct InputVeo31 {
     /// What to avoid in the generated video.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// Start frame (image-to-video). At most 20 MB.
+    /// Start frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputVeo31StartImage>,
-    /// End frame (first-last-frame-to-video). At most 20 MB.
+    /// End frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputVeo31EndImage>,
-    /// Source video (video-to-video). From 1s to 30s and at most 524.2 MB.
+    /// Source video. From 1s to 30s and at most 524.2 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub source_video: Option<InputVeo31SourceVideo>,
     /// Reference images. 1 to 3 images, each at most 20 MB.
@@ -39,8 +39,9 @@ pub struct InputVeo31 {
     /// Seed for reproducible output; omit for a random seed. From 0 to 4294967295.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Quality level to generate at.
-    pub quality: InputVeo31Quality,
+    /// Quality level to generate at. `standard` — the full model, for maximum detail and nuance. `fast` — the same model tuned for turnaround, at a lower rate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputVeo31Quality>,
 }
 
 impl InputVeo31 {
@@ -138,7 +139,6 @@ impl InputVeo31Builder {
     /// - [`prompt`](InputVeo31Builder::prompt)
     /// - [`aspect_ratio`](InputVeo31Builder::aspect_ratio)
     /// - [`resolution`](InputVeo31Builder::resolution)
-    /// - [`quality`](InputVeo31Builder::quality)
     pub fn build(self) -> Result<InputVeo31, BuildError> {
         Ok(InputVeo31 {
             num_outputs: self.num_outputs,
@@ -153,7 +153,7 @@ impl InputVeo31Builder {
             source_video: self.source_video,
             images: self.images,
             seed: self.seed,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

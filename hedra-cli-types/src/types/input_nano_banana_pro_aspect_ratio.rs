@@ -2,10 +2,11 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Output aspect ratio.
+/// Output aspect ratio. 'adaptive' lets the model size the output itself — matching the source image when you pass one.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputNanoBananaProAspectRatio {
+    Adaptive,
     Sixteen9,
     Nine16,
     One1,
@@ -24,6 +25,7 @@ pub enum InputNanoBananaProAspectRatio {
 impl Serialize for InputNanoBananaProAspectRatio {
     fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
         match self {
+            Self::Adaptive => serializer.serialize_str("adaptive"),
             Self::Sixteen9 => serializer.serialize_str("16:9"),
             Self::Nine16 => serializer.serialize_str("9:16"),
             Self::One1 => serializer.serialize_str("1:1"),
@@ -43,6 +45,7 @@ impl<'de> Deserialize<'de> for InputNanoBananaProAspectRatio {
     fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
         let value = String::deserialize(deserializer)?;
         match value.as_str() {
+            "adaptive" => Ok(Self::Adaptive),
             "16:9" => Ok(Self::Sixteen9),
             "9:16" => Ok(Self::Nine16),
             "1:1" => Ok(Self::One1),
@@ -61,6 +64,7 @@ impl<'de> Deserialize<'de> for InputNanoBananaProAspectRatio {
 impl fmt::Display for InputNanoBananaProAspectRatio {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            Self::Adaptive => write!(f, "adaptive"),
             Self::Sixteen9 => write!(f, "16:9"),
             Self::Nine16 => write!(f, "9:16"),
             Self::One1 => write!(f, "1:1"),

@@ -27,14 +27,15 @@ pub struct InputLtx23 {
     pub duration_ms: i64,
     /// Output aspect ratio.
     pub aspect_ratio: InputLtx23AspectRatio,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputLtx23StartImage>,
-    /// End frame (first-last-frame-to-video). At most 10.4 MB.
+    /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputLtx23EndImage>,
-    /// Quality level to generate at.
-    pub quality: InputLtx23Quality,
+    /// Quality level to generate at. `fast` — tuned for turnaround, for iteration. `pro` — the higher-fidelity tier, for final output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputLtx23Quality>,
 }
 
 impl InputLtx23 {
@@ -109,7 +110,6 @@ impl InputLtx23Builder {
     /// - [`resolution`](InputLtx23Builder::resolution)
     /// - [`duration_ms`](InputLtx23Builder::duration_ms)
     /// - [`aspect_ratio`](InputLtx23Builder::aspect_ratio)
-    /// - [`quality`](InputLtx23Builder::quality)
     pub fn build(self) -> Result<InputLtx23, BuildError> {
         Ok(InputLtx23 {
             num_outputs: self.num_outputs,
@@ -120,7 +120,7 @@ impl InputLtx23Builder {
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             start_image: self.start_image,
             end_image: self.end_image,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

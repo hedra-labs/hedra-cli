@@ -16,12 +16,13 @@ pub struct InputKlingAiAvatarV2 {
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputKlingAiAvatarV2Resolution>,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     pub start_image: InputKlingAiAvatarV2StartImage,
     /// Driving audio. From 2s to 60s and at most 5 MB.
     pub audio: InputKlingAiAvatarV2Audio,
-    /// Quality level to generate at.
-    pub quality: InputKlingAiAvatarV2Quality,
+    /// Quality level to generate at. `standard` — the base tier. `pro` — sharper detail and steadier motion at the same resolution, at a higher rate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputKlingAiAvatarV2Quality>,
 }
 
 impl InputKlingAiAvatarV2 {
@@ -83,7 +84,6 @@ impl InputKlingAiAvatarV2Builder {
     /// - [`aspect_ratio`](InputKlingAiAvatarV2Builder::aspect_ratio)
     /// - [`start_image`](InputKlingAiAvatarV2Builder::start_image)
     /// - [`audio`](InputKlingAiAvatarV2Builder::audio)
-    /// - [`quality`](InputKlingAiAvatarV2Builder::quality)
     pub fn build(self) -> Result<InputKlingAiAvatarV2, BuildError> {
         Ok(InputKlingAiAvatarV2 {
             num_outputs: self.num_outputs,
@@ -92,7 +92,7 @@ impl InputKlingAiAvatarV2Builder {
             resolution: self.resolution,
             start_image: self.start_image.ok_or_else(|| BuildError::missing_field("start_image"))?,
             audio: self.audio.ok_or_else(|| BuildError::missing_field("audio"))?,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

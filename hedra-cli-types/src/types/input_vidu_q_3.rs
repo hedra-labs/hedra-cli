@@ -24,17 +24,18 @@ pub struct InputViduQ3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame (image-to-video). At most 10.4 MB.
+    /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputViduQ3StartImage>,
-    /// End frame (first-last-frame-to-video). At most 10.4 MB.
+    /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputViduQ3EndImage>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputViduQ3AspectRatio>,
-    /// Quality level to generate at.
-    pub quality: InputViduQ3Quality,
+    /// Quality level to generate at. `standard` — the full model. `turbo` — the same options tuned for turnaround, at a lower rate.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputViduQ3Quality>,
 }
 
 impl InputViduQ3 {
@@ -108,7 +109,6 @@ impl InputViduQ3Builder {
     /// - [`prompt`](InputViduQ3Builder::prompt)
     /// - [`resolution`](InputViduQ3Builder::resolution)
     /// - [`duration_ms`](InputViduQ3Builder::duration_ms)
-    /// - [`quality`](InputViduQ3Builder::quality)
     pub fn build(self) -> Result<InputViduQ3, BuildError> {
         Ok(InputViduQ3 {
             num_outputs: self.num_outputs,
@@ -119,7 +119,7 @@ impl InputViduQ3Builder {
             start_image: self.start_image,
             end_image: self.end_image,
             aspect_ratio: self.aspect_ratio,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

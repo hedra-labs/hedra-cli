@@ -29,10 +29,10 @@ pub struct InputWan30 {
     /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
-    /// Start frame (image-to-video). At most 20 MB.
+    /// Start frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputWan30StartImage>,
-    /// End frame (first-last-frame-to-video). At most 20 MB.
+    /// End frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputWan30EndImage>,
     /// Reference images. 1 to 10 images, each at most 20 MB.
@@ -44,8 +44,9 @@ pub struct InputWan30 {
     /// Reference audios. 1 to 5 audio files, each at most 15s and at most 104.8 MB, at most 15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputWan30AudiosItem>>,
-    /// Quality level to generate at.
-    pub quality: InputWan30Quality,
+    /// Quality level to generate at. `standard` — the base tier. `prime` — Wan's higher-fidelity tier over the same options, for final output.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub quality: Option<InputWan30Quality>,
 }
 
 impl InputWan30 {
@@ -144,7 +145,6 @@ impl InputWan30Builder {
     /// - [`aspect_ratio`](InputWan30Builder::aspect_ratio)
     /// - [`resolution`](InputWan30Builder::resolution)
     /// - [`duration_ms`](InputWan30Builder::duration_ms)
-    /// - [`quality`](InputWan30Builder::quality)
     pub fn build(self) -> Result<InputWan30, BuildError> {
         Ok(InputWan30 {
             num_outputs: self.num_outputs,
@@ -159,7 +159,7 @@ impl InputWan30Builder {
             images: self.images,
             videos: self.videos,
             audios: self.audios,
-            quality: self.quality.ok_or_else(|| BuildError::missing_field("quality"))?,
+            quality: self.quality,
         })
     }
 }

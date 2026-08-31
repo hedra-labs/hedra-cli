@@ -24,7 +24,7 @@ pub struct InputVeo2 {
     /// Duration in ms.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub duration_ms: Option<i64>,
-    /// Start frame (image-to-video). At most 8 MB.
+    /// Start frame. At most 8 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputVeo2StartImage>,
     /// What to avoid in the generated video.

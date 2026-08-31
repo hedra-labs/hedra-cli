@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at.
+/// Quality level to generate at. `low` — the quickest and cheapest pass, for drafts, thumbnails, and rapid exploration. `medium` — balanced cost and fidelity, for everyday work and iterative refinement. `high` — the most rendering effort, for final deliverables and text-heavy designs.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputGptImage2Quality {
