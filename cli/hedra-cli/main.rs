@@ -17,7 +17,7 @@ fn main() {
             location: GlobalParameterLocation::Header,
             target: "X-Hedra-Spec-Version".into(),
             env: None,
-            default: Some("3.15.5".into()),
+            default: Some("3.16.0".into()),
             optional: true,
             apply: GlobalParameterApplyMode::Auto,
             parameter_name: Some("specVersion".into()),
