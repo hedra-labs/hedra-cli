@@ -6,7 +6,7 @@
 //! ## Type Categories
 //!
 //! - **Request/Response Types**: 132 types for API operations
-//! - **Model Types**: 445 types for data representation
+//! - **Model Types**: 444 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -286,7 +286,6 @@ pub mod input_minimax_h_3_aspect_ratio;
 pub mod input_minimax_h_3_images_item;
 pub mod input_minimax_h_3_videos_item;
 pub mod input_minimax_h_3_audios_item;
-pub mod input_minimax_h_3_quality;
 pub mod input_minimax_h_3;
 pub mod input_minimax_hailuo_02_resolution;
 pub mod input_minimax_hailuo_02_start_image;
@@ -864,7 +863,6 @@ pub use input_minimax_h_3_aspect_ratio::InputMinimaxH3AspectRatio;
 pub use input_minimax_h_3_images_item::InputMinimaxH3ImagesItem;
 pub use input_minimax_h_3_videos_item::InputMinimaxH3VideosItem;
 pub use input_minimax_h_3_audios_item::InputMinimaxH3AudiosItem;
-pub use input_minimax_h_3_quality::InputMinimaxH3Quality;
 pub use input_minimax_h_3::InputMinimaxH3;
 pub use input_minimax_hailuo_02_resolution::InputMinimaxHailuo02Resolution;
 pub use input_minimax_hailuo_02_start_image::InputMinimaxHailuo02StartImage;

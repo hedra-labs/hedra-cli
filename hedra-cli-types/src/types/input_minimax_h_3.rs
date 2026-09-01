@@ -5,13 +5,10 @@ use super::*;
 /// Model-specific inputs for `minimax-h3`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, audios, end_image, images, videos; accepts quality: standard
-/// (2) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio, audios, images, videos; accepts quality: standard
-/// (3) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image; accepts quality: standard
-/// (4) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, audios, end_image, images, videos; accepts quality: max; resolution: 480p | 768p
-/// (5) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio, audios, images, videos; accepts quality: max; resolution: 480p | 768p
-/// (6) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: audios, end_image, images, start_image, videos; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16; quality: max; resolution: 480p | 768p
-/// (7) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: audios, end_image, images, start_image, videos; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16; quality: standard
+/// (1) requires: duration_ms, prompt, resolution, start_image; must omit: aspect_ratio, audios, end_image, images, videos
+/// (2) requires: duration_ms, end_image, prompt, resolution, start_image; must omit: aspect_ratio, audios, images, videos
+/// (3) requires: aspect_ratio, duration_ms, images, prompt, resolution; must omit: end_image, start_image
+/// (4) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: audios, end_image, images, start_image, videos; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputMinimaxH3 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -43,9 +40,6 @@ pub struct InputMinimaxH3 {
     /// Reference audios. 1 to 3 audio files, each from 2s to 15s and at most 104.8 MB, at most 15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputMinimaxH3AudiosItem>>,
-    /// Quality level to generate at. `standard` — the base tier, offering 2K and 4K and the only one with a reference mode. `max` — a post-trained variant at half the price, 480p and 768p only.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub quality: Option<InputMinimaxH3Quality>,
 }
 
 impl InputMinimaxH3 {
@@ -67,7 +61,6 @@ pub struct InputMinimaxH3Builder {
     images: Option<Vec<InputMinimaxH3ImagesItem>>,
     videos: Option<Vec<InputMinimaxH3VideosItem>>,
     audios: Option<Vec<InputMinimaxH3AudiosItem>>,
-    quality: Option<InputMinimaxH3Quality>,
 }
 
 impl InputMinimaxH3Builder {
@@ -121,11 +114,6 @@ impl InputMinimaxH3Builder {
         self
     }
 
-    pub fn quality(mut self, value: InputMinimaxH3Quality) -> Self {
-        self.quality = Some(value);
-        self
-    }
-
     /// Consumes the builder and constructs a [`InputMinimaxH3`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMinimaxH3Builder::prompt)
@@ -143,7 +131,6 @@ impl InputMinimaxH3Builder {
             images: self.images,
             videos: self.videos,
             audios: self.audios,
-            quality: self.quality,
         })
     }
 }
