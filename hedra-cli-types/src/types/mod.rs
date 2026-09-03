@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 132 types for API operations
-//! - **Model Types**: 444 types for data representation
+//! - **Request/Response Types**: 134 types for API operations
+//! - **Model Types**: 453 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -68,6 +68,10 @@ pub mod webhook_public_key;
 pub mod webhook_redelivery;
 pub mod webhook_test_response;
 pub mod submit_response;
+pub mod input_creatify_aurora_resolution;
+pub mod input_creatify_aurora_start_image;
+pub mod input_creatify_aurora_audio;
+pub mod input_creatify_aurora;
 pub mod input_dreamina_31_aspect_ratio;
 pub mod input_dreamina_31_resolution;
 pub mod input_dreamina_31;
@@ -182,6 +186,11 @@ pub mod input_hedra_character_3_audio_one_item;
 pub mod input_hedra_character_3_audio;
 pub mod input_hedra_character_3_bounding_box_target;
 pub mod input_hedra_character_3;
+pub mod input_heygen_photo_avatar_4_aspect_ratio;
+pub mod input_heygen_photo_avatar_4_resolution;
+pub mod input_heygen_photo_avatar_4_start_image;
+pub mod input_heygen_photo_avatar_4_audio;
+pub mod input_heygen_photo_avatar_4;
 pub mod input_hidream_o_1_image_aspect_ratio;
 pub mod input_hidream_o_1_image_images_item;
 pub mod input_hidream_o_1_image_output_format;
@@ -474,6 +483,7 @@ pub mod input_wan_30_audios_item;
 pub mod input_wan_30_quality;
 pub mod input_wan_30;
 pub mod webhook_payload;
+pub mod submit_body_creatify_aurora;
 pub mod submit_body_dreamina31;
 pub mod submit_body_elevenlabs_audio_isolation;
 pub mod submit_body_elevenlabs_english_sts_v2;
@@ -504,6 +514,7 @@ pub mod submit_body_grok_video;
 pub mod submit_body_happy_horse;
 pub mod submit_body_hedra_avatar;
 pub mod submit_body_hedra_character3;
+pub mod submit_body_heygen_photo_avatar4;
 pub mod submit_body_hidream_o1_image;
 pub mod submit_body_ideogram_v2;
 pub mod submit_body_ideogram_v4;
@@ -645,6 +656,10 @@ pub use webhook_public_key::WebhookPublicKey;
 pub use webhook_redelivery::WebhookRedelivery;
 pub use webhook_test_response::WebhookTestResponse;
 pub use submit_response::SubmitResponse;
+pub use input_creatify_aurora_resolution::InputCreatifyAuroraResolution;
+pub use input_creatify_aurora_start_image::InputCreatifyAuroraStartImage;
+pub use input_creatify_aurora_audio::InputCreatifyAuroraAudio;
+pub use input_creatify_aurora::InputCreatifyAurora;
 pub use input_dreamina_31_aspect_ratio::InputDreamina31AspectRatio;
 pub use input_dreamina_31_resolution::InputDreamina31Resolution;
 pub use input_dreamina_31::InputDreamina31;
@@ -759,6 +774,11 @@ pub use input_hedra_character_3_audio_one_item::InputHedraCharacter3AudioOneItem
 pub use input_hedra_character_3_audio::InputHedraCharacter3Audio;
 pub use input_hedra_character_3_bounding_box_target::InputHedraCharacter3BoundingBoxTarget;
 pub use input_hedra_character_3::InputHedraCharacter3;
+pub use input_heygen_photo_avatar_4_aspect_ratio::InputHeygenPhotoAvatar4AspectRatio;
+pub use input_heygen_photo_avatar_4_resolution::InputHeygenPhotoAvatar4Resolution;
+pub use input_heygen_photo_avatar_4_start_image::InputHeygenPhotoAvatar4StartImage;
+pub use input_heygen_photo_avatar_4_audio::InputHeygenPhotoAvatar4Audio;
+pub use input_heygen_photo_avatar_4::InputHeygenPhotoAvatar4;
 pub use input_hidream_o_1_image_aspect_ratio::InputHidreamO1ImageAspectRatio;
 pub use input_hidream_o_1_image_images_item::InputHidreamO1ImageImagesItem;
 pub use input_hidream_o_1_image_output_format::InputHidreamO1ImageOutputFormat;
@@ -1051,6 +1071,7 @@ pub use input_wan_30_audios_item::InputWan30AudiosItem;
 pub use input_wan_30_quality::InputWan30Quality;
 pub use input_wan_30::InputWan30;
 pub use webhook_payload::WebhookPayload;
+pub use submit_body_creatify_aurora::SubmitBodyCreatifyAurora;
 pub use submit_body_dreamina31::SubmitBodyDreamina31;
 pub use submit_body_elevenlabs_audio_isolation::SubmitBodyElevenlabsAudioIsolation;
 pub use submit_body_elevenlabs_english_sts_v2::SubmitBodyElevenlabsEnglishStsV2;
@@ -1081,6 +1102,7 @@ pub use submit_body_grok_video::SubmitBodyGrokVideo;
 pub use submit_body_happy_horse::SubmitBodyHappyHorse;
 pub use submit_body_hedra_avatar::SubmitBodyHedraAvatar;
 pub use submit_body_hedra_character3::SubmitBodyHedraCharacter3;
+pub use submit_body_heygen_photo_avatar4::SubmitBodyHeygenPhotoAvatar4;
 pub use submit_body_hidream_o1_image::SubmitBodyHidreamO1Image;
 pub use submit_body_ideogram_v2::SubmitBodyIdeogramV2;
 pub use submit_body_ideogram_v4::SubmitBodyIdeogramV4;

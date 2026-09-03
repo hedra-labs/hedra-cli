@@ -140,6 +140,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-creatify-aurora`
+
+Create high-fidelity speaking or singing avatar videos.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/creatify-aurora`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-dreamina-31`
 
 Polished, print-ready stills when the brief is a finished image rather than a sketch.
@@ -491,6 +503,18 @@ Hedra's latest longform avatar model, audio to video will full multi-language su
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/hedra-character-3`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-heygen-photo-avatar-4`
+
+Turn a clear portrait and driving audio into a talking avatar.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/heygen-photo-avatar-4`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
