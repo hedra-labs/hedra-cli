@@ -90,6 +90,24 @@ impl CliExecutor {
         let client = http_config
             .build_client()
             .expect("HttpConfig::build_client failed");
+        // ENG-10226 (patched post-generation; delete when ENG-10234 lands
+        // upstream): `HttpClient::with_executor` skips `apply_custom_headers`
+        // by contract — the executor's transport stack owns those headers — so
+        // the SDK's identity trio must be re-supplied on the global-header
+        // channel that does reach the wire. Entries the caller already
+        // supplies win over the SDK defaults.
+        let mut global_headers = global_headers;
+        let mut identity: Vec<(String, String)> = hedra_cli_sdk::ClientConfig::default()
+            .custom_headers
+            .into_iter()
+            .filter(|(name, _)| {
+                !global_headers
+                    .iter()
+                    .any(|(have, _)| have.eq_ignore_ascii_case(name))
+            })
+            .collect();
+        identity.sort();
+        global_headers.extend(identity);
         Self {
             client,
             auth_provider,
