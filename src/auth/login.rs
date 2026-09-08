@@ -340,6 +340,10 @@ fn handle_login(
                      the keyring slot for your token.".to_string(),
                 )
             })?
+    } else if with_token {
+        // A paste and an interactive login want opposite defaults when a
+        // CLI declares both an API-key scheme and an OAuth login flow.
+        resolve_paste_scheme(matches.get_one::<String>("scheme"), auth_bindings, login_flows)?
     } else {
         resolve_scheme(matches.get_one::<String>("scheme"), auth_bindings, login_flows)?
     };
@@ -379,17 +383,103 @@ fn handle_logout(
     cli_name: &str,
     auth_bindings: &[(String, SchemeBinding)],
 ) -> Result<(), CliError> {
-    let scheme = resolve_scheme(matches.get_one::<String>("scheme"), auth_bindings, &[])?;
-    active_store().delete(cli_name, &scheme)?;
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "{}",
-        green(&format!(
-            "✓ Removed credential for {cli_name}:{scheme} from {}.",
-            active_store().backend_label()
-        ))
-    );
-    Ok(())
+    let schemes = resolve_logout_schemes(matches.get_one::<String>("scheme"), auth_bindings)?;
+
+    // Every scheme is attempted even if one fails, so a single wedged
+    // backend cannot leave the others still logged in — the point of the
+    // command is that nothing is left behind. The first error is returned
+    // once the rest have been cleared.
+    let mut first_error = None;
+    for scheme in &schemes {
+        match active_store().delete(cli_name, scheme) {
+            Ok(()) => {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "{}",
+                    green(&format!(
+                        "✓ Removed credential for {cli_name}:{scheme} from {}.",
+                        active_store().backend_label()
+                    ))
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "{}",
+                    yellow(&format!("✗ Could not remove {cli_name}:{scheme}: {e}"))
+                );
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    match first_error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
+}
+
+/// Which schemes a `logout` clears.
+///
+/// A bare `auth logout` means "log me out", not "log me out of exactly one
+/// of the schemes this binary happens to declare". Routing it through
+/// [`resolve_scheme`] made it fail outright on any CLI with more than one
+/// binding — a CLI that declares an API-key scheme and registers an OAuth
+/// login flow has two, so `auth logout` stopped working the moment a login
+/// flow was added, telling the user to disambiguate a choice they did not
+/// want to make. Clearing all of them is both what was asked and the only
+/// answer that leaves no credential behind.
+///
+/// `--scheme` still selects exactly one, for logging out of a single slot.
+fn resolve_logout_schemes(
+    explicit: Option<&String>,
+    auth_bindings: &[(String, SchemeBinding)],
+) -> Result<Vec<String>, CliError> {
+    if let Some(s) = explicit {
+        return Ok(vec![s.clone()]);
+    }
+    if auth_bindings.is_empty() {
+        // A bindingless CLI can still hold a pasted credential (ADR-0007 §
+        // always-graft), but nothing here knows which slot it went into.
+        return Err(CliError::Validation(
+            "This CLI declares no auth schemes. Pass `--scheme <name>` to choose \
+             the keyring slot to clear."
+                .to_string(),
+        ));
+    }
+    Ok(auth_bindings.iter().map(|(n, _)| n.clone()).collect())
+}
+
+/// Which scheme a `--with-token` paste lands in.
+///
+/// A pasted token is a *static* credential. A binding registered by
+/// [`crate::app::CliApp::login_flow`] is `Custom` — it carries an OAuth
+/// provider and expects a serialized token bundle in its slot, not a raw
+/// secret — so preferring it for a paste puts an API key somewhere nothing
+/// can read it back from. [`resolve_scheme`] does prefer it, because a
+/// single declared flow is the right answer for the *interactive* login it
+/// was written for; a paste wants the opposite.
+///
+/// So a paste prefers the one binding that stores a plain value, and falls
+/// back to the general rules when that is ambiguous or absent.
+fn resolve_paste_scheme(
+    explicit: Option<&String>,
+    auth_bindings: &[(String, SchemeBinding)],
+    login_flows: &[DynLoginFlow],
+) -> Result<String, CliError> {
+    if let Some(s) = explicit {
+        return Ok(s.clone());
+    }
+    let static_bindings: Vec<&str> = auth_bindings
+        .iter()
+        .filter(|(_, b)| !matches!(b, SchemeBinding::Custom(_)))
+        .map(|(n, _)| n.as_str())
+        .collect();
+    if let [only] = static_bindings[..] {
+        return Ok(only.to_string());
+    }
+    resolve_scheme(explicit, auth_bindings, login_flows)
 }
 
 fn handle_status<W: Write>(
@@ -829,6 +919,102 @@ mod tests {
             }
             _ => panic!("expected Validation error"),
         }
+    }
+
+    // A CLI declaring an API-key scheme plus an OAuth login flow has two
+    // bindings. Bare `auth logout` used to fail on it outright, telling the
+    // user to disambiguate a choice they did not want to make.
+    #[test]
+    fn logout_with_no_scheme_clears_every_binding() {
+        let bindings = vec![
+            (
+                "KeyAuth".to_string(),
+                SchemeBinding::Token(AuthCredentialSource::Missing),
+            ),
+            (
+                "OAuth".to_string(),
+                SchemeBinding::Token(AuthCredentialSource::Missing),
+            ),
+        ];
+        let schemes = resolve_logout_schemes(None, &bindings).unwrap();
+        assert_eq!(schemes, vec!["KeyAuth".to_string(), "OAuth".to_string()]);
+    }
+
+    #[test]
+    fn logout_with_an_explicit_scheme_clears_only_that_one() {
+        let bindings = vec![
+            (
+                "KeyAuth".to_string(),
+                SchemeBinding::Token(AuthCredentialSource::Missing),
+            ),
+            (
+                "OAuth".to_string(),
+                SchemeBinding::Token(AuthCredentialSource::Missing),
+            ),
+        ];
+        let schemes = resolve_logout_schemes(Some(&"OAuth".to_string()), &bindings).unwrap();
+        assert_eq!(schemes, vec!["OAuth".to_string()]);
+    }
+
+    #[test]
+    fn logout_on_a_bindingless_cli_asks_for_a_scheme() {
+        let err = resolve_logout_schemes(None, &[]).unwrap_err();
+        match err {
+            CliError::Validation(m) => assert!(m.contains("--scheme"), "unexpected: {m}"),
+            _ => panic!("expected Validation error"),
+        }
+    }
+
+    // The paste regression: with one static binding and one flow-registered
+    // Custom binding, `resolve_scheme` picks the flow's scheme, so an API
+    // key landed in the OAuth slot where nothing could read it back.
+    #[test]
+    fn a_paste_prefers_the_static_binding_over_the_login_flow() {
+        let bindings = vec![
+            (
+                "KeyAuth".to_string(),
+                SchemeBinding::Token(AuthCredentialSource::Missing),
+            ),
+            (
+                "OAuth".to_string(),
+                SchemeBinding::Custom(Arc::new(crate::auth::provider::NoAuthProvider)),
+            ),
+        ];
+        let flows: Vec<DynLoginFlow> = vec![Arc::new(TokenPasteLoginFlow::new("OAuth"))];
+
+        assert_eq!(
+            resolve_paste_scheme(None, &bindings, &flows).unwrap(),
+            "KeyAuth"
+        );
+        // …while an interactive login still runs the declared flow.
+        assert_eq!(resolve_scheme(None, &bindings, &flows).unwrap(), "OAuth");
+    }
+
+    #[test]
+    fn a_paste_honours_an_explicit_scheme() {
+        let bindings = vec![(
+            "KeyAuth".to_string(),
+            SchemeBinding::Token(AuthCredentialSource::Missing),
+        )];
+        assert_eq!(
+            resolve_paste_scheme(Some(&"Other".to_string()), &bindings, &[]).unwrap(),
+            "Other"
+        );
+    }
+
+    // With no static binding to prefer, a paste falls back to the general
+    // rules — an OAuth-only CLI still pastes into its OAuth slot.
+    #[test]
+    fn a_paste_falls_back_when_there_is_no_static_binding() {
+        let bindings = vec![(
+            "OAuth".to_string(),
+            SchemeBinding::Custom(Arc::new(crate::auth::provider::NoAuthProvider)),
+        )];
+        let flows: Vec<DynLoginFlow> = vec![Arc::new(TokenPasteLoginFlow::new("OAuth"))];
+        assert_eq!(
+            resolve_paste_scheme(None, &bindings, &flows).unwrap(),
+            "OAuth"
+        );
     }
 
     #[test]
