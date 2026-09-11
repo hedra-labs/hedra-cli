@@ -12,7 +12,7 @@ pub struct InputHappyHorse {
     /// Number of outputs generated per job. Only 1 is supported.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub num_outputs: Option<i64>,
-    /// Generation prompt. At most 2500 characters.
+    /// Generation prompt. From 1 to 2500 characters.
     #[serde(default)]
     pub prompt: String,
     /// Output aspect ratio.

@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 140 types for API operations
-//! - **Model Types**: 484 types for data representation
+//! - **Request/Response Types**: 141 types for API operations
+//! - **Model Types**: 488 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -340,6 +340,10 @@ pub mod input_minimax_hailuo_23_quality;
 pub mod input_minimax_hailuo_23;
 pub mod input_minimax_speech_25_hd_preview;
 pub mod input_minimax_speech_25_turbo_preview;
+pub mod input_muse_image_aspect_ratio;
+pub mod input_muse_image_images_item;
+pub mod input_muse_image_output_format;
+pub mod input_muse_image;
 pub mod input_nano_banana_aspect_ratio;
 pub mod input_nano_banana_resolution;
 pub mod input_nano_banana_images_item;
@@ -577,6 +581,7 @@ pub mod submit_body_minimax_hailuo02;
 pub mod submit_body_minimax_hailuo23;
 pub mod submit_body_minimax_speech25_hd_preview;
 pub mod submit_body_minimax_speech25_turbo_preview;
+pub mod submit_body_muse_image;
 pub mod submit_body_nano_banana;
 pub mod submit_body_nano_banana2;
 pub mod submit_body_nano_banana_pro;
@@ -965,6 +970,10 @@ pub use input_minimax_hailuo_23_quality::InputMinimaxHailuo23Quality;
 pub use input_minimax_hailuo_23::InputMinimaxHailuo23;
 pub use input_minimax_speech_25_hd_preview::InputMinimaxSpeech25HdPreview;
 pub use input_minimax_speech_25_turbo_preview::InputMinimaxSpeech25TurboPreview;
+pub use input_muse_image_aspect_ratio::InputMuseImageAspectRatio;
+pub use input_muse_image_images_item::InputMuseImageImagesItem;
+pub use input_muse_image_output_format::InputMuseImageOutputFormat;
+pub use input_muse_image::InputMuseImage;
 pub use input_nano_banana_aspect_ratio::InputNanoBananaAspectRatio;
 pub use input_nano_banana_resolution::InputNanoBananaResolution;
 pub use input_nano_banana_images_item::InputNanoBananaImagesItem;
@@ -1202,6 +1211,7 @@ pub use submit_body_minimax_hailuo02::SubmitBodyMinimaxHailuo02;
 pub use submit_body_minimax_hailuo23::SubmitBodyMinimaxHailuo23;
 pub use submit_body_minimax_speech25_hd_preview::SubmitBodyMinimaxSpeech25HdPreview;
 pub use submit_body_minimax_speech25_turbo_preview::SubmitBodyMinimaxSpeech25TurboPreview;
+pub use submit_body_muse_image::SubmitBodyMuseImage;
 pub use submit_body_nano_banana::SubmitBodyNanoBanana;
 pub use submit_body_nano_banana2::SubmitBodyNanoBanana2;
 pub use submit_body_nano_banana_pro::SubmitBodyNanoBananaPro;

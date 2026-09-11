@@ -19,6 +19,10 @@ impl FilesClient {
     /// submit a generation, not when you upload its inputs. `GET /v3/balance`
     /// reports what the wallet holds.
     ///
+    /// Returns 402 while uploads are paused, which happens when your recent
+    /// requests were all refused for insufficient funds. Adding funds to the API
+    /// wallet resumes them.
+    ///
     /// # Arguments
     ///
     /// * `options` - Additional request options such as headers, timeout, etc.
@@ -59,7 +63,7 @@ impl FilesClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
