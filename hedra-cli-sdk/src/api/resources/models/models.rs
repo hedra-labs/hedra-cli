@@ -47,7 +47,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -87,7 +87,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -135,7 +135,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -253,7 +253,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -319,7 +319,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -373,7 +373,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client
@@ -421,7 +421,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.16.6".to_string());
+                .or_insert_with(|| "3.16.9".to_string());
             Some(o)
         };
         self.http_client

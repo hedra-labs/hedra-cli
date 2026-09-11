@@ -60,6 +60,10 @@ Free, and available on an empty API wallet — funding is enforced when you
 submit a generation, not when you upload its inputs. `GET /v3/balance`
 reports what the wallet holds.
 
+Returns 402 while uploads are paused, which happens when your recent
+requests were all refused for insufficient funds. Adding funds to the API
+wallet resumes them.
+
 `POST /files`
 
 | Flag | Type | Required | Description |
@@ -885,6 +889,18 @@ The value tier — natural English delivery across 40+ languages, at a lower rat
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/minimax-speech-25-turbo-preview`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-muse-image`
+
+Meta's Muse Image: an agentic image model that plans before it renders, with faithful instruction-following, accurate in-image text, and edits that change only what you ask.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/muse-image`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
