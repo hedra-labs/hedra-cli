@@ -34,10 +34,10 @@ pub struct InputSeedance20 {
     /// Reference images. 1 to 9 images, each from 300px to 6000px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputSeedance20ImagesItem>>,
-    /// Reference videos. 1 to 3 videos, each from 2s to 15s and at most 524.2 MB, at most 15s in total.
+    /// Reference videos. 1 to 3 videos, each from 2s to 15.15s and at most 524.2 MB, at most 15.15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub videos: Option<Vec<InputSeedance20VideosItem>>,
-    /// Reference audios. 1 to 3 audio files, each at most 104.8 MB, at most 15s in total.
+    /// Reference audios. 1 to 3 audio files, each at most 104.8 MB, at most 15.15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputSeedance20AudiosItem>>,
     /// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p.
