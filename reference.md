@@ -284,6 +284,30 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-eyeline-id-relight`
+
+Relight a video from a relit first frame, keeping the scene, the subjects and the original performance.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/eyeline-id-relight`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-eyeline-id-restyle`
+
+Restyle a video's scene, lighting and look from an edited first frame while keeping the people in it recognizably themselves.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/eyeline-id-restyle`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-flux-11-pro`
 
 Premium color depth and clarity when you want campaign-ready art that feels handcrafted.
@@ -538,7 +562,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-happy-horse`
 
-Open-weight video generation from a prompt.
+Open-weight video from a prompt, from a first frame, or from up to nine reference images you direct by name as character1..character9.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -810,6 +834,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-ltx-2-5`
+
+Clips up to 20 seconds with synchronized native audio, on the quick path.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/ltx-2-5`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-luma-ray-32`
 
 Cinematic motion with deliberate camera control, from a prompt.
@@ -841,6 +877,30 @@ One model for every starting point — a prompt, a keyframe pair, or reference i
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/minimax-h3`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-minimax-h3-max-camera-controls`
+
+Orbit, tilt, and dolly a camera through a single image along a path you key-frame in 3D.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/minimax-h3-max-camera-controls`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-minimax-h3-max-turbo`
+
+MiniMax H3 Max Turbo — the same text and keyframe inputs, served faster and at half the price.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/minimax-h3-max-turbo`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1153,6 +1213,18 @@ Use the powerful and accurate Topaz image enhancer to upscale and enhance your i
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/topaz-image-upscaler`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-topaz-image-upscaler-transparency`
+
+Upscale a logo, sticker, or cutout 4x with its transparency intact. Returns PNG.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/topaz-image-upscaler-transparency`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|

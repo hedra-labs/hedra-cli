@@ -15,7 +15,7 @@ pub struct InputCreatifyAurora {
     pub resolution: InputCreatifyAuroraResolution,
     /// Start frame. At most 10.4 MB.
     pub start_image: InputCreatifyAuroraStartImage,
-    /// Driving audio. At most 104.8 MB.
+    /// Driving audio. At most 60s and at most 104.8 MB.
     pub audio: InputCreatifyAuroraAudio,
 }
 

@@ -18,7 +18,7 @@ pub struct InputKlingAiAvatarV2 {
     pub resolution: Option<InputKlingAiAvatarV2Resolution>,
     /// Start frame. At most 10.4 MB.
     pub start_image: InputKlingAiAvatarV2StartImage,
-    /// Driving audio. From 2s to 60s and at most 5 MB.
+    /// Driving audio. From 2s to 60.15s and at most 5 MB.
     pub audio: InputKlingAiAvatarV2Audio,
     /// Quality level to generate at. `standard` — the base tier. `pro` — sharper detail and steadier motion at the same resolution, at a higher rate.
     #[serde(skip_serializing_if = "Option::is_none")]
