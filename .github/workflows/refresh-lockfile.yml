@@ -149,7 +149,7 @@ jobs:
           token: ${{ steps.app-token.outputs.token || secrets.LOCKFILE_REFRESH_TOKEN || github.token }}
 
       - name: Set up Rust
-        uses: actions-rust-lang/setup-rust-toolchain@v1
+        uses: actions-rust-lang/setup-rust-toolchain@v2
 
       # Must precede the staleness check: aligning the members is itself one of
       # the things that can invalidate the lockfile, and the refresh below has
