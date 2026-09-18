@@ -62,6 +62,33 @@ Cargo.lock
 dist-workspace.toml
 .github/
 
+# The Rust SDK generator's standalone-repo scaffolding.
+# `rust-sdk-dist/asIs/` in the generator image ships a ci.yml written for the
+# ROOT of a dedicated SDK repo. We vendor the SDK as a workspace member, so it
+# lands a level down at hedra-cli-sdk/.github/workflows/ci.yml, where nothing
+# reads it: GitHub Actions only registers workflows under the repo-root
+# .github/workflows, and `gh workflow list --all` has never shown it. Its three
+# jobs (cargo check / build / test) are in any case a strict subset of what the
+# root `rust` job already runs over the whole workspace, this crate included.
+#
+# Un-ignored the file is re-emitted on EVERY generation, so deleting it alone
+# would be reverted: the image's asIs/ci.yml is byte-identical to the committed
+# copy once {{TEST_COMMAND}} resolves to `cargo test` and the three wiremock /
+# publish placeholders resolve to nothing. This entry is the half that makes
+# the deletion stick — .fernignore suppresses CREATION as well as overwriting,
+# the same mechanism that stopped #85 emitting cli/hedra-cli/custom.rs, used
+# deliberately here rather than tripped over.
+#
+# Scoped to .github/ rather than the crate: hedra-cli-sdk/rustfmt.toml ships in
+# that same asIs set but is LIVE — it is what gives the SDK crate edition 2021
+# instead of rustfmt's 2015 default — and src/ is the SDK itself.
+#
+# Safe to add because no Replay patch names this path (replay.lock carries no
+# .github reference at all), so the entry strands nothing. Adding an entry over
+# a patch-covered file is what deleted .gitattributes in #29; that hazard does
+# not apply here.
+hedra-cli-sdk/.github/
+
 # The task runner. Hand-written and never emitted, so this entry is load-bearing
 # in the .gitattributes sense below — it is the only thing standing between the
 # file and deletion on the next regeneration, not a guard against overwriting.
