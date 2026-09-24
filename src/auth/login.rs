@@ -503,21 +503,44 @@ fn handle_logout(
     cli_name: &str,
     auth_bindings: &[(String, SchemeBinding)],
 ) -> Result<(), CliError> {
-    let scheme = resolve_scheme_for(matches.get_one::<String>("scheme"), auth_bindings, &[])?;
-    // Logging out under a profile removes *that* profile's credential and
-    // leaves the others alone — otherwise `auth logout` while a profile is
-    // active would silently log the user out of every tenant.
-    let account = crate::profiles::keyring_account(&scheme);
-    active_store().delete(cli_name, &account)?;
-    let _ = writeln!(
-        std::io::stderr().lock(),
-        "{}",
-        green(&format!(
-            "✓ Removed credential for {cli_name}:{account} from {}.",
-            active_store().backend_label()
-        ))
-    );
-    Ok(())
+    let schemes = resolve_logout_schemes(matches.get_one::<String>("scheme"), auth_bindings)?;
+
+    // Every scheme is attempted even if one fails, so a single wedged
+    // backend cannot leave the others still logged in — the point of the
+    // command is that nothing is left behind. The first error is returned
+    // once the rest have been cleared.
+    let mut first_error = None;
+    for scheme in &schemes {
+        // Under a profile, clear only that profile's slot for the scheme (the
+        // generator's own profile scoping); unprofiled, this is the scheme.
+        let account = crate::profiles::keyring_account(scheme);
+        match active_store().delete(cli_name, &account) {
+            Ok(()) => {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "{}",
+                    green(&format!(
+                        "✓ Removed credential for {cli_name}:{account} from {}.",
+                        active_store().backend_label()
+                    ))
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(
+                    std::io::stderr().lock(),
+                    "{}",
+                    yellow(&format!("✗ Could not remove {cli_name}:{account}: {e}"))
+                );
+                if first_error.is_none() {
+                    first_error = Some(e);
+                }
+            }
+        }
+    }
+    match first_error {
+        Some(e) => Err(e),
+        None => Ok(()),
+    }
 }
 
 /// Which schemes a `logout` clears.
@@ -579,7 +602,7 @@ fn resolve_paste_scheme(
     if let [only] = static_bindings[..] {
         return Ok(only.to_string());
     }
-    resolve_scheme(explicit, auth_bindings, login_flows)
+    resolve_scheme_for(explicit, auth_bindings, login_flows)
 }
 
 fn handle_status<W: Write>(
@@ -1530,7 +1553,7 @@ mod tests {
             "KeyAuth"
         );
         // …while an interactive login still runs the declared flow.
-        assert_eq!(resolve_scheme(None, &bindings, &flows).unwrap(), "OAuth");
+        assert_eq!(resolve_scheme_for(None, &bindings, &flows).unwrap(), "OAuth");
     }
 
     #[test]
