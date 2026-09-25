@@ -36,7 +36,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.5".to_string());
+                .or_insert_with(|| "3.17.8".to_string());
             Some(o)
         };
         self.http_client
@@ -76,7 +76,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.5".to_string());
+                .or_insert_with(|| "3.17.8".to_string());
             Some(o)
         };
         self.http_client
@@ -140,7 +140,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.5".to_string());
+                .or_insert_with(|| "3.17.8".to_string());
             Some(o)
         };
         self.http_client
@@ -151,6 +151,59 @@ impl BillingClient {
                 QueryBuilder::new()
                     .int("limit", request.limit.clone())
                     .serialize("cursor", request.cursor.clone())
+                    .build(),
+                options,
+            )
+            .await
+    }
+
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .billing
+    ///         .list_llm_usage(
+    ///             &ListLlmUsageQueryRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
+    pub async fn list_llm_usage(
+        &self,
+        request: &ListLlmUsageQueryRequest,
+        options: Option<RequestOptions>,
+    ) -> Result<LlmUsageRecordListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.17.8".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::GET,
+                "usage/llm",
+                None,
+                QueryBuilder::new()
+                    .int("limit", request.limit.clone())
+                    .serialize("cursor", request.cursor.clone())
+                    .serialize("start", request.start.clone())
+                    .serialize("end", request.end.clone())
+                    .serialize("model", request.model.clone())
+                    .serialize("key_id", request.key_id.clone())
                     .build(),
                 options,
             )

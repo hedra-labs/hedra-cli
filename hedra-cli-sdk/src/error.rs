@@ -6,44 +6,52 @@ pub enum ApiError {
     #[error("BadRequestError: Bad request - {message}")]
     BadRequestError {
         message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
+        error: Option<OpenAiError>,
     },
     #[error("UnauthorizedError: Authentication failed - {message}")]
     UnauthorizedError {
         message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
-    },
-    #[error("ForbiddenError: Access forbidden - {message}")]
-    ForbiddenError {
-        message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
-    },
-    #[error("NotFoundError: Resource not found - {message}")]
-    NotFoundError {
-        message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
-    },
-    #[error("TooManyRequestsError: Rate limit exceeded - {message}")]
-    TooManyRequestsError {
-        message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
-    },
-    #[error("InternalServerError: Internal server error - {message}")]
-    InternalServerError {
-        message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
+        error: Option<OpenAiError>,
     },
     #[error("PaymentRequiredError: {message}")]
     PaymentRequiredError {
         message: String,
-        error: Option<ErrorEnvelope>,
-        trace_id: Option<String>,
+        error: Option<OpenAiError>,
+    },
+    #[error("ForbiddenError: Access forbidden - {message}")]
+    ForbiddenError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("NotFoundError: Resource not found - {message}")]
+    NotFoundError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("TooManyRequestsError: Rate limit exceeded - {message}")]
+    TooManyRequestsError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("InternalServerError: Internal server error - {message}")]
+    InternalServerError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("BadGatewayError: {message}")]
+    BadGatewayError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("ServiceUnavailableError: {message}")]
+    ServiceUnavailableError {
+        message: String,
+        error: Option<OpenAiError>,
+    },
+    #[error("GatewayTimeoutError: {message}")]
+    GatewayTimeoutError {
+        message: String,
+        error: Option<OpenAiError>,
     },
     #[error("UnprocessableEntityError: Unprocessable entity - {message}")]
     UnprocessableEntityError {
@@ -87,18 +95,14 @@ impl ApiError {
                                 .unwrap_or("Unknown error")
                                 .to_string(),
                             error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
                             }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::BadRequestError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
-                    trace_id: None,
                 };
             }
             401 => {
@@ -112,118 +116,14 @@ impl ApiError {
                                 .unwrap_or("Unknown error")
                                 .to_string(),
                             error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
                             }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::UnauthorizedError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
-                    trace_id: None,
-                };
-            }
-            403 => {
-                // Parse error body for ForbiddenError;
-                if let Some(body_str) = body {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                        return Self::ForbiddenError {
-                            message: parsed
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown error")
-                                .to_string(),
-                            error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
-                            }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
-                        };
-                    }
-                }
-                return Self::ForbiddenError {
-                    message: body.unwrap_or("Unknown error").to_string(),
-                    error: None,
-                    trace_id: None,
-                };
-            }
-            404 => {
-                // Parse error body for NotFoundError;
-                if let Some(body_str) = body {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                        return Self::NotFoundError {
-                            message: parsed
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown error")
-                                .to_string(),
-                            error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
-                            }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
-                        };
-                    }
-                }
-                return Self::NotFoundError {
-                    message: body.unwrap_or("Unknown error").to_string(),
-                    error: None,
-                    trace_id: None,
-                };
-            }
-            429 => {
-                // Parse error body for TooManyRequestsError;
-                if let Some(body_str) = body {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                        return Self::TooManyRequestsError {
-                            message: parsed
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown error")
-                                .to_string(),
-                            error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
-                            }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
-                        };
-                    }
-                }
-                return Self::TooManyRequestsError {
-                    message: body.unwrap_or("Unknown error").to_string(),
-                    error: None,
-                    trace_id: None,
-                };
-            }
-            500 => {
-                // Parse error body for InternalServerError;
-                if let Some(body_str) = body {
-                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
-                        return Self::InternalServerError {
-                            message: parsed
-                                .get("message")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("Unknown error")
-                                .to_string(),
-                            error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
-                            }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
-                        };
-                    }
-                }
-                return Self::InternalServerError {
-                    message: body.unwrap_or("Unknown error").to_string(),
-                    error: None,
-                    trace_id: None,
                 };
             }
             402 => {
@@ -237,18 +137,161 @@ impl ApiError {
                                 .unwrap_or("Unknown error")
                                 .to_string(),
                             error: parsed.get("error").and_then(|v| {
-                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
                             }),
-                            trace_id: parsed
-                                .get("trace_id")
-                                .and_then(|v| v.as_str().map(|s| s.to_string())),
                         };
                     }
                 }
                 return Self::PaymentRequiredError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
-                    trace_id: None,
+                };
+            }
+            403 => {
+                // Parse error body for ForbiddenError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::ForbiddenError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::ForbiddenError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            404 => {
+                // Parse error body for NotFoundError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::NotFoundError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::NotFoundError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            429 => {
+                // Parse error body for TooManyRequestsError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::TooManyRequestsError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::TooManyRequestsError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            500 => {
+                // Parse error body for InternalServerError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::InternalServerError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::InternalServerError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            502 => {
+                // Parse error body for BadGatewayError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::BadGatewayError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::BadGatewayError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            503 => {
+                // Parse error body for ServiceUnavailableError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::ServiceUnavailableError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::ServiceUnavailableError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                };
+            }
+            504 => {
+                // Parse error body for GatewayTimeoutError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::GatewayTimeoutError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<OpenAiError>(v.clone()).ok()
+                            }),
+                        };
+                    }
+                }
+                return Self::GatewayTimeoutError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
                 };
             }
             422 => {
