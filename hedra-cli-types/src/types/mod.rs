@@ -6,13 +6,15 @@
 //! ## Type Categories
 //!
 //! - **Request/Response Types**: 147 types for API operations
-//! - **Model Types**: 512 types for data representation
+//! - **Model Types**: 517 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery;
+pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event;
+pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery;
 pub mod api_key_kind;
 pub mod api_key_scope;
 pub mod balance_response;
@@ -542,6 +544,9 @@ pub mod input_wan_30_audios_item;
 pub mod input_wan_30_quality;
 pub mod input_wan_30;
 pub mod webhook_payload;
+pub mod billing_event_type;
+pub mod top_off_failure_reason;
+pub mod top_off_failed_event;
 pub mod submit_body_creatify_aurora;
 pub mod submit_body_dreamina31;
 pub mod submit_body_elevenlabs_audio_isolation;
@@ -673,6 +678,8 @@ pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_event::WebhookJob
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery::WebhookJobCompletedPayloadXHedraWebhookRedelivery;
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_event::WebhookJobFailedPayloadXHedraWebhookEvent;
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery::WebhookJobFailedPayloadXHedraWebhookRedelivery;
+pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event::WebhookBillingTopOffFailedPayloadXHedraWebhookEvent;
+pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery::WebhookBillingTopOffFailedPayloadXHedraWebhookRedelivery;
 pub use api_key_kind::ApiKeyKind;
 pub use api_key_scope::ApiKeyScope;
 pub use balance_response::BalanceResponse;
@@ -1202,6 +1209,9 @@ pub use input_wan_30_audios_item::InputWan30AudiosItem;
 pub use input_wan_30_quality::InputWan30Quality;
 pub use input_wan_30::InputWan30;
 pub use webhook_payload::WebhookPayload;
+pub use billing_event_type::BillingEventType;
+pub use top_off_failure_reason::TopOffFailureReason;
+pub use top_off_failed_event::TopOffFailedEvent;
 pub use submit_body_creatify_aurora::SubmitBodyCreatifyAurora;
 pub use submit_body_dreamina31::SubmitBodyDreamina31;
 pub use submit_body_elevenlabs_audio_isolation::SubmitBodyElevenlabsAudioIsolation;
