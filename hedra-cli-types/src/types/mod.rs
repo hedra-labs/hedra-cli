@@ -5,16 +5,14 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 150 types for API operations
-//! - **Model Types**: 526 types for data representation
+//! - **Request/Response Types**: 147 types for API operations
+//! - **Model Types**: 512 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery;
-pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event;
-pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery;
 pub mod api_key_kind;
 pub mod api_key_scope;
 pub mod balance_response;
@@ -38,15 +36,6 @@ pub mod key_list_response;
 pub mod key_rotate_response;
 pub mod key_status;
 pub mod key_summary;
-pub mod llm_capabilities_object;
-pub mod llm_model_list_object;
-pub mod llm_model_list;
-pub mod llm_model_object_object;
-pub mod llm_model_object;
-pub mod llm_pricing;
-pub mod llm_usage_record;
-pub mod llm_usage_record_list_response;
-pub mod llm_usage_status;
 pub mod log_drain_config;
 pub mod log_drain_format;
 pub mod log_drain_list_response;
@@ -56,8 +45,6 @@ pub mod modality;
 pub mod model_detail;
 pub mod model_list_response;
 pub mod model_summary;
-pub mod open_ai_error;
-pub mod open_ai_error_response;
 pub mod output_item;
 pub mod output_status;
 pub mod result_response;
@@ -555,9 +542,6 @@ pub mod input_wan_30_audios_item;
 pub mod input_wan_30_quality;
 pub mod input_wan_30;
 pub mod webhook_payload;
-pub mod billing_event_type;
-pub mod top_off_failure_reason;
-pub mod top_off_failed_event;
 pub mod submit_body_creatify_aurora;
 pub mod submit_body_dreamina31;
 pub mod submit_body_elevenlabs_audio_isolation;
@@ -682,7 +666,6 @@ pub mod search_voices_query_request;
 pub mod keys_list_query_request;
 pub mod get_usage_query_request;
 pub mod list_transactions_query_request;
-pub mod list_llm_usage_query_request;
 pub mod list_deliveries_query_request;
 
 pub use jobs_jobs_stream_response::JobsStreamResponse;
@@ -690,8 +673,6 @@ pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_event::WebhookJob
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_redelivery::WebhookJobCompletedPayloadXHedraWebhookRedelivery;
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_event::WebhookJobFailedPayloadXHedraWebhookEvent;
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery::WebhookJobFailedPayloadXHedraWebhookRedelivery;
-pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event::WebhookBillingTopOffFailedPayloadXHedraWebhookEvent;
-pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery::WebhookBillingTopOffFailedPayloadXHedraWebhookRedelivery;
 pub use api_key_kind::ApiKeyKind;
 pub use api_key_scope::ApiKeyScope;
 pub use balance_response::BalanceResponse;
@@ -715,15 +696,6 @@ pub use key_list_response::KeyListResponse;
 pub use key_rotate_response::KeyRotateResponse;
 pub use key_status::KeyStatus;
 pub use key_summary::KeySummary;
-pub use llm_capabilities_object::LlmCapabilitiesObject;
-pub use llm_model_list_object::LlmModelListObject;
-pub use llm_model_list::LlmModelList;
-pub use llm_model_object_object::LlmModelObjectObject;
-pub use llm_model_object::LlmModelObject;
-pub use llm_pricing::LlmPricing;
-pub use llm_usage_record::LlmUsageRecord;
-pub use llm_usage_record_list_response::LlmUsageRecordListResponse;
-pub use llm_usage_status::LlmUsageStatus;
 pub use log_drain_config::LogDrainConfig;
 pub use log_drain_format::LogDrainFormat;
 pub use log_drain_list_response::LogDrainListResponse;
@@ -733,8 +705,6 @@ pub use modality::Modality;
 pub use model_detail::ModelDetail;
 pub use model_list_response::ModelListResponse;
 pub use model_summary::ModelSummary;
-pub use open_ai_error::OpenAiError;
-pub use open_ai_error_response::OpenAiErrorResponse;
 pub use output_item::OutputItem;
 pub use output_status::OutputStatus;
 pub use result_response::ResultResponse;
@@ -1232,9 +1202,6 @@ pub use input_wan_30_audios_item::InputWan30AudiosItem;
 pub use input_wan_30_quality::InputWan30Quality;
 pub use input_wan_30::InputWan30;
 pub use webhook_payload::WebhookPayload;
-pub use billing_event_type::BillingEventType;
-pub use top_off_failure_reason::TopOffFailureReason;
-pub use top_off_failed_event::TopOffFailedEvent;
 pub use submit_body_creatify_aurora::SubmitBodyCreatifyAurora;
 pub use submit_body_dreamina31::SubmitBodyDreamina31;
 pub use submit_body_elevenlabs_audio_isolation::SubmitBodyElevenlabsAudioIsolation;
@@ -1359,6 +1326,5 @@ pub use search_voices_query_request::SearchVoicesQueryRequest;
 pub use keys_list_query_request::KeysListQueryRequest;
 pub use get_usage_query_request::GetUsageQueryRequest;
 pub use list_transactions_query_request::ListTransactionsQueryRequest;
-pub use list_llm_usage_query_request::ListLlmUsageQueryRequest;
 pub use list_deliveries_query_request::ListDeliveriesQueryRequest;
 
