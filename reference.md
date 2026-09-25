@@ -5,7 +5,6 @@ Full command reference for `hedra-cli`.
 ## Commands
 
 - [`hedra-cli billing`](#hedra-cli-billing)
-- [`hedra-cli chat`](#hedra-cli-chat)
 - [`hedra-cli files`](#hedra-cli-files)
 - [`hedra-cli jobs`](#hedra-cli-jobs)
 - [`hedra-cli keys`](#hedra-cli-keys)
@@ -36,21 +35,6 @@ Get Usage
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
 
-#### `hedra-cli billing list-llm-usage`
-
-List Llm Usage
-
-`GET /usage/llm`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--limit` | `integer` | No | Maximum items per page. |
-| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. Each cursor records the filters it was issued under, so a walk must keep them fixed. |
-| `--start` | `string` | No | Only requests created at or after this instant (ISO-8601). Unlike `GET /v3/usage` there is no default window and no window cap. |
-| `--end` | `string` | No | Only requests created before this instant (ISO-8601, exclusive). |
-| `--model` | `string` | No | Only requests admitted for this model id. |
-| `--key-id` | `string` | No | Only requests made with this API key (its `key_id`, as listed by GET /v3/keys). An unknown key id yields an empty page. |
-
 #### `hedra-cli billing list-transactions`
 
 Every movement of the API wallet's balance, newest first: funds added,
@@ -63,32 +47,6 @@ the credential bills, the same one `GET /v3/balance` reports.
 |------|------|----------|-------------|
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
-
----
-
-### `hedra-cli chat`
-
-#### `hedra-cli chat completions-create`
-
-OpenAI-compatible chat completions. Errors use the OpenAI error body, not the v3 envelope. An empty API wallet answers 402 (deliberate divergence from OpenAI's 429 `insufficient_quota`: retrying cannot fix an empty wallet). With `stream: true` the response is `text/event-stream` in the OpenAI chunk dialect, terminated by `data: [DONE]`; a failure after streaming has begun is delivered as one in-band `data: {"error": ...}` event. Errors before the first byte keep the JSON error body.
-
-`POST /chat/completions`
-
-#### `hedra-cli chat llms-get`
-
-A single OpenAI-shaped model object with additive extensions.
-
-`GET /llms/{model}`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--model` | `string` | Yes |  |
-
-#### `hedra-cli chat llms-list`
-
-OpenAI-compatible model list for the chat surface: exactly `{"object": "list", "data": [...]}` with additive extension fields per model. The published rate card here is the pricing reference for chat completions.
-
-`GET /llms`
 
 ---
 

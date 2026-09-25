@@ -24,9 +24,6 @@ pub struct BillingError {
     /// Where a human can add funds to the account this request bills. The API itself cannot add them.
     #[serde(default)]
     pub funding_url: String,
-    /// Why the automatic top-up did not fund the balance, when known. `card_declined`: the card that pays for automatic top-ups was declined, and the payment method must be updated on the billing page before a top-up can succeed. Clients MUST tolerate unrecognized values: new reasons may be added at any time.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub reason: Option<String>,
 }
 
 impl BillingError {
@@ -42,7 +39,6 @@ pub struct BillingErrorBuilder {
     required: Option<f64>,
     currency: Option<String>,
     funding_url: Option<String>,
-    reason: Option<String>,
 }
 
 impl BillingErrorBuilder {
@@ -66,11 +62,6 @@ impl BillingErrorBuilder {
         self
     }
 
-    pub fn reason(mut self, value: impl Into<String>) -> Self {
-        self.reason = Some(value.into());
-        self
-    }
-
     /// Consumes the builder and constructs a [`BillingError`].
     /// This method will fail if any of the following fields are not set:
     /// - [`balance`](BillingErrorBuilder::balance)
@@ -81,7 +72,6 @@ impl BillingErrorBuilder {
             required: self.required,
             currency: self.currency,
             funding_url: self.funding_url.ok_or_else(|| BuildError::missing_field("funding_url"))?,
-            reason: self.reason,
         })
     }
 }

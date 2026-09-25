@@ -10,17 +10,13 @@
 //! - **Billing**
 //! - **Webhooks**
 //! - **Log drains**
-//! - **Chat**
-//! - **Llm**
 
 use crate::{ApiError, ClientConfig};
 
 pub mod billing;
-pub mod chat;
 pub mod files;
 pub mod jobs;
 pub mod keys;
-pub mod llm;
 pub mod log_drains;
 pub mod models;
 pub mod tokens;
@@ -35,7 +31,6 @@ pub struct ApiClient {
     pub billing: BillingClient,
     pub webhooks: WebhooksClient,
     pub log_drains: LogDrainsClient,
-    pub chat: ChatClient,
 }
 
 impl ApiClient {
@@ -50,17 +45,14 @@ impl ApiClient {
             billing: BillingClient::new(config.clone())?,
             webhooks: WebhooksClient::new(config.clone())?,
             log_drains: LogDrainsClient::new(config.clone())?,
-            chat: ChatClient::new(config.clone())?,
         })
     }
 }
 
 pub use billing::BillingClient;
-pub use chat::ChatClient;
 pub use files::FilesClient;
 pub use jobs::JobsClient;
 pub use keys::KeysClient;
-pub use llm::LlmClient;
 pub use log_drains::LogDrainsClient;
 pub use models::ModelsClient;
 pub use tokens::TokensClient;

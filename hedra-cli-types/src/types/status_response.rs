@@ -12,7 +12,7 @@ use super::*;
 /// Redis payload with no DB session is byte-identical to a log-free envelope.
 /// That was ENG-9693's reason for having no ``logs`` field at all; the stream
 /// now carries lifecycle rows as their own ``event: log`` frames instead of
-/// inside this one (ENG-9694).
+/// inside this one (ENG-9694), and MCP progress notifications stay status-only.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct StatusResponse {
     /// The job this status describes.
