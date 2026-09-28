@@ -26,6 +26,9 @@ pub struct ErrorEnvelope {
     /// Balance, price, and where to add funds — set when the request was refused for funds (code `INSUFFICIENT_BALANCE`); null otherwise.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub billing: Option<BillingError>,
+    /// The OpenAI error type for this error's HTTP status: `authentication_error` (401), `permission_error` (403), `rate_limit_error` (429), `server_error` (5xx), and `invalid_request_error` for every other status. Match on `code`, which is more specific.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub r#type: Option<ErrorType>,
 }
 
 impl ErrorEnvelope {
@@ -45,6 +48,7 @@ pub struct ErrorEnvelopeBuilder {
     details: Option<Vec<FieldError>>,
     replaced_by: Option<String>,
     billing: Option<BillingError>,
+    r#type: Option<ErrorType>,
 }
 
 impl ErrorEnvelopeBuilder {
@@ -88,6 +92,11 @@ impl ErrorEnvelopeBuilder {
         self
     }
 
+    pub fn r#type(mut self, value: ErrorType) -> Self {
+        self.r#type = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`ErrorEnvelope`].
     /// This method will fail if any of the following fields are not set:
     /// - [`code`](ErrorEnvelopeBuilder::code)
@@ -102,6 +111,7 @@ impl ErrorEnvelopeBuilder {
             details: self.details,
             replaced_by: self.replaced_by,
             billing: self.billing,
+            r#type: self.r#type,
         })
     }
 }

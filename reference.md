@@ -38,8 +38,11 @@ Get Usage
 #### `hedra-cli billing list-transactions`
 
 Every movement of the API wallet's balance, newest first: funds added,
-jobs charged, charges refunded, and corrections. Scoped to the workspace
-the credential bills, the same one `GET /v3/balance` reports.
+jobs charged, charges refunded, and corrections. Chat requests are summed
+into one `llm_usage` row per model per UTC day. Scoped to the workspace the
+credential bills, the same one `GET /v3/balance` reports, so an
+`llm_usage` row sums every member's requests; `GET /v3/usage/llm` lists
+only your own.
 
 `GET /transactions`
 
@@ -882,6 +885,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-minimax-h3-max`
+
+MiniMax H3 Max video generation from text, keyframes, or reference assets.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/minimax-h3-max`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-minimax-h3-max-camera-controls`
 
 Orbit, tilt, and dolly a camera through a single image along a path you key-frame in 3D.
@@ -901,6 +916,18 @@ MiniMax H3 Max Turbo — the same text and keyframe inputs, served faster and at
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/minimax-h3-max-turbo`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-minimax-h3-ultra`
+
+MiniMax H3 Ultra video generation from text, a start frame, or a first and last frame.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/minimax-h3-ultra`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1033,6 +1060,18 @@ Alibaba's Qwen-Image-2.0, tuned for speed. Native 2K output with professional in
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/qwen-image-2`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-qwen-image-2-1`
+
+Alibaba's Qwen-Image-2.1: text-rich posters and layouts, identity-preserving edits, and composition from up to ten reference images.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/qwen-image-2-1`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1522,7 +1561,13 @@ Update Log Drain
 
 #### `hedra-cli models estimate`
 
-Estimate
+Return what `POST /v3/models/{model}` would charge for this `input`.
+
+Validates `input` against the model's input schema and returns the price in
+US dollars. Creates no job, charges nothing, and does not check the wallet
+balance. The response includes no completion time: a job's
+`estimated_completion_at` appears on the submit response, on
+`GET /v3/jobs/{job_id}/status`, and on `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/{model}/estimate`
 

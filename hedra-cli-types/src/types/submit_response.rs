@@ -11,13 +11,13 @@ pub struct SubmitResponse {
     #[serde(default)]
     pub model: String,
     pub status: JobStatus,
-    /// Path of this job's status monitor: poll GET /v3/jobs/{job_id}/status for status, progress, and an estimate.
+    /// Path of this job's status monitor: poll GET /v3/jobs/{job_id}/status for status, progress, and the estimated completion time.
     #[serde(default)]
     pub status_url: String,
     /// Path of the job resource itself: GET /v3/jobs/{job_id} returns the result envelope, including the outputs once it completes. Also the value of this response's `Location` header.
     #[serde(default)]
     pub result_url: String,
-    /// ISO-8601 instant this job is estimated to finish. Null when no estimate exists for the model yet; poll GET /v3/jobs/{job_id}/status for a refreshed one.
+    /// ISO-8601 instant this job is estimated to finish, as of this response. Null when no estimate is available yet, and when the job has already finished. The estimate can change while the job runs: poll `GET /v3/jobs/{job_id}/status` for the current one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub estimated_completion_at: Option<DateTime<FixedOffset>>,
 }

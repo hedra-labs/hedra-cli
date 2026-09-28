@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Output aspect ratio.
+/// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image, else the first reference video.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputMinimaxH3AspectRatio {

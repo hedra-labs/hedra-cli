@@ -47,7 +47,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -87,7 +87,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -135,7 +135,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -253,7 +253,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -319,7 +319,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -373,7 +373,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -387,6 +387,23 @@ impl ModelsClient {
             .await
     }
 
+    /// Return what `POST /v3/models/{model}` would charge for this `input`.
+    ///
+    /// Validates `input` against the model's input schema and returns the price in
+    /// US dollars. Creates no job, charges nothing, and does not check the wallet
+    /// balance. The response includes no completion time: a job's
+    /// `estimated_completion_at` appears on the submit response, on
+    /// `GET /v3/jobs/{job_id}/status`, and on `GET /v3/jobs/{job_id}/stream`.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model's public id (`GET /v3/models`).
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -421,7 +438,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
