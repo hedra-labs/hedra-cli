@@ -2,6 +2,7 @@ mod app;
 mod binding;
 pub mod commands;
 mod help;
+mod idempotency;
 pub mod executor;
 pub mod overlay;
 mod parser;

@@ -145,3 +145,6 @@ tests/
 # identically — untested against a live regeneration, so left as-is. The same
 # gap applies to .github/ and tests/ above.
 docs/
+
+# Hand-written key selection; executor/module wiring is carried by Fern Replay.
+src/openapi/idempotency.rs

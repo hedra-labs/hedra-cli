@@ -2371,54 +2371,10 @@ pub async fn execute_method(
                 Some(&default_retries)
             };
 
-        // Auto Idempotency-Key: generate once before the retry loop so the
-        // same key is sent on every attempt. Only for POST/PUT/PATCH, and
-        // only when the caller didn't already supply one, unless opted out
-        // via `x-fern-cli-idempotency: false`.
-        //
-        // The suppression condition deliberately does NOT include
-        // `method.idempotent`. `x-fern-idempotent: true` only means the
-        // operation *exposes* `--idempotency-key` — it is not a promise that
-        // the user passed it. Treating the marker as "the caller provides a
-        // key" inverted the safety property it exists for: the marker also
-        // makes the operation retry-eligible (`method_allows_retry`), so a
-        // marked POST that the user invoked without the flag retried with no
-        // key at all, while the same POST *without* the marker got an
-        // auto-generated key. A 5xx on a marked send could therefore deliver
-        // twice. Only a key actually present on this invocation suppresses
-        // generation.
-        let user_supplied_key = input
-            .header_params
-            .iter()
-            .any(|(k, _)| k.eq_ignore_ascii_case("idempotency-key"));
-        let idempotency_key = if !method.no_auto_idempotency_key
-            && !user_supplied_key
-            && crate::http::needs_idempotency_key(&method.http_method)
-        {
-            Some(crate::http::generate_idempotency_key())
-        } else {
-            None
-        };
-
-        // Retry-safety for POST/PATCH requires a key the *server* is known to
-        // honor, which a key we invented does not establish. This used to read
-        // `method.idempotent || idempotency_key.is_some()`, and since the auto
-        // key is generated for every POST/PUT/PATCH, that made every
-        // non-idempotent operation retry-eligible — a 5xx on a create retried
-        // ~4x against an endpoint with no idempotency support at all and could
-        // duplicate the resource.
-        //
-        // Two things do establish it:
-        //   * `x-fern-idempotent: true` — the spec declares the operation
-        //     supports an idempotency key, and the block above now guarantees
-        //     one is actually sent;
-        //   * an explicit `--idempotency-key` — the caller asserting the
-        //     server dedupes on it. This also removes the surprise that
-        //     supplying a key made the CLI *less* willing to retry.
-        //
-        // An auto-generated key is still sent (it is what makes a retry safe
-        // on an endpoint that does consume it) but no longer licenses one.
-        let retry_safe = method.idempotent || user_supplied_key;
+        let idempotency = super::idempotency::select(
+            method, &input.header_params, input.body.as_ref(),
+        );
+        let retry_safe = idempotency.retry_safe;
 
         let mut retry_attempt: u32 = 0;
         let response = loop {
@@ -2437,7 +2393,7 @@ pub async fn execute_method(
             )
             .await?;
 
-            if let Some(ref key) = idempotency_key {
+            if let Some(ref key) = idempotency.header_to_add {
                 request = request.header("Idempotency-Key", key.as_str());
             }
 
