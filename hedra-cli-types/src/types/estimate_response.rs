@@ -2,13 +2,13 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Price of a would-be submit, in US dollars.
+/// The price, in US dollars, of submitting the request's `input` to the model.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct EstimateResponse {
     /// The resolved model id this estimate prices.
     #[serde(default)]
     pub model: String,
-    /// Price of a would-be submit.
+    /// The price of submitting the request's `input` to the model, in `currency`.
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]
     pub cost: f64,

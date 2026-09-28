@@ -18,7 +18,7 @@ pub struct FieldError {
     /// Machine-readable hint for which constraint failed ("required", "enum", "type", …).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
-    /// The accepted values, when the field is an enum — so the request can be fixed without re-fetching the model schema.
+    /// Accepted values for an enum, or accepted field names on the first unknown-field violation. Omitted on subsequent unknown fields.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub allowed: Option<Vec<String>>,
 }

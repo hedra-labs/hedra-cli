@@ -36,7 +36,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -76,7 +76,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client
@@ -95,8 +95,11 @@ impl BillingClient {
     }
 
     /// Every movement of the API wallet's balance, newest first: funds added,
-    /// jobs charged, charges refunded, and corrections. Scoped to the workspace
-    /// the credential bills, the same one `GET /v3/balance` reports.
+    /// jobs charged, charges refunded, and corrections. Chat requests are summed
+    /// into one `llm_usage` row per model per UTC day. Scoped to the workspace the
+    /// credential bills, the same one `GET /v3/balance` reports, so an
+    /// `llm_usage` row sums every member's requests; `GET /v3/usage/llm` lists
+    /// only your own.
     ///
     /// # Arguments
     ///
@@ -140,7 +143,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.8".to_string());
+                .or_insert_with(|| "3.17.12".to_string());
             Some(o)
         };
         self.http_client

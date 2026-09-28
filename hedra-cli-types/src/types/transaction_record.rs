@@ -5,13 +5,13 @@ use super::*;
 /// One movement of the API wallet's balance.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct TransactionRecord {
-    /// The transaction's id. Stable, and the same id the V2 billing history reports for this row.
+    /// The transaction's id. Stable, and the same id the V2 billing history reports for this row. An `llm_usage` row's id starts with `llm_usage:` and names its daily sum.
     #[serde(default)]
     pub id: String,
-    /// What moved the balance: `purchase` when funds were bought, `grant` when they were granted by a plan entitlement, `usage` when a job was charged, `refund` when a charge was returned, `adjustment` when Hedra corrected the balance, and `other` for a movement this API version does not yet name. The list is open and may gain values, so switch on it with a default branch; `amount` is authoritative for a kind you do not recognize.
+    /// What moved the balance: `purchase` when funds were bought, `grant` when they were granted by a plan entitlement, `usage` when a job was charged, `llm_usage` for a day's chat requests to one model, summed into one row, `refund` when a charge was returned, `adjustment` when Hedra corrected the balance, and `other` for a movement this API version does not yet name. The list is open and may gain values, so switch on it with a default branch; `amount` is authoritative for a kind you do not recognize.
     #[serde(default)]
     pub kind: String,
-    /// The change to the balance, signed: negative for a charge, positive for funds arriving. Null for a row written before the wallet recorded amounts, whose movement is unknown rather than zero; no such row exists in production.
+    /// The change to the balance, signed: negative for a charge, positive for funds arriving. Null for a row written before the wallet recorded amounts, whose movement is unknown rather than zero; no such row exists in production. For `llm_usage`, the sum of the day's charges so far.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
@@ -19,10 +19,13 @@ pub struct TransactionRecord {
     /// ISO-4217 currency code for `amount`; null exactly when `amount` is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
-    /// ISO-8601 instant the balance moved.
+    /// ISO-8601 instant the balance moved. For `llm_usage`, the start of the day it covers.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,
+    /// Set exactly when `kind` is `llm_usage`; null on every other row.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm_usage: Option<TransactionLlmUsage>,
 }
 
 impl TransactionRecord {
@@ -39,6 +42,7 @@ pub struct TransactionRecordBuilder {
     amount: Option<f64>,
     currency: Option<String>,
     created_at: Option<DateTime<FixedOffset>>,
+    llm_usage: Option<TransactionLlmUsage>,
 }
 
 impl TransactionRecordBuilder {
@@ -67,6 +71,11 @@ impl TransactionRecordBuilder {
         self
     }
 
+    pub fn llm_usage(mut self, value: TransactionLlmUsage) -> Self {
+        self.llm_usage = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`TransactionRecord`].
     /// This method will fail if any of the following fields are not set:
     /// - [`id`](TransactionRecordBuilder::id)
@@ -79,6 +88,7 @@ impl TransactionRecordBuilder {
             amount: self.amount,
             currency: self.currency,
             created_at: self.created_at.ok_or_else(|| BuildError::missing_field("created_at"))?,
+            llm_usage: self.llm_usage,
         })
     }
 }
