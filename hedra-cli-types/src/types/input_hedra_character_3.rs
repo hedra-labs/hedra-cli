@@ -24,7 +24,7 @@ pub struct InputHedraCharacter3 {
     pub audio: InputHedraCharacter3Audio,
     /// Speaker position(s) in the start frame, as normalized [x, y] image coordinates (0-1 from the top-left).
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub bounding_box_target: Option<InputHedraCharacter3BoundingBoxTarget>,
+    pub bounding_box_target: Option<Vec<serde_json::Value>>,
 }
 
 impl InputHedraCharacter3 {
@@ -43,7 +43,7 @@ pub struct InputHedraCharacter3Builder {
     duration_ms: Option<i64>,
     start_image: Option<InputHedraCharacter3StartImage>,
     audio: Option<InputHedraCharacter3Audio>,
-    bounding_box_target: Option<InputHedraCharacter3BoundingBoxTarget>,
+    bounding_box_target: Option<Vec<serde_json::Value>>,
 }
 
 impl InputHedraCharacter3Builder {
@@ -82,7 +82,7 @@ impl InputHedraCharacter3Builder {
         self
     }
 
-    pub fn bounding_box_target(mut self, value: InputHedraCharacter3BoundingBoxTarget) -> Self {
+    pub fn bounding_box_target(mut self, value: Vec<serde_json::Value>) -> Self {
         self.bounding_box_target = Some(value);
         self
     }
