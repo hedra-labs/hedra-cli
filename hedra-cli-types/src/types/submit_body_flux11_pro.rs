@@ -8,9 +8,6 @@ pub struct SubmitBodyFlux11Pro {
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
-    /// Replays the original ack for a retried submit instead of enqueueing a duplicate job.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub idempotency_key: Option<String>,
 }
 
 impl SubmitBodyFlux11Pro {
@@ -24,7 +21,6 @@ impl SubmitBodyFlux11Pro {
 pub struct SubmitBodyFlux11ProBuilder {
     input: Option<InputFlux11Pro>,
     webhook: Option<String>,
-    idempotency_key: Option<String>,
 }
 
 impl SubmitBodyFlux11ProBuilder {
@@ -38,11 +34,6 @@ impl SubmitBodyFlux11ProBuilder {
         self
     }
 
-    pub fn idempotency_key(mut self, value: impl Into<String>) -> Self {
-        self.idempotency_key = Some(value.into());
-        self
-    }
-
     /// Consumes the builder and constructs a [`SubmitBodyFlux11Pro`].
     /// This method will fail if any of the following fields are not set:
     /// - [`input`](SubmitBodyFlux11ProBuilder::input)
@@ -50,7 +41,6 @@ impl SubmitBodyFlux11ProBuilder {
         Ok(SubmitBodyFlux11Pro {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
-            idempotency_key: self.idempotency_key,
         })
     }
 }

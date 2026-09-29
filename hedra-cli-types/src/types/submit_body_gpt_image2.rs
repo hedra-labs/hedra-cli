@@ -8,9 +8,6 @@ pub struct SubmitBodyGptImage2 {
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
-    /// Replays the original ack for a retried submit instead of enqueueing a duplicate job.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub idempotency_key: Option<String>,
 }
 
 impl SubmitBodyGptImage2 {
@@ -24,7 +21,6 @@ impl SubmitBodyGptImage2 {
 pub struct SubmitBodyGptImage2Builder {
     input: Option<InputGptImage2>,
     webhook: Option<String>,
-    idempotency_key: Option<String>,
 }
 
 impl SubmitBodyGptImage2Builder {
@@ -38,11 +34,6 @@ impl SubmitBodyGptImage2Builder {
         self
     }
 
-    pub fn idempotency_key(mut self, value: impl Into<String>) -> Self {
-        self.idempotency_key = Some(value.into());
-        self
-    }
-
     /// Consumes the builder and constructs a [`SubmitBodyGptImage2`].
     /// This method will fail if any of the following fields are not set:
     /// - [`input`](SubmitBodyGptImage2Builder::input)
@@ -50,7 +41,6 @@ impl SubmitBodyGptImage2Builder {
         Ok(SubmitBodyGptImage2 {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
-            idempotency_key: self.idempotency_key,
         })
     }
 }

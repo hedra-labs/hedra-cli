@@ -8,9 +8,6 @@ pub struct SubmitBodyMinimaxH3Max {
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
-    /// Replays the original ack for a retried submit instead of enqueueing a duplicate job.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub idempotency_key: Option<String>,
 }
 
 impl SubmitBodyMinimaxH3Max {
@@ -24,7 +21,6 @@ impl SubmitBodyMinimaxH3Max {
 pub struct SubmitBodyMinimaxH3MaxBuilder {
     input: Option<InputMinimaxH3Max>,
     webhook: Option<String>,
-    idempotency_key: Option<String>,
 }
 
 impl SubmitBodyMinimaxH3MaxBuilder {
@@ -38,11 +34,6 @@ impl SubmitBodyMinimaxH3MaxBuilder {
         self
     }
 
-    pub fn idempotency_key(mut self, value: impl Into<String>) -> Self {
-        self.idempotency_key = Some(value.into());
-        self
-    }
-
     /// Consumes the builder and constructs a [`SubmitBodyMinimaxH3Max`].
     /// This method will fail if any of the following fields are not set:
     /// - [`input`](SubmitBodyMinimaxH3MaxBuilder::input)
@@ -50,7 +41,6 @@ impl SubmitBodyMinimaxH3MaxBuilder {
         Ok(SubmitBodyMinimaxH3Max {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
-            idempotency_key: self.idempotency_key,
         })
     }
 }

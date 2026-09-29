@@ -20,6 +20,12 @@ pub struct ModelSummary {
     /// URL of the provider's logo.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logo_url: Option<String>,
+    /// A chat model's context window in tokens; null for other models.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub context_length: Option<i64>,
+    /// The largest `max_tokens` a chat model accepts; null for other models.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_output_tokens: Option<i64>,
 }
 
 impl ModelSummary {
@@ -37,6 +43,8 @@ pub struct ModelSummaryBuilder {
     description: Option<String>,
     price_description: Option<String>,
     logo_url: Option<String>,
+    context_length: Option<i64>,
+    max_output_tokens: Option<i64>,
 }
 
 impl ModelSummaryBuilder {
@@ -70,6 +78,16 @@ impl ModelSummaryBuilder {
         self
     }
 
+    pub fn context_length(mut self, value: i64) -> Self {
+        self.context_length = Some(value);
+        self
+    }
+
+    pub fn max_output_tokens(mut self, value: i64) -> Self {
+        self.max_output_tokens = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`ModelSummary`].
     /// This method will fail if any of the following fields are not set:
     /// - [`id`](ModelSummaryBuilder::id)
@@ -82,6 +100,8 @@ impl ModelSummaryBuilder {
             description: self.description,
             price_description: self.price_description,
             logo_url: self.logo_url,
+            context_length: self.context_length,
+            max_output_tokens: self.max_output_tokens,
         })
     }
 }

@@ -8,9 +8,9 @@ use super::*;
 pub enum InputViduQ3AspectRatio {
     Sixteen9,
     Nine16,
-    One1,
     Four3,
     Three4,
+    One1,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -21,9 +21,9 @@ impl Serialize for InputViduQ3AspectRatio {
         match self {
             Self::Sixteen9 => serializer.serialize_str("16:9"),
             Self::Nine16 => serializer.serialize_str("9:16"),
-            Self::One1 => serializer.serialize_str("1:1"),
             Self::Four3 => serializer.serialize_str("4:3"),
             Self::Three4 => serializer.serialize_str("3:4"),
+            Self::One1 => serializer.serialize_str("1:1"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -35,9 +35,9 @@ impl<'de> Deserialize<'de> for InputViduQ3AspectRatio {
         match value.as_str() {
             "16:9" => Ok(Self::Sixteen9),
             "9:16" => Ok(Self::Nine16),
-            "1:1" => Ok(Self::One1),
             "4:3" => Ok(Self::Four3),
             "3:4" => Ok(Self::Three4),
+            "1:1" => Ok(Self::One1),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -48,9 +48,9 @@ impl fmt::Display for InputViduQ3AspectRatio {
         match self {
             Self::Sixteen9 => write!(f, "16:9"),
             Self::Nine16 => write!(f, "9:16"),
-            Self::One1 => write!(f, "1:1"),
             Self::Four3 => write!(f, "4:3"),
             Self::Three4 => write!(f, "3:4"),
+            Self::One1 => write!(f, "1:1"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }

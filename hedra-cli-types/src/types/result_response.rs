@@ -17,19 +17,22 @@ pub struct ResultResponse {
     /// The prompt this job ran with. When `enhance_prompt` was set, this is the rewritten prompt the model received rather than the one submitted. Absent on models that take no prompt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    /// The job's outputs — always an array, even for a single output; empty until the job completes.
+    /// The job's outputs — always an array, even for a single output; empty until the job completes. Always empty for a chat completion, whose text the chat response returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outputs: Option<Vec<OutputItem>>,
-    /// Timing for this job; present on completed jobs only.
+    /// Timing for this job; present on completed jobs, and on every finished chat completion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
+    /// The tokens a chat completion used; absent for other jobs and before a chat completion's usage is recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<ChatUsage>,
     /// Why the job failed; null unless `status` is `FAILED`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorEnvelope>,
     /// The most recent lifecycle events for this job, oldest first. Capped; GET /v3/jobs/{job_id}/logs serves the full paginated history. Absent from webhook payloads.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<Vec<JobLogItem>>,
-    /// Net cost of this job; 0 when fully refunded; absent until charged. Absent from webhook payloads.
+    /// Net cost of this job; 0 when fully refunded; absent until charged. Absent from webhook payloads. A chat completion that the caller disconnected or stopped reading (`CANCELLED`), or that reached its deadline (`DEADLINE_EXCEEDED`), is `FAILED` and costs the tokens the model reported; one that the model failed (`UNAVAILABLE`) costs 0.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cost: Option<f64>,
     /// ISO-4217 currency code for `cost`. Present exactly when `cost` is.
@@ -53,6 +56,7 @@ pub struct ResultResponseBuilder {
     prompt: Option<String>,
     outputs: Option<Vec<OutputItem>>,
     metrics: Option<Metrics>,
+    usage: Option<ChatUsage>,
     error: Option<ErrorEnvelope>,
     logs: Option<Vec<JobLogItem>>,
     cost: Option<f64>,
@@ -95,6 +99,11 @@ impl ResultResponseBuilder {
         self
     }
 
+    pub fn usage(mut self, value: ChatUsage) -> Self {
+        self.usage = Some(value);
+        self
+    }
+
     pub fn error(mut self, value: ErrorEnvelope) -> Self {
         self.error = Some(value);
         self
@@ -129,6 +138,7 @@ impl ResultResponseBuilder {
             prompt: self.prompt,
             outputs: self.outputs,
             metrics: self.metrics,
+            usage: self.usage,
             error: self.error,
             logs: self.logs,
             cost: self.cost,

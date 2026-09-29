@@ -6,7 +6,7 @@
 //! ## Type Categories
 //!
 //! - **Request/Response Types**: 150 types for API operations
-//! - **Model Types**: 537 types for data representation
+//! - **Model Types**: 540 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -19,6 +19,9 @@ pub mod api_key_kind;
 pub mod api_key_scope;
 pub mod balance_response;
 pub mod billing_error;
+pub mod chat_capabilities;
+pub mod chat_token_pricing;
+pub mod chat_usage;
 pub mod error_code;
 pub mod error_envelope;
 pub mod error_response;
@@ -707,6 +710,9 @@ pub use api_key_kind::ApiKeyKind;
 pub use api_key_scope::ApiKeyScope;
 pub use balance_response::BalanceResponse;
 pub use billing_error::BillingError;
+pub use chat_capabilities::ChatCapabilities;
+pub use chat_token_pricing::ChatTokenPricing;
+pub use chat_usage::ChatUsage;
 pub use error_code::ErrorCode;
 pub use error_envelope::ErrorEnvelope;
 pub use error_response::ErrorResponse;

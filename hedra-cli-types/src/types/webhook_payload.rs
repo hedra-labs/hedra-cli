@@ -18,12 +18,15 @@ pub struct WebhookPayload {
     /// The prompt this job ran with. When `enhance_prompt` was set, this is the rewritten prompt the model received rather than the one submitted. Absent on models that take no prompt.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub prompt: Option<String>,
-    /// The job's outputs — always an array, even for a single output; empty until the job completes.
+    /// The job's outputs — always an array, even for a single output; empty until the job completes. Always empty for a chat completion, whose text the chat response returned.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub outputs: Option<Vec<OutputItem>>,
-    /// Timing for this job; present on completed jobs only.
+    /// Timing for this job; present on completed jobs, and on every finished chat completion.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub metrics: Option<Metrics>,
+    /// The tokens a chat completion used; absent for other jobs and before a chat completion's usage is recorded.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub usage: Option<ChatUsage>,
     /// Why the job failed; null unless `status` is `FAILED`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorEnvelope>,
@@ -45,6 +48,7 @@ pub struct WebhookPayloadBuilder {
     prompt: Option<String>,
     outputs: Option<Vec<OutputItem>>,
     metrics: Option<Metrics>,
+    usage: Option<ChatUsage>,
     error: Option<ErrorEnvelope>,
 }
 
@@ -84,6 +88,11 @@ impl WebhookPayloadBuilder {
         self
     }
 
+    pub fn usage(mut self, value: ChatUsage) -> Self {
+        self.usage = Some(value);
+        self
+    }
+
     pub fn error(mut self, value: ErrorEnvelope) -> Self {
         self.error = Some(value);
         self
@@ -103,6 +112,7 @@ impl WebhookPayloadBuilder {
             prompt: self.prompt,
             outputs: self.outputs,
             metrics: self.metrics,
+            usage: self.usage,
             error: self.error,
         })
     }
