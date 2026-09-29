@@ -20,7 +20,7 @@ env:
 
 jobs:
   rust:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Checkout repo
         uses: actions/checkout@v7
@@ -135,7 +135,7 @@ jobs:
   # runtime drift is structurally impossible here. Cargo.toml/Cargo.lock
   # agreement is already enforced by `cargo check --locked` in the rust job.
   regen-shape:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
         with:
