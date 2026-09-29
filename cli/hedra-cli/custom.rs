@@ -22,6 +22,8 @@ mod active_key;
 mod auth;
 #[path = "keyring_cache.rs"]
 mod keyring_cache;
+#[path = "media_refs.rs"]
+mod media_refs;
 #[path = "views.rs"]
 mod views;
 #[path = "workspaces.rs"]
@@ -57,6 +59,10 @@ pub fn register(app: CliApp) -> CliApp {
     // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
     // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise.
     auth::derive_base_url_from_hedra_env();
+
+    // `--input.source-image asset_…` / `https://…` as shorthand for the
+    // MediaRef object. Request-side, so it applies in every output format.
+    media_refs::install();
 
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
