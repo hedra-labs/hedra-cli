@@ -6,7 +6,7 @@
 //! ## Type Categories
 //!
 //! - **Request/Response Types**: 150 types for API operations
-//! - **Model Types**: 540 types for data representation
+//! - **Model Types**: 538 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -215,7 +215,6 @@ pub mod input_hedra_avatar_start_image;
 pub mod input_hedra_avatar_audio_zero;
 pub mod input_hedra_avatar_audio_one_item;
 pub mod input_hedra_avatar_audio;
-pub mod input_hedra_avatar_bounding_box_target;
 pub mod input_hedra_avatar;
 pub mod input_hedra_character_3_aspect_ratio;
 pub mod input_hedra_character_3_resolution;
@@ -223,7 +222,6 @@ pub mod input_hedra_character_3_start_image;
 pub mod input_hedra_character_3_audio_zero;
 pub mod input_hedra_character_3_audio_one_item;
 pub mod input_hedra_character_3_audio;
-pub mod input_hedra_character_3_bounding_box_target;
 pub mod input_hedra_character_3;
 pub mod input_heygen_photo_avatar_4_aspect_ratio;
 pub mod input_heygen_photo_avatar_4_resolution;
@@ -906,7 +904,6 @@ pub use input_hedra_avatar_start_image::InputHedraAvatarStartImage;
 pub use input_hedra_avatar_audio_zero::InputHedraAvatarAudioZero;
 pub use input_hedra_avatar_audio_one_item::InputHedraAvatarAudioOneItem;
 pub use input_hedra_avatar_audio::InputHedraAvatarAudio;
-pub use input_hedra_avatar_bounding_box_target::InputHedraAvatarBoundingBoxTarget;
 pub use input_hedra_avatar::InputHedraAvatar;
 pub use input_hedra_character_3_aspect_ratio::InputHedraCharacter3AspectRatio;
 pub use input_hedra_character_3_resolution::InputHedraCharacter3Resolution;
@@ -914,7 +911,6 @@ pub use input_hedra_character_3_start_image::InputHedraCharacter3StartImage;
 pub use input_hedra_character_3_audio_zero::InputHedraCharacter3AudioZero;
 pub use input_hedra_character_3_audio_one_item::InputHedraCharacter3AudioOneItem;
 pub use input_hedra_character_3_audio::InputHedraCharacter3Audio;
-pub use input_hedra_character_3_bounding_box_target::InputHedraCharacter3BoundingBoxTarget;
 pub use input_hedra_character_3::InputHedraCharacter3;
 pub use input_heygen_photo_avatar_4_aspect_ratio::InputHeygenPhotoAvatar4AspectRatio;
 pub use input_heygen_photo_avatar_4_resolution::InputHeygenPhotoAvatar4Resolution;
