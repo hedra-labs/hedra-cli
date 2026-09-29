@@ -14,6 +14,20 @@ impl JobsClient {
         })
     }
 
+    /// Your jobs, newest first. Each `POST /v3/chat/completions` request is a
+    /// job too, whose id is the completion's `id`. A chat job has no outputs,
+    /// and it sends no `job.completed` or `job.failed` webhook.
+    ///
+    /// # Arguments
+    ///
+    /// * `limit` - Maximum items per page.
+    /// * `cursor` - Opaque cursor from the previous page's `next_cursor`; omit for the first page.
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -46,7 +60,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -150,7 +164,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -198,7 +212,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -248,7 +262,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -355,7 +369,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -416,7 +430,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -432,7 +445,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -483,7 +496,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -499,7 +511,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -550,7 +562,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -566,7 +577,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -616,7 +627,6 @@ impl JobsClient {
     ///                     voice_id: "voice_id".to_string(),
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -632,7 +642,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -680,7 +690,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -696,7 +705,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -744,7 +753,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -760,7 +768,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -810,7 +818,6 @@ impl JobsClient {
     ///                     voice_id: "voice_id".to_string(),
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -826,7 +833,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -874,7 +881,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -890,7 +896,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -938,7 +944,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -954,7 +959,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1002,7 +1007,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1018,7 +1022,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1066,7 +1070,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1082,7 +1085,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1134,7 +1137,6 @@ impl JobsClient {
     ///                     name: "name".to_string(),
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1150,7 +1152,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1209,7 +1211,6 @@ impl JobsClient {
     ///                     }],
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1225,7 +1226,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1284,7 +1285,6 @@ impl JobsClient {
     ///                     }],
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1300,7 +1300,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1352,7 +1352,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1368,7 +1367,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1420,7 +1419,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1436,7 +1434,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1489,7 +1487,6 @@ impl JobsClient {
     ///                     end_image: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1505,7 +1502,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1558,7 +1555,6 @@ impl JobsClient {
     ///                     resolution: InputFlux3VideoUpscalerCreativeResolution::OneThousandEightyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1574,7 +1570,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1627,7 +1623,6 @@ impl JobsClient {
     ///                     resolution: InputFlux3VideoUpscalerPreciseResolution::OneThousandEightyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1643,7 +1638,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1697,7 +1692,6 @@ impl JobsClient {
     ///                     num_inference_steps: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1713,7 +1707,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1760,7 +1754,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1776,7 +1769,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1823,7 +1816,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1839,7 +1831,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1893,7 +1885,6 @@ impl JobsClient {
     ///                     steps: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1909,7 +1900,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -1964,7 +1955,6 @@ impl JobsClient {
     ///                     num_inference_steps: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -1980,7 +1970,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2032,7 +2022,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2048,7 +2037,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2100,7 +2089,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2116,7 +2104,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2170,7 +2158,6 @@ impl JobsClient {
     ///                     videos: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2186,7 +2173,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2241,7 +2228,6 @@ impl JobsClient {
     ///                     videos: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2257,7 +2243,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2309,7 +2295,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2325,7 +2310,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2378,7 +2363,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2394,7 +2378,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2447,7 +2431,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2463,7 +2446,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2516,7 +2499,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2532,7 +2514,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2579,7 +2561,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2595,7 +2576,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2647,7 +2628,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2663,7 +2643,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2714,7 +2694,6 @@ impl JobsClient {
     ///                     start_image: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2730,7 +2709,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2783,7 +2762,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2799,7 +2777,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2864,7 +2842,6 @@ impl JobsClient {
     ///                     bounding_box_target: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2880,7 +2857,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -2945,7 +2922,6 @@ impl JobsClient {
     ///                     bounding_box_target: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -2961,7 +2937,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3022,7 +2998,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3038,7 +3013,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3094,7 +3069,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3110,7 +3084,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3162,7 +3136,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3178,7 +3151,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3231,7 +3204,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3247,7 +3219,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3297,7 +3269,6 @@ impl JobsClient {
     ///                     resolution: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3313,7 +3284,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3363,7 +3334,6 @@ impl JobsClient {
     ///                     resolution: InputImagen4Resolution::OneK,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3379,7 +3349,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3424,7 +3394,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3440,7 +3409,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3493,7 +3462,6 @@ impl JobsClient {
     ///                     cfg_scale: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3509,7 +3477,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3562,7 +3530,6 @@ impl JobsClient {
     ///                     cfg_scale: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3578,7 +3545,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3639,7 +3606,6 @@ impl JobsClient {
     ///                     resolution: InputKling26MotionControlResolution::SevenHundredTwentyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3655,7 +3621,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3709,7 +3675,6 @@ impl JobsClient {
     ///                     cfg_scale: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3725,7 +3690,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3787,7 +3752,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3803,7 +3767,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3856,7 +3820,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3872,7 +3835,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -3929,7 +3892,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -3945,7 +3907,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4000,7 +3962,6 @@ impl JobsClient {
     ///                     resolution: InputKlingO3EditResolution::SevenHundredTwentyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4016,7 +3977,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4071,7 +4032,6 @@ impl JobsClient {
     ///                     resolution: InputKlingO3ReferenceResolution::SevenHundredTwentyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4087,7 +4047,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4145,7 +4105,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4161,7 +4120,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4222,7 +4181,6 @@ impl JobsClient {
     ///                     resolution: InputKlingV3MotionControlResolution::SevenHundredTwentyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4238,7 +4196,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4292,7 +4250,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4308,7 +4265,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4362,7 +4319,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4378,7 +4334,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4433,7 +4389,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4449,7 +4404,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4499,7 +4454,6 @@ impl JobsClient {
     ///                     duration_ms: 1,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4515,7 +4469,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4567,7 +4521,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4583,7 +4536,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4638,7 +4591,6 @@ impl JobsClient {
     ///                     audios: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4654,7 +4606,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4710,7 +4662,6 @@ impl JobsClient {
     ///                     audios: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4726,7 +4677,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4788,7 +4739,6 @@ impl JobsClient {
     ///                     }],
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4804,7 +4754,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4857,7 +4807,6 @@ impl JobsClient {
     ///                     aspect_ratio: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4873,7 +4822,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4921,7 +4870,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -4937,7 +4885,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -4985,7 +4933,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5001,7 +4948,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5049,7 +4996,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5065,7 +5011,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5113,7 +5059,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5129,7 +5074,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5177,7 +5122,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5193,7 +5137,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5244,7 +5188,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5260,7 +5203,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5312,7 +5255,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5328,7 +5270,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5383,7 +5325,6 @@ impl JobsClient {
     ///                     thinking_level: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5399,7 +5340,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5452,7 +5393,6 @@ impl JobsClient {
     ///                     google_search: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5468,7 +5408,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5529,7 +5469,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5545,7 +5484,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5599,7 +5538,6 @@ impl JobsClient {
     ///                     aspect_ratio: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5615,7 +5553,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5670,7 +5608,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5686,7 +5623,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5741,7 +5678,6 @@ impl JobsClient {
     ///                     guidance_scale: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5757,7 +5693,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5807,7 +5743,6 @@ impl JobsClient {
     ///                     resolution: InputRecraftV3Resolution::FiveHundredFortyP,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5823,7 +5758,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5873,7 +5808,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5889,7 +5823,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -5945,7 +5879,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -5961,7 +5894,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6017,7 +5950,6 @@ impl JobsClient {
     ///                     output_format: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6033,7 +5965,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6088,7 +6020,6 @@ impl JobsClient {
     ///                     num_inference_steps: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6104,7 +6035,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6158,7 +6089,6 @@ impl JobsClient {
     ///                     seed: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6174,7 +6104,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6231,7 +6161,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6247,7 +6176,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6302,7 +6231,6 @@ impl JobsClient {
     ///                     audios: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6318,7 +6246,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6374,7 +6302,6 @@ impl JobsClient {
     ///                     audios: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6390,7 +6317,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6441,7 +6368,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6457,7 +6383,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6508,7 +6434,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6524,7 +6449,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6576,7 +6501,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6592,7 +6516,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6644,7 +6568,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6660,7 +6583,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6711,7 +6634,6 @@ impl JobsClient {
     ///                     start_image: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6727,7 +6649,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6782,7 +6704,6 @@ impl JobsClient {
     ///                     face_recovery_creativity: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6798,7 +6719,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6850,7 +6771,6 @@ impl JobsClient {
     ///                     num_outputs: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6866,7 +6786,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6922,7 +6842,6 @@ impl JobsClient {
     ///                     film_grain: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -6938,7 +6857,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -6993,7 +6912,6 @@ impl JobsClient {
     ///                     tuning: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7009,7 +6927,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7061,7 +6979,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7077,7 +6994,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7131,7 +7048,6 @@ impl JobsClient {
     ///                     reduce_sharpening: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7147,7 +7063,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7201,7 +7117,6 @@ impl JobsClient {
     ///                     reduce_sharpening: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7217,7 +7132,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7272,7 +7187,6 @@ impl JobsClient {
     ///                     reduce_sharpening: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7288,7 +7202,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7349,7 +7263,6 @@ impl JobsClient {
     ///                     },
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7365,7 +7278,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7418,7 +7331,6 @@ impl JobsClient {
     ///                     subject_is_person: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7434,7 +7346,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7481,7 +7393,6 @@ impl JobsClient {
     ///                     ..Default::default()
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7497,7 +7408,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7552,7 +7463,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7568,7 +7478,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7626,7 +7536,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7642,7 +7551,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7696,7 +7605,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7712,7 +7620,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7769,7 +7677,6 @@ impl JobsClient {
     ///                     }],
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7785,7 +7692,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7840,7 +7747,6 @@ impl JobsClient {
     ///                     images: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7856,7 +7762,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7914,7 +7820,6 @@ impl JobsClient {
     ///                     quality: None,
     ///                 },
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7930,7 +7835,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client
@@ -7978,7 +7883,6 @@ impl JobsClient {
     ///             &SubmitBody {
     ///                 input: HashMap::from([("key".to_string(), serde_json::json!("value"))]),
     ///                 webhook: None,
-    ///                 idempotency_key: None,
     ///             },
     ///             None,
     ///         )
@@ -7995,7 +7899,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.17.12".to_string());
+                .or_insert_with(|| "3.20.0".to_string());
             Some(o)
         };
         self.http_client

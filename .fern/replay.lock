@@ -306,14 +306,20 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.42.3
-current_generation: 16801b115e0fbbd933136fbf33dbb9f62379f64f
+  - commit_sha: c4a07d49f4723815a42047eaaf4db4921ef37dc2
+    tree_hash: 94c6c9deeeb95dfde48f00daeae27c671fb0a572
+    timestamp: 2026-09-29T17:54:53.612Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.42.3
+current_generation: c4a07d49f4723815a42047eaaf4db4921ef37dc2
 patches:
   - id: patch-d871322c
     content_hash: sha256:b6528bbfadb1d6b6d24ac20f2778f2a5c31fb41469f6068a7ab40b19a8a0c5bf
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 16801b115e0fbbd933136fbf33dbb9f62379f64f
+    base_generation: c4a07d49f4723815a42047eaaf4db4921ef37dc2
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -2163,7 +2169,7 @@ patches:
     original_commit: 9784c08053b70839c12fa328ed0a316a22cfdfa0
     original_message: "fix(auth): repair the auth and workspace regressions from PR #102 (#104)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 16801b115e0fbbd933136fbf33dbb9f62379f64f
+    base_generation: c4a07d49f4723815a42047eaaf4db4921ef37dc2
     files:
       - src/auth/login.rs
     patch_content: |

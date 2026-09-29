@@ -9,6 +9,7 @@ pub enum Modality {
     Image,
     Video,
     Audio,
+    Text,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -20,6 +21,7 @@ impl Serialize for Modality {
             Self::Image => serializer.serialize_str("image"),
             Self::Video => serializer.serialize_str("video"),
             Self::Audio => serializer.serialize_str("audio"),
+            Self::Text => serializer.serialize_str("text"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -32,6 +34,7 @@ impl<'de> Deserialize<'de> for Modality {
             "image" => Ok(Self::Image),
             "video" => Ok(Self::Video),
             "audio" => Ok(Self::Audio),
+            "text" => Ok(Self::Text),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -43,6 +46,7 @@ impl fmt::Display for Modality {
             Self::Image => write!(f, "image"),
             Self::Video => write!(f, "video"),
             Self::Audio => write!(f, "audio"),
+            Self::Text => write!(f, "text"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }

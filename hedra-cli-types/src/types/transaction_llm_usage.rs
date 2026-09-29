@@ -11,7 +11,7 @@ pub struct TransactionLlmUsage {
     /// How many requests the row sums.
     #[serde(default)]
     pub request_count: i64,
-    /// Start of the UTC day the row covers. A request counts toward the day it was created, even when it was charged after midnight. `GET /v3/usage/llm` lists your own requests in the row when given this as `start`, `period_end` as `end`, and `model`.
+    /// Start of the UTC day the row covers. A request counts toward the day it was created, even when it was charged after midnight. `GET /v3/models/{model}/jobs` lists the requests as jobs.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub period_start: DateTime<FixedOffset>,

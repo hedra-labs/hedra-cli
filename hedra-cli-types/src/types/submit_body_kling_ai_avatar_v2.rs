@@ -8,9 +8,6 @@ pub struct SubmitBodyKlingAiAvatarV2 {
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
-    /// Replays the original ack for a retried submit instead of enqueueing a duplicate job.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub idempotency_key: Option<String>,
 }
 
 impl SubmitBodyKlingAiAvatarV2 {
@@ -24,7 +21,6 @@ impl SubmitBodyKlingAiAvatarV2 {
 pub struct SubmitBodyKlingAiAvatarV2Builder {
     input: Option<InputKlingAiAvatarV2>,
     webhook: Option<String>,
-    idempotency_key: Option<String>,
 }
 
 impl SubmitBodyKlingAiAvatarV2Builder {
@@ -38,11 +34,6 @@ impl SubmitBodyKlingAiAvatarV2Builder {
         self
     }
 
-    pub fn idempotency_key(mut self, value: impl Into<String>) -> Self {
-        self.idempotency_key = Some(value.into());
-        self
-    }
-
     /// Consumes the builder and constructs a [`SubmitBodyKlingAiAvatarV2`].
     /// This method will fail if any of the following fields are not set:
     /// - [`input`](SubmitBodyKlingAiAvatarV2Builder::input)
@@ -50,7 +41,6 @@ impl SubmitBodyKlingAiAvatarV2Builder {
         Ok(SubmitBodyKlingAiAvatarV2 {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
-            idempotency_key: self.idempotency_key,
         })
     }
 }

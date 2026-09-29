@@ -41,8 +41,7 @@ Every movement of the API wallet's balance, newest first: funds added,
 jobs charged, charges refunded, and corrections. Chat requests are summed
 into one `llm_usage` row per model per UTC day. Scoped to the workspace the
 credential bills, the same one `GET /v3/balance` reports, so an
-`llm_usage` row sums every member's requests; `GET /v3/usage/llm` lists
-only your own.
+`llm_usage` row sums every member's requests.
 
 `GET /transactions`
 
@@ -100,7 +99,9 @@ Get Job Status
 
 #### `hedra-cli jobs list`
 
-List Jobs
+Your jobs, newest first. Each `POST /v3/chat/completions` request is a
+job too, whose id is the completion's `id`. A chat job has no outputs,
+and it sends no `job.completed` or `job.failed` webhook.
 
 `GET /jobs`
 
