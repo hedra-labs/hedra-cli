@@ -28,7 +28,7 @@ pub struct InputQwenImage2 {
     /// What to avoid in the generated image. At most 500 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub negative_prompt: Option<String>,
-    /// Images to edit or blend. 1 to 3 images, each at most 30 MB.
+    /// Images to edit or blend. 1 to 3 images, each at most 10 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputQwenImage2ImagesItem>>,
     /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.

@@ -39,6 +39,18 @@ pub enum ApiError {
         error: Option<ErrorEnvelope>,
         trace_id: Option<String>,
     },
+    #[error("ConflictError: Conflict - {message}")]
+    ConflictError {
+        message: String,
+        error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
+    },
+    #[error("ServiceUnavailableError: {message}")]
+    ServiceUnavailableError {
+        message: String,
+        error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
+    },
     #[error("PaymentRequiredError: {message}")]
     PaymentRequiredError {
         message: String,
@@ -47,6 +59,12 @@ pub enum ApiError {
     },
     #[error("UnprocessableEntityError: Unprocessable entity - {message}")]
     UnprocessableEntityError {
+        message: String,
+        error: Option<ErrorEnvelope>,
+        trace_id: Option<String>,
+    },
+    #[error("GatewayTimeoutError: {message}")]
+    GatewayTimeoutError {
         message: String,
         error: Option<ErrorEnvelope>,
         trace_id: Option<String>,
@@ -226,6 +244,56 @@ impl ApiError {
                     trace_id: None,
                 };
             }
+            409 => {
+                // Parse error body for ConflictError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::ConflictError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                            }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
+                        };
+                    }
+                }
+                return Self::ConflictError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                    trace_id: None,
+                };
+            }
+            503 => {
+                // Parse error body for ServiceUnavailableError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::ServiceUnavailableError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                            }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
+                        };
+                    }
+                }
+                return Self::ServiceUnavailableError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                    trace_id: None,
+                };
+            }
             402 => {
                 // Parse error body for PaymentRequiredError;
                 if let Some(body_str) = body {
@@ -271,6 +339,31 @@ impl ApiError {
                     }
                 }
                 return Self::UnprocessableEntityError {
+                    message: body.unwrap_or("Unknown error").to_string(),
+                    error: None,
+                    trace_id: None,
+                };
+            }
+            504 => {
+                // Parse error body for GatewayTimeoutError;
+                if let Some(body_str) = body {
+                    if let Ok(parsed) = serde_json::from_str::<serde_json::Value>(body_str) {
+                        return Self::GatewayTimeoutError {
+                            message: parsed
+                                .get("message")
+                                .and_then(|v| v.as_str())
+                                .unwrap_or("Unknown error")
+                                .to_string(),
+                            error: parsed.get("error").and_then(|v| {
+                                serde_json::from_value::<ErrorEnvelope>(v.clone()).ok()
+                            }),
+                            trace_id: parsed
+                                .get("trace_id")
+                                .and_then(|v| v.as_str().map(|s| s.to_string())),
+                        };
+                    }
+                }
+                return Self::GatewayTimeoutError {
                     message: body.unwrap_or("Unknown error").to_string(),
                     error: None,
                     trace_id: None,

@@ -10,6 +10,7 @@
 //! - **Billing**
 //! - **Webhooks**
 //! - **Log drains**
+//! - **Run a model**
 
 use crate::{ApiError, ClientConfig};
 
@@ -19,6 +20,7 @@ pub mod jobs;
 pub mod keys;
 pub mod log_drains;
 pub mod models;
+pub mod run_a_model;
 pub mod tokens;
 pub mod webhooks;
 pub struct ApiClient {
@@ -31,6 +33,7 @@ pub struct ApiClient {
     pub billing: BillingClient,
     pub webhooks: WebhooksClient,
     pub log_drains: LogDrainsClient,
+    pub run_a_model: RunAModelClient,
 }
 
 impl ApiClient {
@@ -45,6 +48,7 @@ impl ApiClient {
             billing: BillingClient::new(config.clone())?,
             webhooks: WebhooksClient::new(config.clone())?,
             log_drains: LogDrainsClient::new(config.clone())?,
+            run_a_model: RunAModelClient::new(config.clone())?,
         })
     }
 }
@@ -55,5 +59,6 @@ pub use jobs::JobsClient;
 pub use keys::KeysClient;
 pub use log_drains::LogDrainsClient;
 pub use models::ModelsClient;
+pub use run_a_model::RunAModelClient;
 pub use tokens::TokensClient;
 pub use webhooks::WebhooksClient;

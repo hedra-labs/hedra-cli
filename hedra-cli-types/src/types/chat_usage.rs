@@ -8,6 +8,9 @@ pub struct ChatUsage {
     /// Tokens in the prompt.
     #[serde(default)]
     pub prompt_tokens: i64,
+    /// Of `prompt_tokens`, how many the model served from cache, which Hedra charges at the model's cached input rate; null when the model did not report the count.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub cached_tokens: Option<i64>,
     /// Tokens generated, reasoning tokens included.
     #[serde(default)]
     pub completion_tokens: i64,
@@ -29,6 +32,7 @@ impl ChatUsage {
 #[non_exhaustive]
 pub struct ChatUsageBuilder {
     prompt_tokens: Option<i64>,
+    cached_tokens: Option<i64>,
     completion_tokens: Option<i64>,
     reasoning_tokens: Option<i64>,
     estimated: Option<bool>,
@@ -37,6 +41,11 @@ pub struct ChatUsageBuilder {
 impl ChatUsageBuilder {
     pub fn prompt_tokens(mut self, value: i64) -> Self {
         self.prompt_tokens = Some(value);
+        self
+    }
+
+    pub fn cached_tokens(mut self, value: i64) -> Self {
+        self.cached_tokens = Some(value);
         self
     }
 
@@ -63,6 +72,7 @@ impl ChatUsageBuilder {
     pub fn build(self) -> Result<ChatUsage, BuildError> {
         Ok(ChatUsage {
             prompt_tokens: self.prompt_tokens.ok_or_else(|| BuildError::missing_field("prompt_tokens"))?,
+            cached_tokens: self.cached_tokens,
             completion_tokens: self.completion_tokens.ok_or_else(|| BuildError::missing_field("completion_tokens"))?,
             reasoning_tokens: self.reasoning_tokens,
             estimated: self.estimated.ok_or_else(|| BuildError::missing_field("estimated"))?,

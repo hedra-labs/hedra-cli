@@ -27,6 +27,9 @@ pub struct BillingError {
     /// Why the automatic top-up did not fund the balance, when known. `card_declined`: the card that pays for automatic top-ups was declined, and the payment method must be updated on the billing page before a top-up can succeed. Clients MUST tolerate unrecognized values: new reasons may be added at any time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+    /// On a chat request's refusal, the largest output bound in tokens, `max_tokens` or `max_output_tokens` on `POST /responses`, whose hold the balance covers for this request's prompt. A chat request (`POST /chat/completions`, `POST /responses`, `POST /anthropic/v1/messages`) holds its worst-case price, `required`, until it completes. The balance covers the hold of the same request with this bound until the balance changes. 0 when the balance does not cover the prompt with the model's smallest output bound. Null on every other refusal.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub affordable_output_tokens: Option<i64>,
 }
 
 impl BillingError {
@@ -43,6 +46,7 @@ pub struct BillingErrorBuilder {
     currency: Option<String>,
     funding_url: Option<String>,
     reason: Option<String>,
+    affordable_output_tokens: Option<i64>,
 }
 
 impl BillingErrorBuilder {
@@ -71,6 +75,11 @@ impl BillingErrorBuilder {
         self
     }
 
+    pub fn affordable_output_tokens(mut self, value: i64) -> Self {
+        self.affordable_output_tokens = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`BillingError`].
     /// This method will fail if any of the following fields are not set:
     /// - [`balance`](BillingErrorBuilder::balance)
@@ -82,6 +91,7 @@ impl BillingErrorBuilder {
             currency: self.currency,
             funding_url: self.funding_url.ok_or_else(|| BuildError::missing_field("funding_url"))?,
             reason: self.reason,
+            affordable_output_tokens: self.affordable_output_tokens,
         })
     }
 }

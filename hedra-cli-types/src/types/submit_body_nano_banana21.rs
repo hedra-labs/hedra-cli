@@ -2,29 +2,29 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
-pub struct SubmitBodyIdeogramV2 {
-    pub input: InputIdeogramV2,
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SubmitBodyNanoBanana21 {
+    pub input: InputNanoBanana21,
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
 }
 
-impl SubmitBodyIdeogramV2 {
-    pub fn builder() -> SubmitBodyIdeogramV2Builder {
-        <SubmitBodyIdeogramV2Builder as Default>::default()
+impl SubmitBodyNanoBanana21 {
+    pub fn builder() -> SubmitBodyNanoBanana21Builder {
+        <SubmitBodyNanoBanana21Builder as Default>::default()
     }
 }
 
 #[derive(Clone, PartialEq, Default, Debug)]
 #[non_exhaustive]
-pub struct SubmitBodyIdeogramV2Builder {
-    input: Option<InputIdeogramV2>,
+pub struct SubmitBodyNanoBanana21Builder {
+    input: Option<InputNanoBanana21>,
     webhook: Option<String>,
 }
 
-impl SubmitBodyIdeogramV2Builder {
-    pub fn input(mut self, value: InputIdeogramV2) -> Self {
+impl SubmitBodyNanoBanana21Builder {
+    pub fn input(mut self, value: InputNanoBanana21) -> Self {
         self.input = Some(value);
         self
     }
@@ -34,11 +34,11 @@ impl SubmitBodyIdeogramV2Builder {
         self
     }
 
-    /// Consumes the builder and constructs a [`SubmitBodyIdeogramV2`].
+    /// Consumes the builder and constructs a [`SubmitBodyNanoBanana21`].
     /// This method will fail if any of the following fields are not set:
-    /// - [`input`](SubmitBodyIdeogramV2Builder::input)
-    pub fn build(self) -> Result<SubmitBodyIdeogramV2, BuildError> {
-        Ok(SubmitBodyIdeogramV2 {
+    /// - [`input`](SubmitBodyNanoBanana21Builder::input)
+    pub fn build(self) -> Result<SubmitBodyNanoBanana21, BuildError> {
+        Ok(SubmitBodyNanoBanana21 {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
         })

@@ -18,9 +18,9 @@ pub struct InputMinimaxSpeech25HdPreview {
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]
     pub speed: Option<f64>,
-    /// Language code; 'auto' by default.
+    /// Language of the text, as an ISO 639-1 code such as 'ko' ('yue' for Cantonese, 'fil' for Filipino), or 'auto' to detect it from the text. Omitted means 'auto'. Regional tags such as 'pt-BR' and English names such as 'Korean' are also accepted.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub language: Option<String>,
+    pub language: Option<InputMinimaxSpeech25HdPreviewLanguage>,
     /// Voice to speak with (`voice_<uuid>`). List the voices you can use at GET /v3/models/minimax-speech-25-hd-preview/voices.
     #[serde(default)]
     pub voice_id: String,
@@ -38,7 +38,7 @@ pub struct InputMinimaxSpeech25HdPreviewBuilder {
     text: Option<String>,
     stability: Option<f64>,
     speed: Option<f64>,
-    language: Option<String>,
+    language: Option<InputMinimaxSpeech25HdPreviewLanguage>,
     voice_id: Option<String>,
 }
 
@@ -58,8 +58,8 @@ impl InputMinimaxSpeech25HdPreviewBuilder {
         self
     }
 
-    pub fn language(mut self, value: impl Into<String>) -> Self {
-        self.language = Some(value.into());
+    pub fn language(mut self, value: InputMinimaxSpeech25HdPreviewLanguage) -> Self {
+        self.language = Some(value);
         self
     }
 

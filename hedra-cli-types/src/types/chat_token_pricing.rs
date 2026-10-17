@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct ChatTokenPricing {
-    /// USD per million prompt tokens, cached tokens included.
+    /// USD per million prompt tokens not served from cache. `price_description` states the cached rate where it differs.
     #[serde(rename = "usd_per_1m_input_tokens")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]

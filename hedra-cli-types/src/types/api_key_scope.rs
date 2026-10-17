@@ -3,10 +3,6 @@ pub use crate::prelude::*;
 use super::*;
 
 /// Least-privilege grants carried by v3 API keys.
-/// 
-/// Stored as text[] on api_keys; NULL scopes means full access (legacy keys).
-/// Scopes are stored as text so new least-privilege surfaces can be introduced
-/// without a database-enum migration.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ApiKeyScope {

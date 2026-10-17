@@ -5,7 +5,7 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "source")]
 #[non_exhaustive]
-pub enum InputSora2ProStartImage {
+pub enum InputKrea3ImagesItem {
         #[serde(rename = "url")]
         #[non_exhaustive]
         Url {
@@ -27,7 +27,7 @@ pub enum InputSora2ProStartImage {
         __Unknown(serde_json::Value),
 }
 
-impl InputSora2ProStartImage {
+impl InputKrea3ImagesItem {
     pub fn url(url: String) -> Self {
         Self::Url { url }
     }

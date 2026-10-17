@@ -14,7 +14,7 @@ pub struct FileUploadResponse {
     /// MIME type sniffed from the uploaded bytes; the request's own Content-Type and filename are never trusted. Decides which media inputs will accept this handle.
     #[serde(default)]
     pub content_type: String,
-    /// ISO-8601 instant `url` stops being accepted — one hour after upload. Submitting with a lapsed handle is a 400 with `reason: "expired"`, not a fetch failure; upload the file again for a fresh handle. The stored object is deleted separately by a bucket lifecycle policy about a day after upload, so treat re-uploading, not re-presigning, as the remedy.
+    /// ISO-8601 instant after which `url` is rejected. Submitting with a lapsed handle is a 400 with `reason: "expired"`, not a fetch failure; upload the file again for a fresh handle.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub expires_at: DateTime<FixedOffset>,
