@@ -603,6 +603,21 @@ struct ExecutionInput {
     is_upload: bool,
 }
 
+/// A CLI-installed rewrite of an operation's collected parameters, keyed by
+/// wire name, run before any coercion or validation sees them.
+pub type ParamTransformFn =
+    dyn Fn(&RestMethod, &mut Map<String, Value>) -> Result<(), CliError> + Send + Sync;
+
+static PARAM_TRANSFORM: std::sync::OnceLock<Box<ParamTransformFn>> = std::sync::OnceLock::new();
+
+/// Install the process-wide [`ParamTransformFn`]. Returns `false` when one is
+/// already installed; the first one wins.
+pub fn set_param_transform(
+    f: impl Fn(&RestMethod, &mut Map<String, Value>) -> Result<(), CliError> + Send + Sync + 'static,
+) -> bool {
+    PARAM_TRANSFORM.set(Box::new(f)).is_ok()
+}
+
 /// Parse parameters and body JSON, validate against schema, check required params, and build the URL.
 fn parse_and_validate_inputs(
     doc: &RestDescription,
@@ -614,12 +629,15 @@ fn parse_and_validate_inputs(
     extra_headers: &[(String, String)],
     extra_global_params: &[crate::openapi::app::ResolvedGlobalParam],
 ) -> Result<ExecutionInput, CliError> {
-    let params: Map<String, Value> = if let Some(p) = params_json {
+    let mut params: Map<String, Value> = if let Some(p) = params_json {
         serde_json::from_str(p)
             .map_err(|e| CliError::Validation(format!("Invalid --params JSON: {e}")))?
     } else {
         Map::new()
     };
+    if let Some(transform) = PARAM_TRANSFORM.get() {
+        transform(method, &mut params)?;
+    }
 
     // Helper: build the `Provide it via …` hint. Uses the same
     // `resolve_param_flag_name` that the command builder uses so the
