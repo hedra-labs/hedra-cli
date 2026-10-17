@@ -334,12 +334,30 @@ impl HttpConfig {
         let prefix = &self.prefix;
 
         let mut builder = reqwest::Client::builder();
+        let mut headers = HeaderMap::new();
+        // ENG-10310 (patched post-generation; delete when ENG-10234 lands
+        // upstream): every built-in command leaves through this client, and
+        // nothing else on that path carries the SDK's identity trio — the
+        // ENG-10226 merge in `CliExecutor::new` only covers custom commands,
+        // which is why released binaries sent `X-Hedra-Spec-Version` but no
+        // `X-Fern-*`. `default_headers` fills only header names a request has
+        // not already set, so a per-request or `x-fern-global-headers` value of
+        // the same name still wins. Read from `ClientConfig::default()` rather
+        // than re-spelled here so the version literal keeps one source of
+        // truth — the one patch 1 of patch-sdk-headers.py maintains.
+        for (name, value) in hedra_cli_sdk::ClientConfig::default().custom_headers {
+            if let (Ok(name), Ok(value)) = (
+                reqwest::header::HeaderName::try_from(name.as_str()),
+                HeaderValue::from_str(&value),
+            ) {
+                headers.insert(name, value);
+            }
+        }
         let user_agent = self.user_agent();
         if let Ok(header_value) = HeaderValue::from_str(&user_agent) {
-            let mut headers = HeaderMap::new();
             headers.insert(USER_AGENT, header_value);
-            builder = builder.default_headers(headers);
         }
+        builder = builder.default_headers(headers);
 
         // --- Compile-time trust roots (from CliApp::extra_root_cert) ---
         for cert in &self.extra_root_certs {
