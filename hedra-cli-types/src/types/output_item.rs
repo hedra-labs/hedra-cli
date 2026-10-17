@@ -24,9 +24,12 @@ pub struct OutputItem {
     /// The voice a voice-clone job created (`voice_<uuid>`). Send it back as `voice_id` on a text-to-speech submit to speak with this voice; it stays usable by the account that created it. Null for every other kind of output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub voice_id: Option<String>,
-    /// Presigned download URL for the output bytes. Null once the output has expired.
+    /// Presigned download URL for the output bytes, or null once the output has expired. Each call to `GET /v3/jobs/{job_id}` returns a newly signed one.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// Download or reuse this output before this ISO-8601 instant. After it, `status` can change to `EXPIRED`, with `url`, `asset_id` and `expires_at` null; `DELETE /v3/jobs/{job_id}` makes that change at once. Null for an output that does not expire, such as a cloned voice.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub expires_at: Option<DateTime<FixedOffset>>,
     /// MIME type of the output bytes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub content_type: Option<String>,
@@ -60,6 +63,7 @@ pub struct OutputItemBuilder {
     asset_id: Option<String>,
     voice_id: Option<String>,
     url: Option<String>,
+    expires_at: Option<DateTime<FixedOffset>>,
     content_type: Option<String>,
     width: Option<i64>,
     height: Option<i64>,
@@ -86,6 +90,11 @@ impl OutputItemBuilder {
 
     pub fn url(mut self, value: impl Into<String>) -> Self {
         self.url = Some(value.into());
+        self
+    }
+
+    pub fn expires_at(mut self, value: DateTime<FixedOffset>) -> Self {
+        self.expires_at = Some(value);
         self
     }
 
@@ -126,6 +135,7 @@ impl OutputItemBuilder {
             asset_id: self.asset_id,
             voice_id: self.voice_id,
             url: self.url,
+            expires_at: self.expires_at,
             content_type: self.content_type,
             width: self.width,
             height: self.height,

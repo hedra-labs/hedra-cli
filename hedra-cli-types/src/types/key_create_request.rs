@@ -7,7 +7,7 @@ pub struct KeyCreateRequest {
     /// Human-readable label for the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Scopes granted to the key; omitted means full access.
+    /// Scopes granted to the key; omitted means the creating credential's own scopes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<ApiKeyScope>>,
     /// `personal` (default) dies with the member; `service` is workspace-shared, OWNER/ADMIN-managed, and survives member removal.

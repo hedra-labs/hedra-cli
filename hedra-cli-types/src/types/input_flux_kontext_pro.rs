@@ -21,18 +21,18 @@ pub struct InputFluxKontextPro {
     /// The single source image to edit. Exactly 1 image, at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFluxKontextProImagesItem>>,
-    /// Output image format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<InputFluxKontextProOutputFormat>,
-    /// Seed for reproducible output; omit for a random seed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputFluxKontextProAspectRatio>,
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputFluxKontextProResolution>,
+    /// Output image format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<InputFluxKontextProOutputFormat>,
+    /// Seed for reproducible output; omit for a random seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
 }
 
 impl InputFluxKontextPro {
@@ -48,10 +48,10 @@ pub struct InputFluxKontextProBuilder {
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
     images: Option<Vec<InputFluxKontextProImagesItem>>,
-    output_format: Option<InputFluxKontextProOutputFormat>,
-    seed: Option<i64>,
     aspect_ratio: Option<InputFluxKontextProAspectRatio>,
     resolution: Option<InputFluxKontextProResolution>,
+    output_format: Option<InputFluxKontextProOutputFormat>,
+    seed: Option<i64>,
 }
 
 impl InputFluxKontextProBuilder {
@@ -75,16 +75,6 @@ impl InputFluxKontextProBuilder {
         self
     }
 
-    pub fn output_format(mut self, value: InputFluxKontextProOutputFormat) -> Self {
-        self.output_format = Some(value);
-        self
-    }
-
-    pub fn seed(mut self, value: i64) -> Self {
-        self.seed = Some(value);
-        self
-    }
-
     pub fn aspect_ratio(mut self, value: InputFluxKontextProAspectRatio) -> Self {
         self.aspect_ratio = Some(value);
         self
@@ -92,6 +82,16 @@ impl InputFluxKontextProBuilder {
 
     pub fn resolution(mut self, value: InputFluxKontextProResolution) -> Self {
         self.resolution = Some(value);
+        self
+    }
+
+    pub fn output_format(mut self, value: InputFluxKontextProOutputFormat) -> Self {
+        self.output_format = Some(value);
+        self
+    }
+
+    pub fn seed(mut self, value: i64) -> Self {
+        self.seed = Some(value);
         self
     }
 
@@ -104,10 +104,10 @@ impl InputFluxKontextProBuilder {
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
             images: self.images,
-            output_format: self.output_format,
-            seed: self.seed,
             aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
+            output_format: self.output_format,
+            seed: self.seed,
         })
     }
 }

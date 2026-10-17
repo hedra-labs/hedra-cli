@@ -13,7 +13,7 @@ pub struct WebhookDeliverySummary {
     /// The resolved model id the job ran on.
     #[serde(default)]
     pub model: String,
-    /// The terminal event this delivery announces; null until the delivery fires — a row registered at submit has no outcome to announce while its job is still running.
+    /// The terminal event this delivery announces; null while the job is still running and the delivery has not fired.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub event_type: Option<WebhookEventType>,
     pub status: WebhookDeliveryStatus,
@@ -30,7 +30,7 @@ pub struct WebhookDeliverySummary {
     /// HTTP status of the most recent attempt; null when it never got a response.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_response_status: Option<i64>,
-    /// Why the most recent delivery attempt failed, in the same error envelope `GET /jobs/{job_id}` returns for a failed job: a stable `code` from the shared error vocabulary, a fixed operator-facing `message`, and `retryable`. Null while no attempt has failed. Destination URLs, addresses, headers, credentials, response bodies, and internal exception text are never included — those stay in Hedra's own logs. `retryable` describes the condition, not what Hedra did: every non-2xx response is retried on the published ladder, so it answers whether replaying this delivery is likely to help. Deliveries that failed before this field became structured report `UNKNOWN`.
+    /// Why the most recent delivery attempt failed, in the same error envelope `GET /jobs/{job_id}` returns for a failed job: a stable `code` from the shared error vocabulary, a fixed operator-facing `message`, and `retryable`. Null while no attempt has failed. Destination URLs, addresses, headers, credentials, response bodies, and internal exception text are never included. `retryable` describes the condition, not what Hedra did: every non-2xx response is retried on the published ladder, so it answers whether replaying this delivery is likely to help. Deliveries that failed before this field became structured report `UNKNOWN`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub last_error: Option<ErrorEnvelope>,
     /// The destination endpoint.

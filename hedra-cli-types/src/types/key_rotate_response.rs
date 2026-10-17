@@ -14,7 +14,7 @@ pub struct KeyRotateResponse {
     /// Human-readable label for the key.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// Scopes granted to the key; null means full access (a legacy key predating scopes).
+    /// Scopes granted to the key; null means every scope (a legacy key predating scopes).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub scopes: Option<Vec<String>>,
     /// The workspace the key bills and acts in.

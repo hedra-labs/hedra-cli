@@ -36,7 +36,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.20.0".to_string());
+                .or_insert_with(|| "3.21.14".to_string());
             Some(o)
         };
         self.http_client
@@ -76,7 +76,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.20.0".to_string());
+                .or_insert_with(|| "3.21.14".to_string());
             Some(o)
         };
         self.http_client
@@ -142,7 +142,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.20.0".to_string());
+                .or_insert_with(|| "3.21.14".to_string());
             Some(o)
         };
         self.http_client
@@ -156,6 +156,49 @@ impl BillingClient {
                     .build(),
                 options,
             )
+            .await
+    }
+
+    /// The negotiated discounts the workspace the key bills is charged under
+    /// now. `POST /v3/models/{model}/estimate` and every charge for these models
+    /// already reflect them; `GET /v3/models` shows list prices.
+    ///
+    /// # Arguments
+    ///
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client.billing.list_discounts(None).await;
+    /// }
+    /// ```
+    pub async fn list_discounts(
+        &self,
+        options: Option<RequestOptions>,
+    ) -> Result<DiscountListResponse, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.21.14".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(Method::GET, "discounts", None, None, options)
             .await
     }
 }

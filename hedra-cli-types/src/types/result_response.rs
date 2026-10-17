@@ -29,7 +29,7 @@ pub struct ResultResponse {
     /// Why the job failed; null unless `status` is `FAILED`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<ErrorEnvelope>,
-    /// The most recent lifecycle events for this job, oldest first. Capped; GET /v3/jobs/{job_id}/logs serves the full paginated history. Absent from webhook payloads.
+    /// The most recent lifecycle events for this job, oldest first. Capped; GET /v3/jobs/{job_id}/logs serves the full paginated history. Both are empty after `DELETE /v3/jobs/{job_id}`, and can be empty once the job's output is `EXPIRED`. Absent from webhook payloads.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub logs: Option<Vec<JobLogItem>>,
     /// Net cost of this job; 0 when fully refunded; absent until charged. Absent from webhook payloads. A chat completion that the caller disconnected or stopped reading (`CANCELLED`), or that reached its deadline (`DEADLINE_EXCEEDED`), is `FAILED` and costs the tokens the model reported; one that the model failed (`UNAVAILABLE`) costs 0.

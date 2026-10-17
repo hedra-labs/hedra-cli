@@ -21,18 +21,18 @@ pub struct InputFluxKontextMax {
     /// The single source image to edit. Exactly 1 image, at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputFluxKontextMaxImagesItem>>,
-    /// Output image format.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub output_format: Option<InputFluxKontextMaxOutputFormat>,
-    /// Seed for reproducible output; omit for a random seed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputFluxKontextMaxAspectRatio>,
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputFluxKontextMaxResolution>,
+    /// Output image format.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub output_format: Option<InputFluxKontextMaxOutputFormat>,
+    /// Seed for reproducible output; omit for a random seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
 }
 
 impl InputFluxKontextMax {
@@ -48,10 +48,10 @@ pub struct InputFluxKontextMaxBuilder {
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
     images: Option<Vec<InputFluxKontextMaxImagesItem>>,
-    output_format: Option<InputFluxKontextMaxOutputFormat>,
-    seed: Option<i64>,
     aspect_ratio: Option<InputFluxKontextMaxAspectRatio>,
     resolution: Option<InputFluxKontextMaxResolution>,
+    output_format: Option<InputFluxKontextMaxOutputFormat>,
+    seed: Option<i64>,
 }
 
 impl InputFluxKontextMaxBuilder {
@@ -75,16 +75,6 @@ impl InputFluxKontextMaxBuilder {
         self
     }
 
-    pub fn output_format(mut self, value: InputFluxKontextMaxOutputFormat) -> Self {
-        self.output_format = Some(value);
-        self
-    }
-
-    pub fn seed(mut self, value: i64) -> Self {
-        self.seed = Some(value);
-        self
-    }
-
     pub fn aspect_ratio(mut self, value: InputFluxKontextMaxAspectRatio) -> Self {
         self.aspect_ratio = Some(value);
         self
@@ -92,6 +82,16 @@ impl InputFluxKontextMaxBuilder {
 
     pub fn resolution(mut self, value: InputFluxKontextMaxResolution) -> Self {
         self.resolution = Some(value);
+        self
+    }
+
+    pub fn output_format(mut self, value: InputFluxKontextMaxOutputFormat) -> Self {
+        self.output_format = Some(value);
+        self
+    }
+
+    pub fn seed(mut self, value: i64) -> Self {
+        self.seed = Some(value);
         self
     }
 
@@ -104,10 +104,10 @@ impl InputFluxKontextMaxBuilder {
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
             images: self.images,
-            output_format: self.output_format,
-            seed: self.seed,
             aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
+            output_format: self.output_format,
+            seed: self.seed,
         })
     }
 }

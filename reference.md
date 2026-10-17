@@ -10,6 +10,7 @@ Full command reference for `hedra-cli`.
 - [`hedra-cli keys`](#hedra-cli-keys)
 - [`hedra-cli log-drains`](#hedra-cli-log-drains)
 - [`hedra-cli models`](#hedra-cli-models)
+- [`hedra-cli run-a-model`](#hedra-cli-run-a-model)
 - [`hedra-cli tokens`](#hedra-cli-tokens)
 - [`hedra-cli webhooks`](#hedra-cli-webhooks)
 
@@ -34,6 +35,14 @@ Get Usage
 | `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time. |
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
+
+#### `hedra-cli billing list-discounts`
+
+The negotiated discounts the workspace the key bills is charged under
+now. `POST /v3/models/{model}/estimate` and every charge for these models
+already reflect them; `GET /v3/models` shows list prices.
+
+`GET /discounts`
 
 #### `hedra-cli billing list-transactions`
 
@@ -75,6 +84,26 @@ wallet resumes them.
 ---
 
 ### `hedra-cli jobs`
+
+#### `hedra-cli jobs delete`
+
+Delete a finished job's outputs, prompt and logs.
+
+Afterwards `GET /v3/jobs/{job_id}` reports each output `EXPIRED`, with no
+prompt and no logs, and `GET /v3/jobs` still lists the job with its model,
+status, timestamps and cost. Another job whose output this job read by
+`asset_id` is unchanged. Deleting a job again returns 204.
+
+Returns 409 `ALREADY_IN_PROGRESS` while the job, or another job that names
+this job's output by `asset_id`, is `IN_QUEUE` or `IN_PROGRESS`; 400
+`INVALID_ARGUMENT` for a voice clone job; and 503 `UNAVAILABLE` when Hedra
+could not finish deleting the job. Retry the request to finish it.
+
+`DELETE /jobs/{job_id}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--job-id` | `string` | Yes | The job's id (`job_<uuid>`). |
 
 #### `hedra-cli jobs get`
 
@@ -624,25 +653,25 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-ideogram-v2`
+#### `hedra-cli jobs submit-ideogram-v4`
 
-Best in class for poster-ready images and spot-on text rendering in social graphics.
+Ideogram V4 renders poster-ready text and layout; the quality parameter picks turbo, balanced (the default) or quality, which sets both the render effort and the price.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
-`POST /models/ideogram-v2`
+`POST /models/ideogram-v4`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-ideogram-v4`
+#### `hedra-cli jobs submit-ideogram-v4-5`
 
-Ideogram V4 renders poster-ready text and layout; the required quality parameter picks turbo, balanced or quality, which sets both the render effort and the price.
+Ideogram 4.5 renders accurate typography for posters, logos and designs, and edits an image from a prompt, keeping its size and the pixels the edit leaves alone; the quality parameter picks low, medium (the default) or high, which sets both the render effort and the price.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
-`POST /models/ideogram-v4`
+`POST /models/ideogram-v4-5`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -821,6 +850,18 @@ Krea 2 renders in whatever style you hand it — pass reference images and it ta
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/krea-2`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-krea-3`
+
+Krea 3 generates an image of about 4 megapixels from a prompt alone or by editing one to four images.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/krea-3`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1018,6 +1059,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-nano-banana-2-1`
+
+Nano Banana 2 with cleaner text and layouts, and characters that stay consistent across references, up to 4K.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/nano-banana-2.1`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-nano-banana-pro`
 
 The reasoning-heavy tier — dense prompts, mixed references, and style transfer up to 4K.
@@ -1037,6 +1090,18 @@ Creates vivid, emotional character videos driven entirely by your audio.
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/omnihuman-15`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-omnihuman-20`
+
+Performs your audio's tone and emotion in one take of up to five minutes.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/omnihuman-20`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1229,18 +1294,6 @@ The top Seedream tier — layer-separable output and strong multilingual in-imag
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/seedream-50-pro`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-sora-2-pro`
-
-For complex, narrative-driven videos with remarkable consistency and realistic character-world interaction.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/sora-2-pro`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1642,6 +1695,22 @@ The voices this model accepts, ranked against a description — the whole shared
 | `--limit` | `integer` | No | Maximum voices to return. Applies to the whole response. |
 | `--gender` | `string` | No | Only voices curated with this gender. |
 | `--language` | `string` | No | Only voices curated for this language, as an ISO 639-1 two-letter code (`en`, `es`, `fr`). |
+
+---
+
+### `hedra-cli run-a-model`
+
+#### `hedra-cli run-a-model messages-create`
+
+Anthropic-compatible Messages API. Set the base URL of an Anthropic SDK or of Claude Code to the v3 base URL followed by `/anthropic`, and send an API key in `x-api-key` or `Authorization: Bearer`. Each request runs as a chat completion, and is charged, limited and recorded as one. The route serves client tools, and answers a tool of any other type with a 400. Each image the model does not accept becomes a text note in its place: every image on a model without image input, and on any other model the oldest images beyond the model's `max_images_per_request`. `output_config.effort` becomes chat's `reasoning_effort`, and `thinking` of type `disabled` becomes `reasoning_effort: none`, whatever `output_config.effort` says. `output_config.format` becomes chat's `response_format`, so the answer's `text` block holds JSON that matches the schema. Beside tools, a request with `output_config.format` must set `tool_choice` to `any`, `tool` or `none`, and gets a 400 under `auto`. The route accepts `thinking.budget_tokens`, `cache_control` and `context_management`, and they have no effect. The model's reasoning comes back as `thinking` blocks with an empty `signature`. Errors are those of `POST /chat/completions` in Anthropic's error body: the body's `type` is `error`, `error.type` is Anthropic's error type for the status, and `error` keeps the v3 error fields. The 400 for a value that chat rejects names the chat field, such as `reasoning_effort` or `messages[3].content`, under the message or `tool_result` block the caller sent. With `stream: true` the response is `text/event-stream` in the Messages event format, ending with `message_stop`, or with an `error` event for a failure after streaming has begun.
+
+`POST /anthropic/v1/messages`
+
+#### `hedra-cli run-a-model responses-create`
+
+OpenAI-compatible Responses API. Each request runs as a chat completion, and is charged, limited and recorded as one. Each request must send the whole conversation in `input`: `store: true`, a `previous_response_id`, a `conversation` or an `item_reference` input item gets a 400 that says so. A request without `max_output_tokens` is bounded at 32,768 output tokens, or the model's lower limit. Function and namespace tools are served, and `web_search` tools are ignored. Each image the model does not accept becomes a text note in its place: every image on a model without image input, and on any other model the oldest images beyond the model's `max_images_per_request`. `text.format` becomes chat's `response_format`. Beside tools under `tool_choice` `auto`, the route instead offers a `json_schema` format's schema to the model as one more function, `final_answer`, and sets `tool_choice` to `required`, so the model can call tools before it answers; the route returns a call to `final_answer` as the answer message, with `phase` `final_answer`, and leaves out any text the model writes, because openai-python's `responses.parse` parses every message as the answer. The route accepts `text.verbosity` and `service_tier` and ignores them. Errors are those of `POST /chat/completions`, and the 400 for a value that chat rejects names the chat field, such as `max_tokens` or `messages[3].content`. With `stream: true` the response is `text/event-stream` in the Responses event format, ending with `response.completed` or `response.incomplete`, or with `response.failed` for a failure after streaming has begun.
+
+`POST /responses`
 
 ---
 
