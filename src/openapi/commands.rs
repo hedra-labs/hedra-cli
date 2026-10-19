@@ -508,6 +508,19 @@ pub(crate) fn documentation_default_help_suffix(
     Some(format!(" [default: {rendered}]"))
 }
 
+/// A CLI-installed rewrite of a parameter's clap `Arg`, keyed by the
+/// operation and the parameter's wire name, run after the builder has
+/// finished with it.
+pub type ArgTransformFn = dyn Fn(&RestMethod, &str, Arg) -> Arg + Send + Sync;
+
+static ARG_TRANSFORM: std::sync::OnceLock<Box<ArgTransformFn>> = std::sync::OnceLock::new();
+
+/// Install the process-wide [`ArgTransformFn`]. Returns `false` when one is
+/// already installed; the first one wins.
+pub fn set_arg_transform(f: impl Fn(&RestMethod, &str, Arg) -> Arg + Send + Sync + 'static) -> bool {
+    ARG_TRANSFORM.set(Box::new(f)).is_ok()
+}
+
 /// Recursively builds a Command for a resource.
 /// Returns None if the resource has no methods or sub-resources.
 ///
@@ -1063,6 +1076,10 @@ fn build_parameter_args(method: &RestMethod) -> (Vec<Arg>, Vec<Arg>) {
 
         if param.repeated {
             arg = arg.action(clap::ArgAction::Append);
+        }
+
+        if let Some(transform) = ARG_TRANSFORM.get() {
+            arg = transform(method, param_name, arg);
         }
 
         if is_required_parameter_flag(param, param_name, &method.parameters) {

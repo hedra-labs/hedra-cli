@@ -24,6 +24,8 @@ mod auth;
 mod keyring_cache;
 #[path = "media_refs.rs"]
 mod media_refs;
+#[path = "open_enums.rs"]
+mod open_enums;
 #[path = "views.rs"]
 mod views;
 #[path = "workspaces.rs"]
@@ -63,6 +65,10 @@ pub fn register(app: CliApp) -> CliApp {
     // `--input.source-image asset_…` / `https://…` as shorthand for the
     // MediaRef object. Request-side, so it applies in every output format.
     media_refs::install();
+
+    // Open-enum flags (`language` on the TTS models): suggested values in
+    // `--help` and shell completion, any string accepted.
+    open_enums::install();
 
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
