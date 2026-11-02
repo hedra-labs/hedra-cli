@@ -302,6 +302,31 @@ browser login hinted at that workspace's organization and makes the freshly mint
 active. Note that `HEDRA_API_KEY`, if set, shadows the keyring — the CLI warns when that
 would make the selected workspace not the one actually used.
 
+### `sandbox secrets` (preview scaffold)
+
+Sandbox secrets have a preview scaffold, visible with
+`HEDRA_CLI_SANDBOX_PREVIEW=1`:
+
+```bash
+HEDRA_CLI_SANDBOX_PREVIEW=1 hedra-cli sandbox secrets --help
+```
+
+The reserved interface is `sandbox secrets set <NAME> [--from-file <PATH>]`,
+`sandbox secrets ls`, and `sandbox secrets rm <NAME> [--yes]`. These commands
+currently exit with validation code `3` and “Secrets are not available yet.”
+They read no stdin or files, prompt for nothing, and send no requests, including
+with `--debug` or `--dry-run`. No secret value argument is supported.
+
+Live operations depend on the generated sandbox SDK described in
+[the sandbox CLI design](https://github.com/hedra-labs/diffusion/pull/8975)
+and the rollout of
+[hedra-compute #664](https://github.com/hedra-labs/hedra-compute/pull/664),
+[#668](https://github.com/hedra-labs/hedra-compute/pull/668), and
+[#669](https://github.com/hedra-labs/hedra-compute/pull/669). The follow-up must
+add the design's shared sandbox error codes, safe stdin/file input, explicit
+write-body redaction, deletion confirmation, and API contract tests before
+lifting the refusal. Enabling the preview does not enable secret operations.
+
 ### Built-in commands
 
 | Command | Description |

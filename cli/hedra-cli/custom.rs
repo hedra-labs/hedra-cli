@@ -24,6 +24,8 @@ mod auth;
 mod keyring_cache;
 #[path = "media_refs.rs"]
 mod media_refs;
+#[path = "sandbox.rs"]
+mod sandbox;
 #[path = "views.rs"]
 mod views;
 #[path = "workspaces.rs"]
@@ -66,6 +68,7 @@ pub fn register(app: CliApp) -> CliApp {
 
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
+        .command(sandbox::command(), Box::new(sandbox::dispatch))
         .command(workspaces::command(), Box::new(workspaces::dispatch));
 
     if resolve_format_from_argv() != OutputFormat::Table {
