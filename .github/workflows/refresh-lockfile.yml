@@ -19,9 +19,11 @@
 #
 # --- .env deny-list patches ---
 #
-# Regeneration also resets src/lib.rs, whose `.env` deny-list misses
-# `SSL_CERT_DIR` and matches only upper case (ENG-12596).
-# patch-dotenv-denylist.py re-applies both fixes, by the same design; its
+# Regeneration also resets src/lib.rs, whose `.env` filter lets a `.env` set
+# any key outside a short deny-list and matches it only in upper case
+# (ENG-12596). patch-dotenv-denylist.py re-applies the fix, by the same design,
+# so a `.env` may set only HEDRA_ keys and NO_COLOR, minus the transport, TLS,
+# pager and log-file settings; its
 # docstring carries the rationale, the anchors, and the removal condition
 # (delete the step when ENG-12663 lands upstream).
 #

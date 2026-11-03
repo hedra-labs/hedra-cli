@@ -208,12 +208,13 @@ exclude:
   # survive.
   - src/http.rs
 
-  # The ENG-12596 `.env` deny-list fixes in src/lib.rs (`SSL_CERT_DIR`, and
-  # matching in any case).
+  # The ENG-12596 `.env` filter fixes in src/lib.rs (only HEDRA_ keys and
+  # NO_COLOR load, minus the transport, TLS, pager and log-file settings,
+  # compared in any case).
   #
   # Same shape as the two entries above: src/lib.rs is generated, and its only
   # deviations from generated output are machine-owned — patch-dotenv-denylist.py
-  # re-applies both after every regeneration. A recorded copy would be frozen at
+  # re-applies them after every regeneration. A recorded copy would be frozen at
   # detection, so when the generator changes nearby lines Replay's frozen hunk
   # would conflict ("Action required") or merge into duplicated lines, while
   # the script alone either applies cleanly or refuses loudly.

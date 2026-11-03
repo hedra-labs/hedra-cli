@@ -375,14 +375,17 @@ hedra-cli jobs list --page-all --page-limit 5
 | `HEDRA_CLI_PROXY` | HTTP(S) proxy URL |
 | `HEDRA_CLI_TIMEOUT_SECS` | Total request timeout in seconds |
 
-A `.env` file in the working directory or any parent is loaded on startup, for
+The nearest `.env` file, in the working directory or a parent, is loaded on startup, for
 credentials and preferences such as `HEDRA_API_KEY`, `HEDRA_ENV` and `HEDRA_CLI_OUTPUT`.
-It cannot set `HEDRA_CLI_BASE_URL`, `HEDRA_CLI_PROXY`, `HEDRA_CLI_INSECURE`,
-`HEDRA_CLI_CA_BUNDLE`, `PAGER`, or the standard proxy and trust-store variables
-(`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `SSL_CERT_DIR`),
-in any case: the CLI ignores them there, and with `HEDRA_CLI_LOG=warn` logs a warning for
-each one. Export those from the shell instead, where the CLI reads them. Only Linux builds
-read `SSL_CERT_DIR`.
+A `.env` can set only `HEDRA_*` variables and `NO_COLOR`, matched in any case, and of
+those not the transport, TLS, pager and log-file settings (`HEDRA_CLI_BASE_URL`,
+`HEDRA_CLI_PROXY`, `HEDRA_CLI_INSECURE`, `HEDRA_CLI_CA_BUNDLE`, `HEDRA_CLI_PAGER`,
+`HEDRA_CLI_LOG_FILE` and similar) or the login endpoint overrides (`HEDRA_AUTH_AUTHORIZE_URL`,
+`HEDRA_AUTH_TOKEN_URL`). The CLI ignores every other key in a `.env`. It names the ignored
+`HEDRA_*` keys, and the proxy, trust-store and pager variables the generated deny-list
+names, in one line on stderr, unless the shell already exports them; other ignored keys
+are reported only with `HEDRA_CLI_LOG=warn`. Export the keys the CLI should read from the
+shell instead.
 
 ## Shell completion
 
