@@ -537,3 +537,27 @@ fn a_pasted_key_is_stored_with_unknown_scopes() {
         "the paste said nothing about ws_1's key"
     );
 }
+
+/// A paste replaces an unbound key that had scopes; the old key's list must
+/// not stay attached to the new credential.
+#[test]
+fn a_pasted_key_does_not_inherit_the_previous_unbound_keys_scopes() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(
+        &serde_json::json!({
+            "active_workspace_id": null,
+            "keys": {},
+            "unbound_key": { "key_id": "key_u", "credential": "key_u:old",
+                             "workspace_name": null, "expires_at": null,
+                             "scopes": ["jobs:read"] },
+        })
+        .to_string(),
+    );
+
+    let out = s.run_with_stdin(&["auth", "login", "--with-token"], "key_9:pasted\n");
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    let map = stored_map(&s);
+    assert_eq!(map["unbound_key"]["credential"], "key_9:pasted");
+    assert_eq!(map["unbound_key"]["scopes"], serde_json::Value::Null);
+}

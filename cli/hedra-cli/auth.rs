@@ -2211,6 +2211,32 @@ pub(crate) mod tests {
         assert_eq!(map.keys["w2"].scopes, None);
     }
 
+    /// A mint that grants no scopes stores `[]`, not unknown.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_mint_with_an_empty_grant_stores_it_as_empty() {
+        let server = mock_login_plane().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_1", "credential": "key_1:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2026-08-19T00:00:00Z", "scopes": [],
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+
+        bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap();
+
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w2"].credential, "key_1:s3cret");
+        assert_eq!(map.keys["w2"].scopes, Some(vec![]));
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     #[serial_test::serial]
     async fn bootstrap_renews_a_held_key_without_replacing_it() {
@@ -2253,6 +2279,49 @@ pub(crate) mod tests {
             map.keys["w1"].scopes,
             Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::JobsWrite]),
             "a login that renews must store the scopes the renewal reported"
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_renewal_without_scopes_stores_them_as_unknown() {
+        let server = mock_login_plane().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .and(header("authorization", "Bearer key_0:held"))
+            .and(body_partial_json(serde_json::json!({"authkit_token": JWT})))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "key_0", "expires_at": "2026-08-19T00:00:00Z", "workspace_id": "w1",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        store.set("test-cli", KEY_SCHEME, "key_0:held").unwrap();
+
+        bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap();
+
+        assert_eq!(
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_0:held"),
+            "renewal must never touch the stored credential"
+        );
+        // The renewal lands in the key map too — credential is the held one.
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w1"));
+        assert_eq!(map.keys["w1"].credential, "key_0:held");
+        assert_eq!(
+            map.keys["w1"].expires_at.as_deref(),
+            Some("2026-08-19T00:00:00Z")
+        );
+        assert_eq!(
+            map.keys["w1"].scopes, None,
+            "a renewal that reported no scopes stores them as unknown"
         );
     }
 
@@ -2773,6 +2842,64 @@ pub(crate) mod tests {
             map.keys["w1"].scopes,
             Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::ModelsRead]),
             "the salvaged key keeps the scopes its mint granted"
+        );
+        assert_eq!(map.active_workspace_id, None, "active marker must not move");
+        assert!(!map.keys.contains_key("w2"));
+    }
+
+    /// A salvaged mint whose answer had no `scopes` files the key with
+    /// unknown scopes.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn targeted_mint_salvage_without_scopes_stores_them_as_unknown() {
+        clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_w1", "credential": "key_w1:s3cret", "kind": "personal",
+                // asked for w2, server bound w1 — the silent-drop shape
+                "workspace_id": "w1", "workspace_name": "Personal", "organization_id": null,
+                "expires_at": "2026-08-21T00:00:00Z",
+            })))
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = seed_live_session(&store, &server.uri());
+        mock_token_refresh(&server).await;
+        store.set("test-cli", KEY_SCHEME, "key_held:stay").unwrap();
+
+        let err = mint_for_workspace_at(
+            "test-cli",
+            &server.uri(),
+            &fresh_login_jwt("test-cli").unwrap(),
+            "w2",
+        )
+        .unwrap_err();
+        let msg = err.to_string();
+        assert!(
+            msg.contains("w1") && msg.contains("w2"),
+            "unexpected: {msg}"
+        );
+        assert!(
+            msg.contains("does not support selecting a workspace at mint time"),
+            "unexpected: {msg}"
+        );
+
+        // The active credential must NOT move to a key for another workspace.
+        assert_eq!(
+            active_store()
+                .get("test-cli", KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_held:stay"),
+        );
+        // …but the minted key is filed where it actually belongs, not orphaned.
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w1"].credential, "key_w1:s3cret");
+        assert_eq!(
+            map.keys["w1"].scopes, None,
+            "a salvaged mint that reported no scopes stores them as unknown"
         );
         assert_eq!(map.active_workspace_id, None, "active marker must not move");
         assert!(!map.keys.contains_key("w2"));

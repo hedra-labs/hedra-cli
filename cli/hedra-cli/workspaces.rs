@@ -1005,6 +1005,70 @@ mod tests {
         );
     }
 
+    /// An empty grant is a real answer: it is stored as `[]` on both slots,
+    /// never collapsed into unknown.
+    #[test]
+    #[serial_test::serial]
+    fn record_key_keeps_an_empty_grant_distinct_from_unknown() {
+        let store = fresh_keyring();
+        record_key(
+            "test-cli",
+            Some("w1"),
+            "key_1",
+            "key_1:a",
+            None,
+            None,
+            Some(&[]),
+            true,
+        )
+        .unwrap();
+        record_key(
+            "test-cli",
+            None,
+            "key_u",
+            "key_u:a",
+            None,
+            None,
+            Some(&[]),
+            true,
+        )
+        .unwrap();
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w1"].scopes, Some(vec![]));
+        assert_eq!(map.unbound_key.as_ref().unwrap().scopes, Some(vec![]));
+        let saved: Value = serde_json::from_str(
+            &store
+                .get("test-cli", WORKSPACE_KEYS_SCHEME)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(saved["keys"]["w1"]["scopes"], serde_json::json!([]));
+        assert_eq!(saved["unbound_key"]["scopes"], serde_json::json!([]));
+    }
+
+    /// The unbound slot is replaced, not merged, like a workspace entry.
+    #[test]
+    #[serial_test::serial]
+    fn record_key_replaces_an_unbound_keys_scopes() {
+        fresh_keyring();
+        record_key(
+            "test-cli",
+            None,
+            "key_u",
+            "key_u:a",
+            None,
+            None,
+            Some(&[ApiKeyScope::JobsRead]),
+            true,
+        )
+        .unwrap();
+        record_key("test-cli", None, "key_v", "key_v:b", None, None, None, true).unwrap();
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.unbound_key.as_ref().unwrap().credential, "key_v:b");
+        assert_eq!(map.unbound_key.as_ref().unwrap().scopes, None);
+    }
+
     #[test]
     #[serial_test::serial]
     fn record_key_upserts_and_marks_active() {
@@ -1967,6 +2031,68 @@ mod tests {
             map.keys["w2"].scopes,
             Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::ModelsRead]),
             "the replacement's entry holds the scopes its mint granted"
+        );
+        assert_eq!(
+            active_store()
+                .get("test-cli", super::super::auth::KEY_SCHEME)
+                .unwrap()
+                .as_deref(),
+            Some("key_new:fresh"),
+            "and the projection the SDK reads must follow"
+        );
+    }
+
+    /// A re-mint whose answer had no `scopes` stores them as unknown.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_remint_without_scopes_stores_them_as_unknown() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+                "error": {"code": "UNAUTHORIZED", "message": "Invalid API key."},
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/v3/workspaces"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "data": [{"workspace_id": "w2", "workspace_name": "Acme", "role": "admin",
+                          "workos_organization_id": "org_1"}],
+                "next_cursor": null,
+            })))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .and(body_partial_json(serde_json::json!({"workspace_id": "w2"})))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_new", "credential": "key_new:fresh", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2027-01-01T00:00:00Z",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        mock_token_endpoint(&server).await;
+        seed_held_key("w2", "key_dead", "key_dead:revoked");
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
+        assert_eq!(
+            map.keys["w2"].credential, "key_new:fresh",
+            "the dead credential must be replaced, not left active"
+        );
+        assert_eq!(
+            map.keys["w2"].scopes, None,
+            "a re-mint that reported no scopes stores them as unknown"
         );
         assert_eq!(
             active_store()
