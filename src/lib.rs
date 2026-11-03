@@ -278,6 +278,44 @@ mod dotenv_filter_tests {
     }
 
     #[test]
+    #[serial_test::serial]
+    fn the_loader_sets_allowed_keys_and_drops_denied_ones_in_any_case() {
+        let dir = tempfile::tempdir().unwrap();
+        let canonical_dir = dir.path().canonicalize().unwrap();
+        let denied = [
+            "https_proxy",
+            "All_Proxy",
+            "SSL_CERT_DIR",
+            "hedra_cli_insecure",
+        ];
+        let allowed = "HEDRA_CLI_DOTENV_LOADER_TEST_ALLOWED";
+        let mut lines: Vec<String> = denied
+            .iter()
+            .map(|key| format!("{key}=from-dotenv"))
+            .collect();
+        lines.push(format!("{allowed}=from-dotenv"));
+        std::fs::write(canonical_dir.join(".env"), lines.join("\n")).unwrap();
+        let unset_before: Vec<&str> = denied
+            .iter()
+            .copied()
+            .filter(|key| std::env::var_os(key).is_none())
+            .collect();
+
+        let saved_cwd = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&canonical_dir).unwrap();
+        let ignored = super::load_dotenv_filtered("hedra-cli");
+        std::env::set_current_dir(&saved_cwd).unwrap();
+        let allowed_value = std::env::var(allowed);
+        std::env::remove_var(allowed);
+
+        assert_eq!(ignored, denied);
+        assert_eq!(allowed_value.as_deref(), Ok("from-dotenv"));
+        for key in unset_before {
+            assert!(std::env::var_os(key).is_none(), "{key} was set from .env");
+        }
+    }
+
+    #[test]
     fn the_deny_list_is_scoped_to_this_binary_s_prefix() {
         // A denied suffix under *another* CLI's prefix is not ours to police,
         // and must not be dropped from the environment we hand on.

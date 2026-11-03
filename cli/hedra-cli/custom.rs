@@ -77,7 +77,7 @@ pub fn register(app: CliApp) -> CliApp {
     // add one, and the hand-written `sandbox` group replaces it. Hidden only
     // when present, since `CliApp::hide` panics on a missing command, and
     // before the table-only return below, since it applies in every format.
-    let app = if spec_has_command(include_str!("openapi0.json"), GENERATED_SANDBOXES) {
+    let app = if embedded_cli().is_some_and(|cli| has_command(cli, GENERATED_SANDBOXES)) {
         app.hide(&[GENERATED_SANDBOXES])
     } else {
         app
@@ -112,12 +112,24 @@ pub fn register(app: CliApp) -> CliApp {
 /// The command group the generator would build from `/sandboxes`.
 const GENERATED_SANDBOXES: &str = "sandboxes";
 
-/// Whether the command tree the runtime builds from `spec` has a top-level
-/// `name` command.
-fn spec_has_command(spec: &str, name: &str) -> bool {
+/// The command tree the runtime builds from the embedded spec, built once:
+/// the spec is over a megabyte, and both the hide above and the format probe
+/// below read the tree on every start. None when the spec does not parse.
+fn embedded_cli() -> Option<&'static clap::Command> {
+    static CLI: std::sync::OnceLock<Option<clap::Command>> = std::sync::OnceLock::new();
+    CLI.get_or_init(|| cli_from_spec(include_str!("openapi0.json")))
+        .as_ref()
+}
+
+fn cli_from_spec(spec: &str) -> Option<clap::Command> {
     load_openapi_spec(spec, "hedra-cli")
-        .map(|doc| commands::build_cli(&doc).find_subcommand(name).is_some())
-        .unwrap_or(false)
+        .ok()
+        .map(|doc| commands::build_cli(&doc))
+}
+
+/// Whether `cli` has a top-level `name` command.
+fn has_command(cli: &clap::Command, name: &str) -> bool {
+    cli.find_subcommand(name).is_some()
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {
@@ -173,8 +185,8 @@ where
     I: IntoIterator<Item = T>,
     T: Into<std::ffi::OsString> + Clone,
 {
-    let doc = load_openapi_spec(include_str!("openapi0.json"), "hedra-cli").ok()?;
-    let cli = commands::build_cli(&doc)
+    let cli = embedded_cli()?
+        .clone()
         .ignore_errors(true)
         // `--human` is the other way to ask for a table, and it is
         // declared on the `CliApp` root rather than on the binding
@@ -220,23 +232,19 @@ mod tests {
 
     #[test]
     fn the_embedded_spec_has_no_generated_sandboxes_group() {
-        assert!(!spec_has_command(
-            include_str!("openapi0.json"),
-            GENERATED_SANDBOXES
-        ));
+        let cli = embedded_cli().expect("the embedded spec parses");
+        assert!(!has_command(cli, GENERATED_SANDBOXES));
     }
 
     #[test]
     fn a_spec_with_sandbox_routes_has_the_generated_group() {
-        assert!(spec_has_command(
-            &spec_with_sandboxes(),
-            GENERATED_SANDBOXES
-        ));
+        let cli = cli_from_spec(&spec_with_sandboxes()).expect("the spec parses");
+        assert!(has_command(&cli, GENERATED_SANDBOXES));
     }
 
     #[test]
-    fn an_unparseable_spec_has_no_command() {
-        assert!(!spec_has_command("not: [a spec", GENERATED_SANDBOXES));
+    fn an_unparseable_spec_builds_no_command_tree() {
+        assert!(cli_from_spec("not: [a spec").is_none());
     }
 
     fn argv(args: &[&str]) -> Vec<String> {

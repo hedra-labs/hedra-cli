@@ -474,12 +474,13 @@ fn require_https(what: &str, url: &str) -> Result<(), String> {
 /// wholesale (executor `build_url`), so it must carry the `/v3` prefix the
 /// spec's `https://api.hedra.com/v3` server carries.
 ///
-/// `.env` values are honored too: `register()` loads dotenv before calling
-/// this (the runtime only loads it later, inside `run()`), so both a
-/// `.env`-set `HEDRA_ENV` and a `.env`-set `HEDRA_CLI_BASE_URL` are visible
-/// here. Without that early load the login plane (which reads `HEDRA_ENV`
-/// at dispatch time, post-dotenv) and the data plane would split-brain on a
-/// `.env`-only `HEDRA_ENV=staging`.
+/// A `.env`-set `HEDRA_ENV` is honored too: `register()` loads `.env` through
+/// the runtime's filtered loader before calling this (the runtime only loads
+/// it later, inside `run()`). Without that early load the login plane (which
+/// reads `HEDRA_ENV` at dispatch time, post-dotenv) and the data plane would
+/// split-brain on a `.env`-only `HEDRA_ENV=staging`. A `.env`-set
+/// `HEDRA_CLI_BASE_URL` is not: the filter drops it, so only the shell or
+/// `--base-url` can point the data plane at another host.
 pub(crate) fn derive_base_url_from_hedra_env() {
     if std::env::var_os("HEDRA_CLI_BASE_URL").is_some() {
         return; // explicit override — never clobber
