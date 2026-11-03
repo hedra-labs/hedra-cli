@@ -45,7 +45,8 @@ pub fn register(app: CliApp) -> CliApp {
     // process env, and the runtime's later call sets nothing new. It is the
     // runtime's own filtered loader, so a `.env` cannot set here a proxy, a
     // trust store or a base URL the runtime refuses from one. The keys it
-    // drops are reported by the runtime's call, once logging is initialized.
+    // drops are reported by the runtime's call, once logging is initialized
+    // and when `HEDRA_CLI_LOG` asks for warnings.
     let _ = fern_cli_sdk::load_dotenv_filtered("hedra-cli");
 
     // Credential-store stack, outermost first. Must be installed before
@@ -79,8 +80,8 @@ pub fn register(app: CliApp) -> CliApp {
     // `sandbox` group replaces. Hidden only when present, since `CliApp::hide`
     // panics on a missing command, and before the table-only return below,
     // since it applies in every format. The hide keeps the group out of
-    // `--help`, completion and `man`; `--format json --help`, `--schema` and
-    // `generate-skills` read the spec and would still list its operations.
+    // `--help` and `man`; shell completion, `--format json --help`,
+    // `--schema` and `generate-skills` would still list it or its operations.
     let app = hide_generated_sandboxes(app, embedded_cli());
 
     if resolve_format_from_argv() != OutputFormat::Table {
