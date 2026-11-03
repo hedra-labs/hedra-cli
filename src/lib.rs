@@ -93,9 +93,10 @@ const DOTENV_DENIED_BARE: &[&str] = &[
     "NO_PROXY",
     // Replace the trust store, enabling transparent interception.
     // On Linux, OpenSSL (glibc builds) and `rustls-native-certs` (musl builds)
-    // load `SSL_CERT_FILE` and `SSL_CERT_DIR` in place of the system roots. On
-    // every build, `HttpConfig::build_client` adds `SSL_CERT_FILE`'s
-    // certificates to the roots.
+    // load `SSL_CERT_FILE` and `SSL_CERT_DIR` in place of the system roots. When
+    // neither `<PREFIX>_CA_BUNDLE` nor `<PREFIX>_EXTRA_CA_CERTS` is set,
+    // `HttpConfig::build_client` adds `SSL_CERT_FILE`'s certificates to the
+    // roots on every build.
     "SSL_CERT_FILE",
     "SSL_CERT_DIR",
     "CURL_CA_BUNDLE",

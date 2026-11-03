@@ -381,8 +381,8 @@ It cannot set `HEDRA_CLI_BASE_URL`, `HEDRA_CLI_PROXY`, `HEDRA_CLI_INSECURE`,
 `HEDRA_CLI_CA_BUNDLE`, `PAGER`, or the standard proxy and trust-store variables
 (`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `SSL_CERT_DIR`),
 in any case: the CLI ignores them there, and with `HEDRA_CLI_LOG=warn` logs a warning for
-each one. Export those from the shell, where they are honored: `SSL_CERT_FILE` on every
-platform, and `SSL_CERT_DIR` on Linux.
+each one. Export those from the shell instead, where the CLI reads them. Only Linux builds
+read `SSL_CERT_DIR`.
 
 ## Shell completion
 
