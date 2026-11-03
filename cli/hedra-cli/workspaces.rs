@@ -72,9 +72,9 @@ pub(crate) struct HeldKey {
     #[serde(default)]
     pub(crate) expires_at: Option<String>,
     /// The scopes the login plane reported for this key, from the answer to
-    /// the mint or renewal that last stored it. They are what lets
-    /// `sandbox shell --gpu` refuse before it creates (and pays for) a
-    /// sandbox the broker would refuse.
+    /// the mint or renewal that last stored it. They are for the planned
+    /// `sandbox shell --gpu` pre-check, which refuses before it creates (and
+    /// pays for) a sandbox the broker would refuse.
     ///
     /// `None` means UNKNOWN, never "no scopes": an entry written before this
     /// field existed, a pasted key, and an answer from a server that does not
@@ -143,9 +143,9 @@ impl WorkspaceKeyMap {
 /// no stale star is shown.
 /// A `None` name preserves any name already held (renewals don't carry one).
 /// `scopes` is NOT preserved the same way: it is whatever the answer being
-/// recorded reported, and `None` (an answer that names none) is stored as
-/// unknown. A renewal can change a key's scopes server-side, so keeping the
-/// previous answer's list would claim a grant nobody vouched for.
+/// recorded reported. An answer without `scopes` is stored as unknown, the
+/// conservative reading, so a later scope check defers to the server rather
+/// than trusting a list this answer did not vouch for.
 /// `activate: false` files the key WITHOUT making it the active credential — the compatibility guard uses it to keep a
 /// key that landed on the wrong workspace instead of orphaning it, while
 /// leaving the user's active workspace untouched.
@@ -860,9 +860,10 @@ mod tests {
     }
 
     /// An entry written before `scopes` existed must load, and must load as
-    /// UNKNOWN. Reading it as an empty grant would make `shell --gpu` refuse
-    /// every pre-upgrade key; failing to read it would, through `load`'s
-    /// fall-back to an empty map, silently log the user out.
+    /// UNKNOWN. Reading it as an empty grant would make the planned
+    /// `sandbox shell --gpu` pre-check refuse every pre-upgrade key; failing
+    /// to read it would, through `load`'s fall-back to an empty map,
+    /// silently log the user out.
     #[test]
     #[serial_test::serial]
     fn an_entry_from_before_scopes_loads_with_unknown_scopes() {
@@ -889,8 +890,8 @@ mod tests {
         assert_eq!(map.unbound_key.as_ref().unwrap().scopes, None);
     }
 
-    /// A scope this build does not know — every sandbox scope, until the
-    /// generator's spec carries them — is kept as `__Unknown`, not rejected.
+    /// A scope this build does not know — a value added to the server after
+    /// this build was generated — is kept as `__Unknown`, not rejected.
     /// A rejection would not just lose the scope: the map is one JSON value,
     /// so `load` would discard every held key along with it.
     #[test]
@@ -902,7 +903,7 @@ mod tests {
             "keys": {
                 "w1": {"key_id": "key_1", "credential": "key_1:a",
                        "workspace_name": "Acme", "expires_at": null,
-                       "scopes": ["jobs:read", "sandboxes:exec"]},
+                       "scopes": ["jobs:read", "future:scope"]},
             },
             "unbound_key": null,
         });
@@ -916,7 +917,7 @@ mod tests {
             loaded.keys["w1"].scopes,
             Some(vec![
                 ApiKeyScope::JobsRead,
-                ApiKeyScope::__Unknown("sandboxes:exec".to_string()),
+                ApiKeyScope::__Unknown("future:scope".to_string()),
             ])
         );
         // And it survives the next save verbatim, so a later build that
@@ -931,7 +932,7 @@ mod tests {
         .unwrap();
         assert_eq!(
             saved["keys"]["w1"]["scopes"],
-            serde_json::json!(["jobs:read", "sandboxes:exec"])
+            serde_json::json!(["jobs:read", "future:scope"])
         );
     }
 
@@ -1828,13 +1829,17 @@ mod tests {
             "…but the extension has to be recorded, or the key was not really renewed"
         );
         // The seeded entry held no scopes; the renewal's answer refreshes
-        // them, unknown scope and all.
+        // them. Compared as wire strings so the assertion holds whether or
+        // not this build's `ApiKeyScope` names the sandbox scopes yet.
         assert_eq!(
-            map.keys["w2"].scopes,
+            map.keys["w2"]
+                .scopes
+                .as_ref()
+                .map(|s| s.iter().map(ToString::to_string).collect::<Vec<_>>()),
             Some(vec![
-                ApiKeyScope::JobsRead,
-                ApiKeyScope::JobsWrite,
-                ApiKeyScope::__Unknown("sandboxes:exec".to_string()),
+                "jobs:read".to_string(),
+                "jobs:write".to_string(),
+                "sandboxes:exec".to_string(),
             ]),
             "select must store the scopes the renewal reported"
         );

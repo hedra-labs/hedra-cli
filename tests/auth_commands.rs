@@ -475,8 +475,8 @@ fn stored_map(sandbox: &Sandbox) -> serde_json::Value {
     serde_json::from_str(&raw).expect("the workspace map is JSON")
 }
 
-/// A granted scope this build has no name for — any sandbox scope, until the
-/// generator's spec carries them — must not cost the user their keys. The map
+/// A granted scope this build has no name for — one the server added after
+/// this build was generated — must not cost the user their keys. The map
 /// is one JSON value and a parse failure reads as "no map", so a scope enum
 /// that rejected the value would leave the CLI sending no credential at all.
 #[test]
@@ -488,7 +488,7 @@ fn a_stored_scope_this_build_does_not_know_keeps_the_key_working() {
             "keys": {
                 "ws_1": { "key_id": "key_1", "credential": "key_1:secret_one",
                           "workspace_name": "One", "expires_at": null,
-                          "scopes": ["jobs:read", "sandboxes:exec"] },
+                          "scopes": ["jobs:read", "future:scope"] },
             },
             "unbound_key": null,
         })

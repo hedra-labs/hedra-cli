@@ -820,8 +820,10 @@ struct BootstrapRenewResponse {
     expires_at: String,
     #[serde(default)]
     workspace_id: Option<String>,
-    /// The scopes the renewal left the key with. A renewal sets them to what
-    /// a new login would grant, so they can differ from the held entry's.
+    /// The scopes the renewal left the key with. When the server's
+    /// `V3_CLI_KEY_SANDBOX_SCOPES_ENABLED` is on, a renewal sets them to what
+    /// a new login would grant, so they can differ from the held entry's;
+    /// otherwise the server returns the key's existing scopes.
     /// A server from before renewals reported scopes omits the field, which
     /// reads as `None` — unknown — and must never fail the renewal.
     #[serde(default)]
@@ -2168,12 +2170,17 @@ pub(crate) mod tests {
         assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
         assert_eq!(map.keys["w2"].credential, "key_1:s3cret");
         assert_eq!(map.keys["w2"].workspace_name.as_deref(), Some("Acme"));
+        // Wire strings, so this holds before and after the regeneration
+        // that teaches `ApiKeyScope` the sandbox scopes.
         assert_eq!(
-            map.keys["w2"].scopes,
+            map.keys["w2"]
+                .scopes
+                .as_ref()
+                .map(|s| s.iter().map(ToString::to_string).collect::<Vec<_>>()),
             Some(vec![
-                ApiKeyScope::FilesWrite,
-                ApiKeyScope::JobsRead,
-                ApiKeyScope::__Unknown("sandboxes:read".to_string()),
+                "files:write".to_string(),
+                "jobs:read".to_string(),
+                "sandboxes:read".to_string(),
             ]),
             "the entry must hold the scopes the mint granted"
         );
@@ -2727,7 +2734,7 @@ pub(crate) mod tests {
                 "key_id": "key_w1", "credential": "key_w1:s3cret", "kind": "personal",
                 // asked for w2, server bound w1 — the silent-drop shape
                 "workspace_id": "w1", "workspace_name": "Personal", "organization_id": null,
-                "expires_at": "2026-08-21T00:00:00Z",
+                "expires_at": "2026-08-21T00:00:00Z", "scopes": ["jobs:read", "models:read"],
             })))
             .mount(&server)
             .await;
@@ -2764,6 +2771,11 @@ pub(crate) mod tests {
         // …but the minted key is filed where it actually belongs, not orphaned.
         let map = workspaces::WorkspaceKeyMap::load("test-cli");
         assert_eq!(map.keys["w1"].credential, "key_w1:s3cret");
+        assert_eq!(
+            map.keys["w1"].scopes,
+            Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::ModelsRead]),
+            "the salvaged key keeps the scopes its mint granted"
+        );
         assert_eq!(map.active_workspace_id, None, "active marker must not move");
         assert!(!map.keys.contains_key("w2"));
     }
