@@ -1,7 +1,7 @@
 //! End-to-end test that a `.env` cannot route the CLI's traffic through a
 //! proxy, driving the **real compiled binary** from a directory holding one.
 //!
-//! The filter itself is unit-tested in `src/lib.rs`. This file covers what
+//! The filter itself is tested in `tests/dotenv_filter.rs`. This file covers what
 //! those tests cannot: that `custom::register` loads `.env` through the
 //! filter at all. It used to call `dotenvy::dotenv()` first, which set every
 //! key before the runtime's filtered loader ran, so the deny-list never

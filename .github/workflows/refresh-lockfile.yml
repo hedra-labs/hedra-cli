@@ -16,6 +16,14 @@
 # docstring carries the full rationale, the patch anchors, and the removal
 # condition (delete the step when ENG-10234 lands upstream).
 #
+# --- .env deny-list patches ---
+#
+# Regeneration also resets src/lib.rs, whose `.env` deny-list misses
+# `SSL_CERT_DIR` and matches only upper case (ENG-12596).
+# patch-dotenv-denylist.py re-applies both fixes, by the same design; its
+# docstring carries the rationale, the anchors, and the removal condition
+# (delete the step when ENG-12663 lands upstream).
+#
 # --- Cargo.lock ---
 #
 # Cargo.toml and hedra-sdk/Cargo.toml are generator-owned, but Cargo.lock is
@@ -170,6 +178,11 @@ jobs:
           version="$(python3 .github/scripts/set-version.py --read Cargo.toml)"
           python3 .github/scripts/patch-sdk-headers.py "$version" \
             "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs
+
+      # Source-only, like the header patches above. Delete with
+      # patch-dotenv-denylist.py when ENG-12663 lands upstream.
+      - name: Re-apply the .env deny-list patches
+        run: python3 .github/scripts/patch-dotenv-denylist.py src/lib.rs
 
       - name: Check whether Cargo.lock is stale
         id: staleness

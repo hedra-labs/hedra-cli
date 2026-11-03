@@ -72,12 +72,10 @@ pub fn register(app: CliApp) -> CliApp {
         .login_flow(auth::EnvPkceLoginFlow::new())
         .command(workspaces::command(), Box::new(workspaces::dispatch));
 
-    // Once fern-config publishes /sandboxes to the hedra-cli generator alone
-    // (the design's "Getting the routes into hedra-cli"), the SDK gains a
-    // sandboxes client while the embedded spec stays stripped, so no
-    // `sandboxes` group appears. A Fern CLI that builds the embedded spec from
-    // the generator's spec would add one, which the planned hand-written
-    // `sandbox` group replaces. Hidden only when present, since `CliApp::hide`
+    // The runtime builds its commands from the embedded spec, which has no
+    // `/sandboxes` paths, so no `sandboxes` group appears today. A spec that
+    // had them would add a generated group, which stays out of `--help`.
+    // Hidden only when present, since `CliApp::hide`
     // panics on a missing command, and before the table-only return below,
     // since it applies in every format. The hide keeps the group out of
     // `--help` and `man`; shell completion, `--format json --help`,
@@ -241,9 +239,9 @@ mod tests {
         spec.to_string()
     }
 
-    /// Fails on the regeneration the hide exists for: a Fern CLI that writes
-    /// the generator's spec into `openapi0.json`. The hide still covers that
-    /// case, so update this test and the design's note when it fails.
+    /// Fails on the regeneration the hide exists for: an embedded spec that
+    /// gains `/sandboxes` paths. The hide still covers that case, so update
+    /// this test when it fails.
     #[test]
     fn the_embedded_spec_has_no_generated_sandboxes_group() {
         let cli = embedded_cli().expect("the embedded spec parses");

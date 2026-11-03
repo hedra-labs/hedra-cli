@@ -75,6 +75,22 @@ jobs:
           fi
           echo "::warning::The SDK header patches are not applied — $hint"
 
+      # Same backstop for the .env deny-list patches (ENG-12596): a hand-made
+      # regeneration PR would otherwise fail tests/dotenv_filter.rs with a far
+      # less legible message. Delete it together with patch-dotenv-denylist.py
+      # when ENG-12663 lands upstream.
+      - name: Check the .env deny-list patches are applied
+        run: |
+          if python3 .github/scripts/patch-dotenv-denylist.py --check src/lib.rs; then
+            exit 0
+          fi
+          hint="run: python3 .github/scripts/patch-dotenv-denylist.py src/lib.rs"
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            echo "::error::The .env deny-list patches are not applied — $hint"
+            exit 1
+          fi
+          echo "::warning::The .env deny-list patches are not applied — $hint"
+
       # Anti-revert guard for ENG-10303. The Homebrew publish path opens a PR
       # into the tap because the tap's main requires one; the built-in cargo-dist
       # job pushes instead, and `dist init` or a cargo-dist bump would restore it

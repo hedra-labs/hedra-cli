@@ -80,9 +80,6 @@ pub fn reset_sigpipe() {}
 
 /// Unscoped env vars a `.env` file may not set, because each one redirects
 /// traffic, weakens transport security, or names a program to execute.
-/// Listed in upper case and matched in any case: reqwest and curl read the
-/// lowercase proxy variables too, and Windows resolves a variable whatever
-/// case its name is set in.
 const DOTENV_DENIED_BARE: &[&str] = &[
     // Names a program the CLI executes when paging output.
     "PAGER",
@@ -91,15 +88,12 @@ const DOTENV_DENIED_BARE: &[&str] = &[
     "HTTPS_PROXY",
     "ALL_PROXY",
     "NO_PROXY",
-    // Change the trusted roots, enabling transparent interception.
-    // On Linux, glibc builds (OpenSSL through native-tls) load `SSL_CERT_DIR`
-    // alongside the system roots and `SSL_CERT_FILE` in place of the system
-    // bundle file; musl builds (`rustls-native-certs`) load either one in place
-    // of the system roots. When
-    // neither `<PREFIX>_CA_BUNDLE` nor `<PREFIX>_EXTRA_CA_CERTS` is set,
-    // `HttpConfig::build_client` adds `SSL_CERT_FILE`'s certificates to the
-    // roots on every build.
+    // Replace the trust store, enabling transparent interception.
     "SSL_CERT_FILE",
+    // ENG-12596 (patched post-generation; delete when ENG-12663 lands
+    // upstream): on Linux, OpenSSL (glibc builds) loads `SSL_CERT_DIR`
+    // alongside the system roots and `rustls-native-certs` (musl builds) in
+    // place of them.
     "SSL_CERT_DIR",
     "CURL_CA_BUNDLE",
     "REQUESTS_CA_BUNDLE",
@@ -122,10 +116,13 @@ const DOTENV_DENIED_SUFFIXES: &[&str] = &[
     "_ALLOW_CROSS_HOST_PAGINATION",
 ];
 
-/// True when `key` is one a `.env` file must not be able to set. The key and
-/// the prefix are compared in any case, so `https_proxy` and
-/// `Elevenlabs_Insecure` are denied like their upper-case spellings.
+/// True when `key` is one a `.env` file must not be able to set.
 pub(crate) fn dotenv_key_is_denied(key: &str, prefix: &str) -> bool {
+    // ENG-12596 (patched post-generation; delete when ENG-12663 lands
+    // upstream): compare in any case. reqwest reads the lowercase proxy
+    // variables, and Windows resolves a variable whatever case its name is
+    // set in, so `https_proxy` and `Https_Proxy` must be denied like
+    // `HTTPS_PROXY`.
     let key = key.to_ascii_uppercase();
     if DOTENV_DENIED_BARE.contains(&key.as_str()) {
         return true;
@@ -253,72 +250,6 @@ mod dotenv_filter_tests {
             "ELEVENLABS_ALLOW_CROSS_HOST_PAGINATION",
             "ELEVENLABS"
         ));
-    }
-
-    #[test]
-    fn dotenv_cannot_set_a_trusted_root_directory() {
-        assert!(dotenv_key_is_denied("SSL_CERT_DIR", "ELEVENLABS"));
-    }
-
-    #[test]
-    fn denied_keys_are_denied_in_any_case() {
-        // reqwest and curl honour the lowercase proxy variables, and Windows
-        // resolves `Https_Proxy` as `HTTPS_PROXY`.
-        for key in [
-            "https_proxy",
-            "http_proxy",
-            "all_proxy",
-            "no_proxy",
-            "Https_Proxy",
-            "ssl_cert_dir",
-            "Ssl_Cert_File",
-            "elevenlabs_insecure",
-            "eLeVeNlAbS_Base_Url",
-        ] {
-            assert!(
-                dotenv_key_is_denied(key, "ELEVENLABS"),
-                "{key} must not be settable from .env"
-            );
-        }
-        assert!(!dotenv_key_is_denied("elevenlabs_api_key", "ELEVENLABS"));
-    }
-
-    #[test]
-    #[serial_test::serial]
-    fn the_loader_sets_allowed_keys_and_drops_denied_ones_in_any_case() {
-        let dir = tempfile::tempdir().unwrap();
-        let canonical_dir = dir.path().canonicalize().unwrap();
-        let denied = [
-            "https_proxy",
-            "All_Proxy",
-            "SSL_CERT_DIR",
-            "hedra_cli_insecure",
-        ];
-        let allowed = "HEDRA_CLI_DOTENV_LOADER_TEST_ALLOWED";
-        let mut lines: Vec<String> = denied
-            .iter()
-            .map(|key| format!("{key}=from-dotenv"))
-            .collect();
-        lines.push(format!("{allowed}=from-dotenv"));
-        std::fs::write(canonical_dir.join(".env"), lines.join("\n")).unwrap();
-        let unset_before: Vec<&str> = denied
-            .iter()
-            .copied()
-            .filter(|key| std::env::var_os(key).is_none())
-            .collect();
-
-        let saved_cwd = std::env::current_dir().unwrap();
-        std::env::set_current_dir(&canonical_dir).unwrap();
-        let ignored = super::load_dotenv_filtered("hedra-cli");
-        std::env::set_current_dir(&saved_cwd).unwrap();
-        let allowed_value = std::env::var(allowed);
-        std::env::remove_var(allowed);
-
-        assert_eq!(ignored, denied);
-        assert_eq!(allowed_value.as_deref(), Ok("from-dotenv"));
-        for key in unset_before {
-            assert!(std::env::var_os(key).is_none(), "{key} was set from .env");
-        }
     }
 
     #[test]
