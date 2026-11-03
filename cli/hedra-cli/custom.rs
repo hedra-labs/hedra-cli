@@ -127,7 +127,7 @@ pub fn register(app: CliApp) -> CliApp {
         .transform_response(&["billing", "*"], views::defuse_arrays)
 }
 
-/// Keys outside `HEDRA_` that the runtime's `.env` deny-list names
+/// Keys outside `HEDRA_` that the runtime's generated `.env` deny-list names
 /// (`DOTENV_DENIED_BARE` in src/lib.rs, which is private to the runtime): a
 /// `.env` that sets one was most likely meant to configure this CLI.
 const REPORTED_FOREIGN_KEYS: [&str; 8] = [

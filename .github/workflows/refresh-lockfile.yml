@@ -1,6 +1,6 @@
 # Repair a fern-bot regeneration branch so it can land green: align the
 # workspace crate versions (ENG-10219), re-apply the SDK header patches
-# (ENG-10226) and the .env deny-list patches (ENG-12596), then refresh
+# (ENG-10226) and the .env filter patches (ENG-12596), then refresh
 # Cargo.lock (ENG-10202). All fixes go out in ONE
 # commit — see "Gating" below for why that is not negotiable.
 #
@@ -17,11 +17,11 @@
 # docstring carries the full rationale, the patch anchors, and the removal
 # condition (delete the step when ENG-10234 lands upstream).
 #
-# --- .env deny-list patches ---
+# --- .env filter patches ---
 #
 # Regeneration also resets src/lib.rs, whose `.env` filter lets a `.env` set
 # any key outside a short deny-list and matches it only in upper case
-# (ENG-12596). patch-dotenv-denylist.py re-applies the fix, by the same design,
+# (ENG-12596). patch-dotenv-filter.py re-applies the fix, by the same design,
 # so a `.env` may set only HEDRA_ keys and NO_COLOR, minus the transport, TLS,
 # pager and log-file settings; its
 # docstring carries the rationale, the anchors, and the removal condition
@@ -183,9 +183,9 @@ jobs:
             "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs
 
       # Source-only, like the header patches above. Delete with
-      # patch-dotenv-denylist.py when ENG-12663 lands upstream.
-      - name: Re-apply the .env deny-list patches
-        run: python3 .github/scripts/patch-dotenv-denylist.py src/lib.rs
+      # patch-dotenv-filter.py when ENG-12663 lands upstream.
+      - name: Re-apply the .env filter patches
+        run: python3 .github/scripts/patch-dotenv-filter.py src/lib.rs
 
       - name: Check whether Cargo.lock is stale
         id: staleness
@@ -265,7 +265,7 @@ jobs:
             parts="${parts:+$parts and }re-apply the SDK header patches"
           fi
           if ! git diff --cached --quiet -- src/lib.rs; then
-            parts="${parts:+$parts and }re-apply the .env deny-list patches"
+            parts="${parts:+$parts and }re-apply the .env filter patches"
           fi
           if ! git diff --cached --quiet -- Cargo.lock; then
             parts="${parts:+$parts and }refresh Cargo.lock"

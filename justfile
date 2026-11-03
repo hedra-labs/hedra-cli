@@ -90,10 +90,10 @@ patch-headers:
     python3 {{ scripts }}/patch-sdk-headers.py "$version" \
         {{ sdk_dir }}/src/config.rs src/http.rs src/sdk_executor.rs
 
-# Re-apply the .env deny-list patches the generator drops (ENG-12596).
+# Re-apply the .env filter patches the generator drops (ENG-12596).
 [group('version')]
 patch-dotenv:
-    @python3 {{ scripts }}/patch-dotenv-denylist.py src/lib.rs
+    @python3 {{ scripts }}/patch-dotenv-filter.py src/lib.rs
 
 # --------------------------------------------------------------------- ci ---
 
@@ -124,10 +124,10 @@ check-headers:
         {{ sdk_dir }}/src/config.rs src/http.rs src/sdk_executor.rs \
         || { echo "hint: just patch-headers" >&2; exit 1; }
 
-# The .env deny-list patches survived the last regeneration.
+# The .env filter patches survived the last regeneration.
 [group('ci')]
 check-dotenv:
-    @python3 {{ scripts }}/patch-dotenv-denylist.py --check src/lib.rs \
+    @python3 {{ scripts }}/patch-dotenv-filter.py --check src/lib.rs \
         || { echo "hint: just patch-dotenv" >&2; exit 1; }
 
 # The Homebrew publish path still opens a PR rather than pushing (ENG-10303).

@@ -213,7 +213,7 @@ exclude:
   # compared in any case).
   #
   # Same shape as the two entries above: src/lib.rs is generated, and its only
-  # deviations from generated output are machine-owned — patch-dotenv-denylist.py
+  # deviations from generated output are machine-owned — patch-dotenv-filter.py
   # re-applies them after every regeneration. A recorded copy would be frozen at
   # detection, so when the generator changes nearby lines Replay's frozen hunk
   # would conflict ("Action required") or merge into duplicated lines, while
@@ -222,7 +222,7 @@ exclude:
   # Every other file the introducing commit touches is .fernignore'd, so
   # skipping that commit's patch whole, per the WHOLE-PATCH SEMANTICS note,
   # drops nothing that needs Replay to survive. From here on Replay carries no
-  # hand edit to src/lib.rs: make further fixes through patch-dotenv-denylist.py,
+  # hand edit to src/lib.rs: make further fixes through patch-dotenv-filter.py,
   # and keep a src/lib.rs change out of any commit that also edits a generated
   # file Replay carries, or that file's edit is skipped with it.
   - src/lib.rs

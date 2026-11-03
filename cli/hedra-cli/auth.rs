@@ -353,10 +353,11 @@ pub(crate) fn endpoint_override_keys_in_env() -> Vec<&'static str> {
 ///
 /// A `.env` must not set these: they choose where `auth login` sends the
 /// browser and the authorization code. The runtime's `.env` filter admits
-/// them: its allow-list takes every `HEDRA_` key, and its deny-list knows only
-/// generic `HEDRA_CLI_` settings. Removing them from the environment here would not hold either,
-/// since the runtime loads `.env` again before dispatch and would set them
-/// back, so they are recorded and skipped when read.
+/// them: its allow-list takes every `HEDRA_` key, and its generated
+/// deny-lists know only generic `HEDRA_CLI_` settings. Removing them from the
+/// environment here would not hold either, since the runtime loads `.env`
+/// again before dispatch and would set them back, so they are recorded and
+/// skipped when read.
 pub(crate) fn ignore_endpoint_override_from_dotenv(set_before_load: &[&str]) -> Vec<&'static str> {
     let from_dotenv: Vec<&'static str> = [AUTHORIZE_URL_KEY, TOKEN_URL_KEY]
         .into_iter()

@@ -51,13 +51,13 @@ This is a deliberate local fork of upstream generator behaviour. When ENG-12663
 lands in fern-api/fern and the generator pin bumps, delete this script, its
 tests, both workflow call sites, the `check-dotenv` and `patch-dotenv`
 recipes in the justfile, `src/lib.rs` in refresh-lockfile.yml's commit
-allowlist and message, that file's "--- .env deny-list patches ---" note, and
+allowlist and message, that file's "--- .env filter patches ---" note, and
 the `src/lib.rs` entry in .fern/replay.yml, so the fix is not applied twice.
 
 Usage:
-  patch-dotenv-denylist.py <lib.rs>
+  patch-dotenv-filter.py <lib.rs>
       apply every patch in place
-  patch-dotenv-denylist.py --check <lib.rs>
+  patch-dotenv-filter.py --check <lib.rs>
       report drift, write nothing
 """
 
@@ -248,7 +248,7 @@ def _write(path: str, source: str) -> None:
 
 
 def main(argv: list[str]) -> int:
-    prog = argv[0] if argv else "patch-dotenv-denylist.py"
+    prog = argv[0] if argv else "patch-dotenv-filter.py"
     args = argv[1:]
 
     check = bool(args) and args[0] == "--check"
@@ -270,7 +270,7 @@ def main(argv: list[str]) -> int:
         for site, s in states:
             print(f"{lib_path}: {site} {'patched' if s == 'patched' else 'NOT patched'}")
         if drift:
-            print(f"{len(drift)} .env deny-list patch(es) missing: {', '.join(drift)}")
+            print(f"{len(drift)} .env filter patch(es) missing: {', '.join(drift)}")
             return 1
         return 0
 

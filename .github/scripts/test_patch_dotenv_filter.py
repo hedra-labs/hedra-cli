@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for patch-dotenv-denylist.py.
+"""Tests for patch-dotenv-filter.py.
 
     python3 -m unittest discover -s .github/scripts
 
@@ -21,12 +21,12 @@ import tempfile
 import unittest
 from pathlib import Path
 
-_SCRIPT = Path(__file__).resolve().parent / "patch-dotenv-denylist.py"
-_spec = importlib.util.spec_from_file_location("patch_dotenv_denylist", _SCRIPT)
+_SCRIPT = Path(__file__).resolve().parent / "patch-dotenv-filter.py"
+_spec = importlib.util.spec_from_file_location("patch_dotenv_filter", _SCRIPT)
 pd = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(pd)
 
-# The deny-list region of src/lib.rs as the generator emits it, with the text
+# The .env filter region of src/lib.rs as the generator emits it, with the text
 # around each anchor that must survive patching.
 GENERATED = (
     "const DOTENV_DENIED_SUFFIXES: &[&str] = &[\n"
@@ -157,7 +157,7 @@ GENERATED_VERBATIM = (
 def _run(argv: list[str]) -> tuple[int, str]:
     out = io.StringIO()
     with contextlib.redirect_stdout(out):
-        code = pd.main(["patch-dotenv-denylist.py", *argv])
+        code = pd.main(["patch-dotenv-filter.py", *argv])
     return code, out.getvalue()
 
 
@@ -201,7 +201,7 @@ class PatchTests(unittest.TestCase):
         self._write(GENERATED)
         code, out = _run(["--check", self.path])
         self.assertEqual(code, 1)
-        self.assertIn("5 .env deny-list patch(es) missing", out)
+        self.assertIn("5 .env filter patch(es) missing", out)
         self.assertEqual(self._read(), GENERATED)
 
     def test_check_passes_on_the_patched_shape(self) -> None:

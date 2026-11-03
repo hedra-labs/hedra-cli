@@ -1,10 +1,10 @@
-//! Tests for the runtime's `.env` allow-list and deny-list, through
-//! `load_dotenv_filtered`.
+//! Tests for the runtime's `.env` filter, the allow-list plus the generated
+//! deny-lists, through `load_dotenv_filtered`.
 //!
 //! The filter lives in the generated `src/lib.rs`, where regeneration would
 //! drop any test added beside it, so its tests live here (`tests/` is
 //! .fernignore-protected). They fail on the generated tree and pass once
-//! `.github/scripts/patch-dotenv-denylist.py` has run, which makes them the
+//! `.github/scripts/patch-dotenv-filter.py` has run, which makes them the
 //! oracle for that script's Rust (ENG-12596). Keep them once ENG-12663 lands
 //! upstream: they still test the behaviour.
 //!
