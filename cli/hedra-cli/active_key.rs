@@ -224,6 +224,9 @@ impl KeyringStore for ActiveKeyStore {
             credential: value.to_string(),
             workspace_name: None,
             expires_at: None,
+            // A paste says nothing about what the key may do; unknown, not
+            // empty, so a scope check defers to the server.
+            scopes: None,
         });
         map.active_workspace_id = None;
         self.save(service, &map)
@@ -296,6 +299,7 @@ mod tests {
             credential: credential.to_string(),
             workspace_name: None,
             expires_at: None,
+            scopes: None,
         }
     }
 

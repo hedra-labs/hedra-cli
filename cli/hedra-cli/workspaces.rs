@@ -33,6 +33,7 @@ use fern_cli_sdk::auth::{active_store, LoginContext, LoginFlow};
 use fern_cli_sdk::error::CliError;
 use fern_cli_sdk::formatter::{format_value, OutputFormat, OutputPipeline};
 use fern_cli_sdk::openapi::AppContext;
+use hedra_cli_sdk::api::ApiKeyScope;
 use serde_json::{json, Value};
 
 use super::auth;
@@ -70,6 +71,24 @@ pub(crate) struct HeldKey {
     pub(crate) workspace_name: Option<String>,
     #[serde(default)]
     pub(crate) expires_at: Option<String>,
+    /// The scopes the login plane reported for this key, from the answer to
+    /// the mint or renewal that last stored it. They are what lets
+    /// `sandbox shell --gpu` refuse before it creates (and pays for) a
+    /// sandbox the broker would refuse.
+    ///
+    /// `None` means UNKNOWN, never "no scopes": an entry written before this
+    /// field existed, a pasted key, and an answer from a server that does not
+    /// report scopes all land here, and a reader must then let the server
+    /// decide rather than refuse. `Some(vec![])` is a real, empty grant.
+    ///
+    /// The generated `ApiKeyScope` reads a scope this build does not know as
+    /// `__Unknown` instead of failing. That matters beyond tidiness: the map
+    /// is one JSON value and `WorkspaceKeyMap::load` falls back to an empty
+    /// map on any parse error, so a scope enum that rejected a new value
+    /// would silently drop every held key the first time the server granted
+    /// one.
+    #[serde(default)]
+    pub(crate) scopes: Option<Vec<ApiKeyScope>>,
 }
 
 #[derive(Debug, Default, serde::Serialize, serde::Deserialize)]
@@ -123,6 +142,10 @@ impl WorkspaceKeyMap {
 /// `unbound_key` rather than in `keys`, and the workspace marker clears so
 /// no stale star is shown.
 /// A `None` name preserves any name already held (renewals don't carry one).
+/// `scopes` is NOT preserved the same way: it is whatever the answer being
+/// recorded reported, and `None` (an answer that names none) is stored as
+/// unknown. A renewal can change a key's scopes server-side, so keeping the
+/// previous answer's list would claim a grant nobody vouched for.
 /// `activate: false` files the key WITHOUT making it the active credential — the compatibility guard uses it to keep a
 /// key that landed on the wrong workspace instead of orphaning it, while
 /// leaving the user's active workspace untouched.
@@ -134,6 +157,7 @@ pub(crate) fn record_key(
     credential: &str,
     workspace_name: Option<&str>,
     expires_at: Option<&str>,
+    scopes: Option<&[ApiKeyScope]>,
     activate: bool,
 ) -> Result<(), CliError> {
     let mut map = WorkspaceKeyMap::load(cli_name);
@@ -147,6 +171,7 @@ pub(crate) fn record_key(
                     credential: credential.to_string(),
                     workspace_name: workspace_name.map(str::to_string).or(kept_name),
                     expires_at: expires_at.map(str::to_string),
+                    scopes: scopes.map(<[ApiKeyScope]>::to_vec),
                 },
             );
             if activate {
@@ -163,6 +188,7 @@ pub(crate) fn record_key(
                 credential: credential.to_string(),
                 workspace_name: workspace_name.map(str::to_string),
                 expires_at: expires_at.map(str::to_string),
+                scopes: scopes.map(<[ApiKeyScope]>::to_vec),
             });
             map.active_workspace_id = None;
         }
@@ -808,6 +834,7 @@ mod tests {
             credential: format!("{key_id}:secret"),
             workspace_name: None,
             expires_at: None,
+            scopes: None,
         }
     }
 
@@ -832,6 +859,128 @@ mod tests {
         assert_eq!(map.active_workspace_id, None);
     }
 
+    /// An entry written before `scopes` existed must load, and must load as
+    /// UNKNOWN. Reading it as an empty grant would make `shell --gpu` refuse
+    /// every pre-upgrade key; failing to read it would, through `load`'s
+    /// fall-back to an empty map, silently log the user out.
+    #[test]
+    #[serial_test::serial]
+    fn an_entry_from_before_scopes_loads_with_unknown_scopes() {
+        let store = fresh_keyring();
+        let legacy = serde_json::json!({
+            "active_workspace_id": "w1",
+            "keys": {
+                "w1": {"key_id": "key_1", "credential": "key_1:a",
+                       "workspace_name": "Acme", "expires_at": null},
+            },
+            "unbound_key": {"key_id": "key_u", "credential": "key_u:b",
+                            "workspace_name": null, "expires_at": null},
+        });
+        store
+            .set("test-cli", WORKSPACE_KEYS_SCHEME, &legacy.to_string())
+            .unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(
+            map.keys["w1"].credential, "key_1:a",
+            "the legacy entry must load, not fall back to an empty map"
+        );
+        assert_eq!(map.keys["w1"].scopes, None);
+        assert_eq!(map.unbound_key.as_ref().unwrap().scopes, None);
+    }
+
+    /// A scope this build does not know — every sandbox scope, until the
+    /// generator's spec carries them — is kept as `__Unknown`, not rejected.
+    /// A rejection would not just lose the scope: the map is one JSON value,
+    /// so `load` would discard every held key along with it.
+    #[test]
+    #[serial_test::serial]
+    fn an_unknown_scope_is_kept_rather_than_failing_the_map() {
+        let store = fresh_keyring();
+        let map = serde_json::json!({
+            "active_workspace_id": "w1",
+            "keys": {
+                "w1": {"key_id": "key_1", "credential": "key_1:a",
+                       "workspace_name": "Acme", "expires_at": null,
+                       "scopes": ["jobs:read", "sandboxes:exec"]},
+            },
+            "unbound_key": null,
+        });
+        store
+            .set("test-cli", WORKSPACE_KEYS_SCHEME, &map.to_string())
+            .unwrap();
+
+        let loaded = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(loaded.keys["w1"].credential, "key_1:a");
+        assert_eq!(
+            loaded.keys["w1"].scopes,
+            Some(vec![
+                ApiKeyScope::JobsRead,
+                ApiKeyScope::__Unknown("sandboxes:exec".to_string()),
+            ])
+        );
+        // And it survives the next save verbatim, so a later build that
+        // does know the scope reads it back as granted.
+        loaded.save("test-cli").unwrap();
+        let saved: Value = serde_json::from_str(
+            &store
+                .get("test-cli", WORKSPACE_KEYS_SCHEME)
+                .unwrap()
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(
+            saved["keys"]["w1"]["scopes"],
+            serde_json::json!(["jobs:read", "sandboxes:exec"])
+        );
+    }
+
+    /// Recording replaces the stored scopes with the answer's, including
+    /// with "unknown". Keeping the previous list across a renewal that named
+    /// none would claim a grant the server no longer vouches for.
+    #[test]
+    #[serial_test::serial]
+    fn record_key_replaces_scopes_rather_than_keeping_them() {
+        fresh_keyring();
+        let granted = [ApiKeyScope::JobsRead, ApiKeyScope::JobsWrite];
+        record_key(
+            "test-cli",
+            Some("w1"),
+            "key_1",
+            "key_1:a",
+            Some("Acme"),
+            None,
+            Some(&granted),
+            true,
+        )
+        .unwrap();
+        assert_eq!(
+            WorkspaceKeyMap::load("test-cli").keys["w1"]
+                .scopes
+                .as_deref(),
+            Some(&granted[..])
+        );
+
+        record_key(
+            "test-cli",
+            Some("w1"),
+            "key_1",
+            "key_1:a",
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w1"].scopes, None);
+        assert_eq!(
+            map.keys["w1"].workspace_name.as_deref(),
+            Some("Acme"),
+            "unlike scopes, a missing name is preserved"
+        );
+    }
+
     #[test]
     #[serial_test::serial]
     fn record_key_upserts_and_marks_active() {
@@ -843,6 +992,7 @@ mod tests {
             "key_1:s3cret",
             Some("Acme"),
             Some("2026-08-20T00:00:00Z"),
+            None,
             true,
         )
         .unwrap();
@@ -859,6 +1009,7 @@ mod tests {
             "key_1:s3cret",
             None,
             None,
+            None,
             true,
         )
         .unwrap();
@@ -870,7 +1021,7 @@ mod tests {
         );
 
         // An unbound mint clears the active marker but keeps held keys.
-        record_key("test-cli", None, "key_2", "key_2:x", None, None, true).unwrap();
+        record_key("test-cli", None, "key_2", "key_2:x", None, None, None, true).unwrap();
         let map = WorkspaceKeyMap::load("test-cli");
         assert_eq!(map.active_workspace_id, None);
         assert!(map.keys.contains_key("w1"));
@@ -887,6 +1038,7 @@ mod tests {
             "key_1:a",
             Some("A"),
             None,
+            None,
             true,
         )
         .unwrap();
@@ -896,6 +1048,7 @@ mod tests {
             "key_2",
             "key_2:b",
             Some("B"),
+            None,
             None,
             true,
         )
@@ -923,7 +1076,17 @@ mod tests {
     #[serial_test::serial]
     fn activate_unknown_workspace_is_not_held() {
         let store = fresh_keyring();
-        record_key("test-cli", Some("w1"), "key_1", "key_1:a", None, None, true).unwrap();
+        record_key(
+            "test-cli",
+            Some("w1"),
+            "key_1",
+            "key_1:a",
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
         store.set("test-cli", auth::KEY_SCHEME, "key_1:a").unwrap();
 
         assert!(matches!(
@@ -955,7 +1118,17 @@ mod tests {
     fn an_unbound_mint_is_still_the_active_credential() {
         let _store = fresh_keyring();
 
-        record_key("test-cli", None, "key_free", "key_free:x", None, None, true).unwrap();
+        record_key(
+            "test-cli",
+            None,
+            "key_free",
+            "key_free:x",
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
 
         let map = WorkspaceKeyMap::load("test-cli");
         assert_eq!(map.active_credential(), Some("key_free:x"));
@@ -980,7 +1153,17 @@ mod tests {
     #[serial_test::serial]
     fn activate_clears_a_stale_key_auth_mirror() {
         let store = fresh_keyring();
-        record_key("test-cli", Some("w1"), "key_1", "key_1:a", None, None, true).unwrap();
+        record_key(
+            "test-cli",
+            Some("w1"),
+            "key_1",
+            "key_1:a",
+            None,
+            None,
+            None,
+            true,
+        )
+        .unwrap();
         store
             .set("test-cli", auth::KEY_SCHEME, "key_9:stale")
             .unwrap();
@@ -1256,6 +1439,7 @@ mod tests {
             "k2:s",
             Some("Acme"),
             None,
+            None,
             true,
         )
         .unwrap();
@@ -1265,7 +1449,7 @@ mod tests {
         ));
 
         // Selected a workspace that is no longer listed at all.
-        record_key("test-cli", Some("w9"), "k9", "k9:s", None, None, true).unwrap();
+        record_key("test-cli", Some("w9"), "k9", "k9:s", None, None, None, true).unwrap();
         assert!(
             matches!(
                 fallback_mint_target("test-cli", &listing),
@@ -1575,6 +1759,7 @@ mod tests {
             credential,
             Some("Acme"),
             Some("2026-08-19T00:00:00Z"),
+            None,
             true,
         )
         .unwrap();
@@ -1611,6 +1796,7 @@ mod tests {
             .and(header("authorization", "Bearer key_w2:held"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "key_id": "key_w2", "expires_at": "2027-01-01T00:00:00Z", "workspace_id": "w2",
+                "scopes": ["jobs:read", "jobs:write", "sandboxes:exec"],
             })))
             .expect(1)
             .mount(&server)
@@ -1641,6 +1827,62 @@ mod tests {
             Some("2027-01-01T00:00:00Z"),
             "…but the extension has to be recorded, or the key was not really renewed"
         );
+        // The seeded entry held no scopes; the renewal's answer refreshes
+        // them, unknown scope and all.
+        assert_eq!(
+            map.keys["w2"].scopes,
+            Some(vec![
+                ApiKeyScope::JobsRead,
+                ApiKeyScope::JobsWrite,
+                ApiKeyScope::__Unknown("sandboxes:exec".to_string()),
+            ]),
+            "select must store the scopes the renewal reported"
+        );
+    }
+
+    /// The other half of the refresh: a renewal from a server that reports
+    /// no scopes must not leave the previous answer's list standing, and
+    /// must not fail the renewal either.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn select_renewal_without_scopes_stores_them_as_unknown() {
+        use super::super::auth::tests as auth_tests;
+        auth_tests::clear_endpoint_override();
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap/renew"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "key_id": "key_w2", "expires_at": "2027-01-01T00:00:00Z", "workspace_id": "w2",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201))
+            .expect(0)
+            .mount(&server)
+            .await;
+        let store = fresh_keyring();
+        let _home = auth_tests::seed_live_session(&store, &server.uri());
+        mock_token_endpoint(&server).await;
+        record_key(
+            "test-cli",
+            Some("w2"),
+            "key_w2",
+            "key_w2:held",
+            Some("Acme"),
+            None,
+            Some(&[ApiKeyScope::JobsRead, ApiKeyScope::KeysManage]),
+            true,
+        )
+        .unwrap();
+
+        run_select_against(server.uri(), "w2").await.unwrap();
+
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w2"].credential, "key_w2:held");
+        assert_eq!(map.keys["w2"].scopes, None);
     }
 
     /// The reported defect: a held key that the login plane refuses used to
@@ -1675,7 +1917,7 @@ mod tests {
             .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
                 "key_id": "key_new", "credential": "key_new:fresh", "kind": "personal",
                 "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
-                "expires_at": "2027-01-01T00:00:00Z",
+                "expires_at": "2027-01-01T00:00:00Z", "scopes": ["jobs:read", "models:read"],
             })))
             .expect(1)
             .mount(&server)
@@ -1692,6 +1934,11 @@ mod tests {
         assert_eq!(
             map.keys["w2"].credential, "key_new:fresh",
             "the dead credential must be replaced, not left active"
+        );
+        assert_eq!(
+            map.keys["w2"].scopes,
+            Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::ModelsRead]),
+            "the replacement's entry holds the scopes its mint granted"
         );
         assert_eq!(
             active_store()

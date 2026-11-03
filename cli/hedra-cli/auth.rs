@@ -28,6 +28,7 @@ use fern_cli_sdk::auth::{
     PkceLoginFlow, TokenBundle,
 };
 use fern_cli_sdk::error::CliError;
+use hedra_cli_sdk::api::ApiKeyScope;
 use serde_json::Value;
 
 use super::workspaces;
@@ -805,6 +806,12 @@ struct BootstrapMintResponse {
     organization_id: Option<String>,
     #[serde(default)]
     expires_at: Option<String>,
+    /// The key's granted scopes. The mint answer is `KeyCreateResponse`,
+    /// which has always carried them; a `null` there means a legacy
+    /// all-scopes key, which a bootstrap mint never is, and is stored as
+    /// unknown all the same.
+    #[serde(default)]
+    scopes: Option<Vec<ApiKeyScope>>,
 }
 
 #[derive(Debug, serde::Deserialize)]
@@ -813,6 +820,12 @@ struct BootstrapRenewResponse {
     expires_at: String,
     #[serde(default)]
     workspace_id: Option<String>,
+    /// The scopes the renewal left the key with. A renewal sets them to what
+    /// a new login would grant, so they can differ from the held entry's.
+    /// A server from before renewals reported scopes omits the field, which
+    /// reads as `None` — unknown — and must never fail the renewal.
+    #[serde(default)]
+    scopes: Option<Vec<ApiKeyScope>>,
 }
 
 fn bootstrap_api_key(cli_name: &str) -> Result<(), CliError> {
@@ -858,6 +871,7 @@ async fn bootstrap_inner(cli_name: &str, api_base: &str, jwt: &str) -> Result<()
                     &credential,
                     None, // renewals carry no name — the held one is kept
                     Some(&renewed.expires_at),
+                    renewed.scopes.as_deref(),
                     true,
                 )?;
                 (
@@ -1117,6 +1131,7 @@ async fn mint_and_store(
         &minted.credential,
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
+        minted.scopes.as_deref(),
         true,
     )?;
     if let (Some(name), Some(org)) = (&minted.workspace_name, &minted.organization_id) {
@@ -1200,6 +1215,7 @@ pub(crate) fn renew_held_key_at(
         credential,
         None,
         Some(&renewed.expires_at),
+        renewed.scopes.as_deref(),
         true,
     )?;
     Ok(Some(renewed.expires_at))
@@ -1271,6 +1287,7 @@ pub(crate) fn mint_for_workspace_at(
             &minted.credential,
             minted.workspace_name.as_deref(),
             minted.expires_at.as_deref(),
+            minted.scopes.as_deref(),
             false,
         ) {
             Ok(()) => format!(
@@ -1297,6 +1314,7 @@ pub(crate) fn mint_for_workspace_at(
         &minted.credential,
         minted.workspace_name.as_deref(),
         minted.expires_at.as_deref(),
+        minted.scopes.as_deref(),
         true,
     )?;
     Ok(MintedKey {
@@ -1326,6 +1344,7 @@ fn record_workspace_key(
     credential: &str,
     workspace_name: Option<&str>,
     expires_at: Option<&str>,
+    scopes: Option<&[ApiKeyScope]>,
     activate: bool,
 ) -> Result<(), CliError> {
     workspaces::record_key(
@@ -1335,6 +1354,7 @@ fn record_workspace_key(
         credential,
         workspace_name,
         expires_at,
+        scopes,
         activate,
     )
     .map_err(|e| {
@@ -2125,6 +2145,7 @@ pub(crate) mod tests {
                 "key_id": "key_1", "credential": "key_1:s3cret", "kind": "personal",
                 "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
                 "expires_at": "2026-08-19T00:00:00Z",
+                "scopes": ["files:write", "jobs:read", "sandboxes:read"],
             })))
             .expect(1)
             .mount(&server)
@@ -2147,6 +2168,42 @@ pub(crate) mod tests {
         assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
         assert_eq!(map.keys["w2"].credential, "key_1:s3cret");
         assert_eq!(map.keys["w2"].workspace_name.as_deref(), Some("Acme"));
+        assert_eq!(
+            map.keys["w2"].scopes,
+            Some(vec![
+                ApiKeyScope::FilesWrite,
+                ApiKeyScope::JobsRead,
+                ApiKeyScope::__Unknown("sandboxes:read".to_string()),
+            ]),
+            "the entry must hold the scopes the mint granted"
+        );
+    }
+
+    /// A mint answer without `scopes` stores them as unknown and does not
+    /// fail the login.
+    #[tokio::test(flavor = "multi_thread")]
+    #[serial_test::serial]
+    async fn bootstrap_mint_without_scopes_stores_them_as_unknown() {
+        let server = mock_login_plane().await;
+        Mock::given(method("POST"))
+            .and(path("/v3/keys/bootstrap"))
+            .respond_with(ResponseTemplate::new(201).set_body_json(serde_json::json!({
+                "key_id": "key_1", "credential": "key_1:s3cret", "kind": "personal",
+                "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
+                "expires_at": "2026-08-19T00:00:00Z",
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        let _store = fresh_keyring();
+
+        bootstrap_inner("test-cli", &server.uri(), JWT)
+            .await
+            .unwrap();
+
+        let map = workspaces::WorkspaceKeyMap::load("test-cli");
+        assert_eq!(map.keys["w2"].credential, "key_1:s3cret");
+        assert_eq!(map.keys["w2"].scopes, None);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -2159,6 +2216,7 @@ pub(crate) mod tests {
             .and(body_partial_json(serde_json::json!({"authkit_token": JWT})))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "key_id": "key_0", "expires_at": "2026-08-19T00:00:00Z", "workspace_id": "w1",
+                "scopes": ["jobs:read", "jobs:write"],
             })))
             .expect(1)
             .mount(&server)
@@ -2185,6 +2243,11 @@ pub(crate) mod tests {
         assert_eq!(
             map.keys["w1"].expires_at.as_deref(),
             Some("2026-08-19T00:00:00Z")
+        );
+        assert_eq!(
+            map.keys["w1"].scopes,
+            Some(vec![ApiKeyScope::JobsRead, ApiKeyScope::JobsWrite]),
+            "a login that renews must store the scopes the renewal reported"
         );
     }
 
@@ -2369,6 +2432,7 @@ pub(crate) mod tests {
             "key_old",
             "key_old:stale",
             Some("Acme"),
+            None,
             None,
             true,
         )

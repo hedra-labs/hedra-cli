@@ -462,3 +462,78 @@ fn a_pasted_key_replaces_the_one_the_map_was_serving() {
         "the pasted key must be what goes on the wire, not the map's older answer"
     );
 }
+
+// ---------------------------------------------------------------------------
+// Stored scopes (ENG-12597).
+// ---------------------------------------------------------------------------
+
+/// The parsed workspace map, as the CLI wrote it.
+fn stored_map(sandbox: &Sandbox) -> serde_json::Value {
+    let raw = sandbox
+        .raw_slot("WorkspaceKeys")
+        .expect("a workspace map is stored");
+    serde_json::from_str(&raw).expect("the workspace map is JSON")
+}
+
+/// A granted scope this build has no name for — any sandbox scope, until the
+/// generator's spec carries them — must not cost the user their keys. The map
+/// is one JSON value and a parse failure reads as "no map", so a scope enum
+/// that rejected the value would leave the CLI sending no credential at all.
+#[test]
+fn a_stored_scope_this_build_does_not_know_keeps_the_key_working() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(
+        &serde_json::json!({
+            "active_workspace_id": "ws_1",
+            "keys": {
+                "ws_1": { "key_id": "key_1", "credential": "key_1:secret_one",
+                          "workspace_name": "One", "expires_at": null,
+                          "scopes": ["jobs:read", "sandboxes:exec"] },
+            },
+            "unbound_key": null,
+        })
+        .to_string(),
+    );
+
+    assert_eq!(
+        authorization_header(&s).as_deref(),
+        Some("Bearer key_1:secret_one"),
+        "an unknown scope must not make the map unreadable"
+    );
+}
+
+/// A pasted key says nothing about its scopes, so its entry records them as
+/// unknown (`null`), never as an empty grant — and the paste leaves the
+/// scopes already stored for a held workspace key alone.
+#[test]
+fn a_pasted_key_is_stored_with_unknown_scopes() {
+    let s = Sandbox::new();
+    s.seed_workspace_map(
+        &serde_json::json!({
+            "active_workspace_id": "ws_1",
+            "keys": {
+                "ws_1": { "key_id": "key_1", "credential": "key_1:one",
+                          "workspace_name": "One", "expires_at": null,
+                          "scopes": ["jobs:read"] },
+            },
+            "unbound_key": null,
+        })
+        .to_string(),
+    );
+
+    let out = s.run_with_stdin(&["auth", "login", "--with-token"], "key_9:pasted\n");
+    assert!(out.status.success(), "paste failed: {}", stderr(&out));
+
+    let map = stored_map(&s);
+    assert_eq!(map["unbound_key"]["credential"], "key_9:pasted");
+    assert_eq!(
+        map["unbound_key"]["scopes"],
+        serde_json::Value::Null,
+        "a pasted key's scopes are unknown"
+    );
+    assert_eq!(
+        map["keys"]["ws_1"]["scopes"],
+        serde_json::json!(["jobs:read"]),
+        "the paste said nothing about ws_1's key"
+    );
+}
