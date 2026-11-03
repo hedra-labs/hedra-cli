@@ -375,8 +375,13 @@ hedra-cli jobs list --page-all --page-limit 5
 | `HEDRA_CLI_PROXY` | HTTP(S) proxy URL |
 | `HEDRA_CLI_TIMEOUT_SECS` | Total request timeout in seconds |
 
-A `.env` file in the working directory is loaded on startup. Standard `HTTPS_PROXY` /
-`HTTP_PROXY` / `NO_PROXY` / `SSL_CERT_FILE` are also honored.
+A `.env` file in the working directory or any parent is loaded on startup, for
+credentials and preferences such as `HEDRA_API_KEY`, `HEDRA_ENV` and `HEDRA_CLI_OUTPUT`.
+It cannot set `HEDRA_CLI_BASE_URL`, `HEDRA_CLI_PROXY`, `HEDRA_CLI_INSECURE`,
+`HEDRA_CLI_CA_BUNDLE`, `PAGER`, or the standard proxy and trust-store variables
+(`HTTPS_PROXY`, `HTTP_PROXY`, `ALL_PROXY`, `NO_PROXY`, `SSL_CERT_FILE`, `SSL_CERT_DIR`),
+in any case: the CLI ignores them there and logs a warning. Export those from the shell,
+where the standard proxy and trust-store variables are honored.
 
 ## Shell completion
 

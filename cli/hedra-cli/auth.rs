@@ -480,7 +480,8 @@ fn require_https(what: &str, url: &str) -> Result<(), String> {
 /// reads `HEDRA_ENV` at dispatch time, post-dotenv) and the data plane would
 /// split-brain on a `.env`-only `HEDRA_ENV=staging`. A `.env`-set
 /// `HEDRA_CLI_BASE_URL` is not: the filter drops it, so only the shell or
-/// `--base-url` can point the data plane at another host.
+/// `--base-url` can point the data plane at a host other than the two
+/// `resource_base_url` knows.
 pub(crate) fn derive_base_url_from_hedra_env() {
     if std::env::var_os("HEDRA_CLI_BASE_URL").is_some() {
         return; // explicit override — never clobber

@@ -71,17 +71,17 @@ pub fn register(app: CliApp) -> CliApp {
         .login_flow(auth::EnvPkceLoginFlow::new())
         .command(workspaces::command(), Box::new(workspaces::dispatch));
 
-    // fern-config publishes /sandboxes only to the SDK hedra-cli's own
-    // commands call, so the embedded spec has no `sandboxes` group today. A
-    // Fern CLI that builds the embedded spec from the generator's spec would
-    // add one, and the hand-written `sandbox` group replaces it. Hidden only
-    // when present, since `CliApp::hide` panics on a missing command, and
-    // before the table-only return below, since it applies in every format.
-    let app = if embedded_cli().is_some_and(|cli| has_command(cli, GENERATED_SANDBOXES)) {
-        app.hide(&[GENERATED_SANDBOXES])
-    } else {
-        app
-    };
+    // Once fern-config publishes /sandboxes to the hedra-cli generator alone
+    // (the design's "Getting the routes into hedra-cli"), the SDK gains a
+    // sandboxes client while the embedded spec stays stripped, so no
+    // `sandboxes` group appears. A Fern CLI that builds the embedded spec from
+    // the generator's spec would add one, which the planned hand-written
+    // `sandbox` group replaces. Hidden only when present, since `CliApp::hide`
+    // panics on a missing command, and before the table-only return below,
+    // since it applies in every format. The hide keeps the group out of
+    // `--help`, completion and `man`; `--format json --help`, `--schema` and
+    // `generate-skills` read the spec and would still list its operations.
+    let app = hide_generated_sandboxes(app, embedded_cli());
 
     if resolve_format_from_argv() != OutputFormat::Table {
         return app;
@@ -125,6 +125,16 @@ fn cli_from_spec(spec: &str) -> Option<clap::Command> {
     load_openapi_spec(spec, "hedra-cli")
         .ok()
         .map(|doc| commands::build_cli(&doc))
+}
+
+/// `app` with the generated `sandboxes` group hidden when `cli`, the tree the
+/// runtime builds from the same spec, has one.
+fn hide_generated_sandboxes(app: CliApp, cli: Option<&clap::Command>) -> CliApp {
+    if cli.is_some_and(|cli| has_command(cli, GENERATED_SANDBOXES)) {
+        app.hide(&[GENERATED_SANDBOXES])
+    } else {
+        app
+    }
 }
 
 /// Whether `cli` has a top-level `name` command.
@@ -216,7 +226,7 @@ mod tests {
     use super::*;
 
     /// The embedded spec with one `/sandboxes` operation added, as a Fern CLI
-    /// that builds the embedded spec from `openapi-cli.json` would write it.
+    /// that builds the embedded spec from the generator's spec would write it.
     fn spec_with_sandboxes() -> String {
         let mut spec: Value = serde_json::from_str(include_str!("openapi0.json")).unwrap();
         spec["paths"]["/sandboxes"] = serde_json::json!({
@@ -230,6 +240,9 @@ mod tests {
         spec.to_string()
     }
 
+    /// Fails on the regeneration the hide exists for: a Fern CLI that writes
+    /// the generator's spec into `openapi0.json`. The hide still covers that
+    /// case, so update this test and the design's note when it fails.
     #[test]
     fn the_embedded_spec_has_no_generated_sandboxes_group() {
         let cli = embedded_cli().expect("the embedded spec parses");
@@ -240,6 +253,52 @@ mod tests {
     fn a_spec_with_sandbox_routes_has_the_generated_group() {
         let cli = cli_from_spec(&spec_with_sandboxes()).expect("the spec parses");
         assert!(has_command(&cli, GENERATED_SANDBOXES));
+    }
+
+    /// `--help` from an app whose embedded spec has the sandbox routes.
+    fn help_from_spec_with_sandboxes(hide: bool, format: &[&str]) -> String {
+        let spec: &'static str = Box::leak(spec_with_sandboxes().into_boxed_str());
+        let app = CliApp::new("hedra-cli")
+            .binding(fern_cli_sdk::openapi::OpenApiBinding::new().spec(spec));
+        let app = if hide {
+            hide_generated_sandboxes(app, cli_from_spec(spec).as_ref())
+        } else {
+            app
+        };
+        let mut out = Vec::new();
+        let args: Vec<&str> = std::iter::once("hedra-cli")
+            .chain(format.iter().copied())
+            .chain(["--help"])
+            .collect();
+        let _ = app.try_run_from_with_output(args, &mut out);
+        String::from_utf8_lossy(&out).into_owned()
+    }
+
+    #[test]
+    fn the_hide_keeps_a_generated_sandboxes_group_out_of_help() {
+        let shown = help_from_spec_with_sandboxes(false, &[]);
+        assert!(
+            shown.contains("sandboxes"),
+            "help without the hide:\n{shown}"
+        );
+        // Human help only: `--format json --help` prints the runtime's spec
+        // schema, which lists every operation whatever clap's hidden flag says.
+        for format in [&[][..], &["--format", "table"][..]] {
+            let help = help_from_spec_with_sandboxes(true, format);
+            assert!(help.contains("jobs"), "help with {format:?}:\n{help}");
+            assert!(!help.contains("sandboxes"), "help with {format:?}:\n{help}");
+        }
+    }
+
+    #[test]
+    fn the_hide_is_a_no_op_without_a_generated_group() {
+        let app = CliApp::new("hedra-cli").binding(
+            fern_cli_sdk::openapi::OpenApiBinding::new().spec(include_str!("openapi0.json")),
+        );
+        let app = hide_generated_sandboxes(app, embedded_cli());
+        let mut out = Vec::new();
+        let _ = app.try_run_from_with_output(["hedra-cli", "--help"], &mut out);
+        assert!(String::from_utf8_lossy(&out).contains("jobs"));
     }
 
     #[test]
