@@ -211,17 +211,19 @@ exclude:
   # The ENG-12596 `.env` deny-list fixes in src/lib.rs (`SSL_CERT_DIR`, and
   # matching in any case).
   #
-  # Same shape as the two entries above: src/lib.rs is generated, and its one
-  # deviation from generated output is machine-owned — patch-dotenv-denylist.py
-  # re-applies it after every regeneration. A recorded copy would be frozen at
-  # detection, so the day the generator changes those lines (ENG-12663 landing
-  # upstream, say) Replay would lay the old text back over them, the result
-  # would match neither shape, and the script would refuse to guess, aborting
-  # refresh-lockfile.yml.
+  # Same shape as the two entries above: src/lib.rs is generated, and its only
+  # deviations from generated output are machine-owned — patch-dotenv-denylist.py
+  # re-applies both after every regeneration. A recorded copy would be frozen at
+  # detection, so when the generator changes nearby lines Replay's frozen hunk
+  # would conflict ("Action required") or merge into duplicated lines, while
+  # the script alone either applies cleanly or refuses loudly.
   #
   # Every other file the introducing commit touches is .fernignore'd, so
   # skipping that commit's patch whole, per the WHOLE-PATCH SEMANTICS note,
-  # drops nothing that needs Replay to survive.
+  # drops nothing that needs Replay to survive. From here on Replay carries no
+  # hand edit to src/lib.rs: make further fixes through patch-dotenv-denylist.py,
+  # and keep a src/lib.rs change out of any commit that also edits a generated
+  # file Replay carries, or that file's edit is skipped with it.
   - src/lib.rs
 
   # NOT excluded, deliberately: hedra-cli-sdk/Cargo.toml,

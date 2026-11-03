@@ -253,7 +253,7 @@ jobs:
             exit 1
           fi
           git add "${allowed[@]}"
-          # Name only what actually changed; the three fix groups occur in any
+          # Name only what actually changed; the four fix groups occur in any
           # combination.
           parts=""
           if ! git diff --cached --quiet -- "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then

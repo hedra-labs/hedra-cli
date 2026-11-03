@@ -33,7 +33,9 @@ defect status in view, rather than silently shipping the unpatched deny-list.
 
 This is a deliberate local fork of upstream generator behaviour. When ENG-12663
 lands in fern-api/fern and the generator pin bumps, delete this script, its
-tests, and both workflow call sites so the fix is not applied twice.
+tests, both workflow call sites, `src/lib.rs` in refresh-lockfile.yml's commit
+allowlist and message, that file's "--- .env deny-list patches ---" note, and
+the `src/lib.rs` entry in .fern/replay.yml, so the fix is not applied twice.
 
 Usage:
   patch-dotenv-denylist.py <lib.rs>

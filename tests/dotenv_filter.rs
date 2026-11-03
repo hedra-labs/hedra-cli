@@ -4,8 +4,8 @@
 //! drop any test added beside it, so its tests live here (`tests/` is
 //! .fernignore-protected). They fail on the generated tree and pass once
 //! `.github/scripts/patch-dotenv-denylist.py` has run, which makes them the
-//! oracle for that script's Rust (ENG-12596; delete with the script when
-//! ENG-12663 lands upstream).
+//! oracle for that script's Rust (ENG-12596). Keep them once ENG-12663 lands
+//! upstream: they still test the behaviour.
 //!
 //! One test in its own file, so the working-directory change it needs runs in
 //! a process no other test shares.
