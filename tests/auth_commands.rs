@@ -502,8 +502,8 @@ fn a_stored_scope_this_build_does_not_know_keeps_the_key_working() {
     );
 }
 
-/// A pasted key says nothing about its scopes, so its entry records them as
-/// unknown (`null`), never as an empty grant — and the paste leaves the
+/// A pasted key says nothing about its scopes, so its entry records no
+/// scopes, meaning unknown, never an empty grant — and the paste leaves the
 /// scopes already stored for a held workspace key alone.
 #[test]
 fn a_pasted_key_is_stored_with_unknown_scopes() {

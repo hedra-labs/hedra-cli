@@ -806,8 +806,8 @@ struct BootstrapMintResponse {
     organization_id: Option<String>,
     #[serde(default)]
     expires_at: Option<String>,
-    /// The key's granted scopes. The mint answer is `KeyCreateResponse`,
-    /// which has always carried them; a `null` there means a legacy
+    /// The key's granted scopes. The mint answer is `KeyBootstrapResponse`, a
+    /// `KeyCreateResponse` subclass, which has always carried them; a `null` there means a legacy
     /// all-scopes key, which a bootstrap mint never is, and is stored as
     /// unknown all the same.
     #[serde(default)]

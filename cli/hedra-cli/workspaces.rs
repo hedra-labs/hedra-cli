@@ -143,9 +143,9 @@ impl WorkspaceKeyMap {
 /// no stale star is shown.
 /// A `None` name preserves any name already held (renewals don't carry one).
 /// `scopes` is NOT preserved the same way: it is whatever the answer being
-/// recorded reported. An answer without `scopes` is stored as unknown, the
-/// conservative reading, so a later scope check defers to the server rather
-/// than trusting a list this answer did not vouch for.
+/// recorded reported. An answer without `scopes` is stored as unknown, so a
+/// later scope check defers to the server instead of trusting a list this
+/// answer did not report.
 /// `activate: false` files the key WITHOUT making it the active credential — the compatibility guard uses it to keep a
 /// key that landed on the wrong workspace instead of orphaning it, while
 /// leaving the user's active workspace untouched.
@@ -937,8 +937,7 @@ mod tests {
     }
 
     /// Recording replaces the stored scopes with the answer's, including
-    /// with "unknown". Keeping the previous list across a renewal that named
-    /// none would claim a grant the server no longer vouches for.
+    /// with "unknown": a list the answer did not report is not kept.
     #[test]
     #[serial_test::serial]
     fn record_key_replaces_scopes_rather_than_keeping_them() {
