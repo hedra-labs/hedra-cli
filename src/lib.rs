@@ -91,10 +91,11 @@ const DOTENV_DENIED_BARE: &[&str] = &[
     "HTTPS_PROXY",
     "ALL_PROXY",
     "NO_PROXY",
-    // Replace the trust store, enabling transparent interception.
-    // On Linux, OpenSSL (glibc builds) loads `SSL_CERT_FILE` and `SSL_CERT_DIR`
-    // alongside the system roots, and `rustls-native-certs` (musl builds) loads
-    // them in place of the system roots. When
+    // Change the trusted roots, enabling transparent interception.
+    // On Linux, glibc builds (OpenSSL through native-tls) load `SSL_CERT_DIR`
+    // alongside the system roots and `SSL_CERT_FILE` in place of the system
+    // bundle file; musl builds (`rustls-native-certs`) load either one in place
+    // of the system roots. When
     // neither `<PREFIX>_CA_BUNDLE` nor `<PREFIX>_EXTRA_CA_CERTS` is set,
     // `HttpConfig::build_client` adds `SSL_CERT_FILE`'s certificates to the
     // roots on every build.
@@ -255,7 +256,7 @@ mod dotenv_filter_tests {
     }
 
     #[test]
-    fn dotenv_cannot_replace_the_trust_store_with_a_directory() {
+    fn dotenv_cannot_set_a_trusted_root_directory() {
         assert!(dotenv_key_is_denied("SSL_CERT_DIR", "ELEVENLABS"));
     }
 
