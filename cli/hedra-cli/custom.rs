@@ -41,9 +41,12 @@ use serde_json::Value;
 pub fn register(app: CliApp) -> CliApp {
     // The runtime only loads .env inside run() — after this function has
     // returned — so any env read below would miss .env-set values. Loading
-    // it here too is safe: dotenvy never overrides existing process env,
-    // and the runtime's later call just becomes a no-op.
-    let _ = dotenvy::dotenv();
+    // it here too is safe: the filtered loader never overrides existing
+    // process env, and the runtime's later call sets nothing new. It is the
+    // runtime's own filtered loader, so a `.env` cannot set here a proxy, a
+    // trust store or a base URL the runtime refuses from one. The keys it
+    // drops are reported by the runtime's call, once logging is initialized.
+    let _ = fern_cli_sdk::load_dotenv_filtered("hedra-cli");
 
     // Credential-store stack, outermost first. Must be installed before
     // anything resolves a credential; nothing in the SDK installs a store
@@ -67,6 +70,18 @@ pub fn register(app: CliApp) -> CliApp {
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
         .command(workspaces::command(), Box::new(workspaces::dispatch));
+
+    // fern-config publishes /sandboxes only to the SDK hedra-cli's own
+    // commands call, so the embedded spec has no `sandboxes` group today. A
+    // Fern CLI that builds the embedded spec from the generator's spec would
+    // add one, and the hand-written `sandbox` group replaces it. Hidden only
+    // when present, since `CliApp::hide` panics on a missing command, and
+    // before the table-only return below, since it applies in every format.
+    let app = if spec_has_command(include_str!("openapi0.json"), GENERATED_SANDBOXES) {
+        app.hide(&[GENERATED_SANDBOXES])
+    } else {
+        app
+    };
 
     if resolve_format_from_argv() != OutputFormat::Table {
         return app;
@@ -92,6 +107,17 @@ pub fn register(app: CliApp) -> CliApp {
         .transform_response(&["webhooks", "*"], views::defuse_arrays)
         .transform_response(&["log-drains", "*"], views::defuse_arrays)
         .transform_response(&["billing", "*"], views::defuse_arrays)
+}
+
+/// The command group the generator would build from `/sandboxes`.
+const GENERATED_SANDBOXES: &str = "sandboxes";
+
+/// Whether the command tree the runtime builds from `spec` has a top-level
+/// `name` command.
+fn spec_has_command(spec: &str, name: &str) -> bool {
+    load_openapi_spec(spec, "hedra-cli")
+        .map(|doc| commands::build_cli(&doc).find_subcommand(name).is_some())
+        .unwrap_or(false)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {
@@ -176,6 +202,42 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The embedded spec with one `/sandboxes` operation added, as a Fern CLI
+    /// that builds the embedded spec from `openapi-cli.json` would write it.
+    fn spec_with_sandboxes() -> String {
+        let mut spec: Value = serde_json::from_str(include_str!("openapi0.json")).unwrap();
+        spec["paths"]["/sandboxes"] = serde_json::json!({
+            "get": {
+                "tags": ["Sandboxes"],
+                "summary": "List sandboxes",
+                "operationId": "sandboxes_list",
+                "responses": {"200": {"description": "Your sandboxes."}}
+            }
+        });
+        spec.to_string()
+    }
+
+    #[test]
+    fn the_embedded_spec_has_no_generated_sandboxes_group() {
+        assert!(!spec_has_command(
+            include_str!("openapi0.json"),
+            GENERATED_SANDBOXES
+        ));
+    }
+
+    #[test]
+    fn a_spec_with_sandbox_routes_has_the_generated_group() {
+        assert!(spec_has_command(
+            &spec_with_sandboxes(),
+            GENERATED_SANDBOXES
+        ));
+    }
+
+    #[test]
+    fn an_unparseable_spec_has_no_command() {
+        assert!(!spec_has_command("not: [a spec", GENERATED_SANDBOXES));
+    }
 
     fn argv(args: &[&str]) -> Vec<String> {
         std::iter::once("hedra-cli")

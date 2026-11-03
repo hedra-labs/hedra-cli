@@ -80,6 +80,9 @@ pub fn reset_sigpipe() {}
 
 /// Unscoped env vars a `.env` file may not set, because each one redirects
 /// traffic, weakens transport security, or names a program to execute.
+/// Listed in upper case and matched in any case: reqwest and curl read the
+/// lowercase proxy variables too, and Windows resolves a variable whatever
+/// case its name is set in.
 const DOTENV_DENIED_BARE: &[&str] = &[
     // Names a program the CLI executes when paging output.
     "PAGER",
@@ -89,7 +92,9 @@ const DOTENV_DENIED_BARE: &[&str] = &[
     "ALL_PROXY",
     "NO_PROXY",
     // Replace the trust store, enabling transparent interception.
+    // `rustls-native-certs` loads `SSL_CERT_DIR` in place of the system roots.
     "SSL_CERT_FILE",
+    "SSL_CERT_DIR",
     "CURL_CA_BUNDLE",
     "REQUESTS_CA_BUNDLE",
 ];
@@ -111,12 +116,15 @@ const DOTENV_DENIED_SUFFIXES: &[&str] = &[
     "_ALLOW_CROSS_HOST_PAGINATION",
 ];
 
-/// True when `key` is one a `.env` file must not be able to set.
+/// True when `key` is one a `.env` file must not be able to set. The key and
+/// the prefix are compared in any case, so `https_proxy` and
+/// `Elevenlabs_Insecure` are denied like their upper-case spellings.
 pub(crate) fn dotenv_key_is_denied(key: &str, prefix: &str) -> bool {
-    if DOTENV_DENIED_BARE.contains(&key) {
+    let key = key.to_ascii_uppercase();
+    if DOTENV_DENIED_BARE.contains(&key.as_str()) {
         return true;
     }
-    key.strip_prefix(prefix)
+    key.strip_prefix(&prefix.to_ascii_uppercase())
         .is_some_and(|rest| DOTENV_DENIED_SUFFIXES.contains(&rest))
 }
 
@@ -239,6 +247,34 @@ mod dotenv_filter_tests {
             "ELEVENLABS_ALLOW_CROSS_HOST_PAGINATION",
             "ELEVENLABS"
         ));
+    }
+
+    #[test]
+    fn dotenv_cannot_replace_the_trust_store_with_a_directory() {
+        assert!(dotenv_key_is_denied("SSL_CERT_DIR", "ELEVENLABS"));
+    }
+
+    #[test]
+    fn denied_keys_are_denied_in_any_case() {
+        // reqwest and curl honour the lowercase proxy variables, and Windows
+        // resolves `Https_Proxy` as `HTTPS_PROXY`.
+        for key in [
+            "https_proxy",
+            "http_proxy",
+            "all_proxy",
+            "no_proxy",
+            "Https_Proxy",
+            "ssl_cert_dir",
+            "Ssl_Cert_File",
+            "elevenlabs_insecure",
+            "eLeVeNlAbS_Base_Url",
+        ] {
+            assert!(
+                dotenv_key_is_denied(key, "ELEVENLABS"),
+                "{key} must not be settable from .env"
+            );
+        }
+        assert!(!dotenv_key_is_denied("elevenlabs_api_key", "ELEVENLABS"));
     }
 
     #[test]
