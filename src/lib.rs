@@ -90,11 +90,6 @@ const DOTENV_DENIED_BARE: &[&str] = &[
     "NO_PROXY",
     // Replace the trust store, enabling transparent interception.
     "SSL_CERT_FILE",
-    // ENG-12596 (patched post-generation; delete when ENG-12663 lands
-    // upstream): on Linux, OpenSSL (glibc builds) loads `SSL_CERT_DIR`
-    // alongside the system roots and `rustls-native-certs` (musl builds) in
-    // place of them.
-    "SSL_CERT_DIR",
     "CURL_CA_BUNDLE",
     "REQUESTS_CA_BUNDLE",
 ];
@@ -114,15 +109,17 @@ const DOTENV_DENIED_SUFFIXES: &[&str] = &[
     "_EXTRA_CA_CERTS",
     "_ALLOW_CROSS_HOST_REDIRECTS",
     "_ALLOW_CROSS_HOST_PAGINATION",
+    // ENG-12596 (patched post-generation; delete when ENG-12663 lands
+    // upstream): names the directory the CLI writes its logs to.
+    "_LOG_FILE",
 ];
 
 /// True when `key` is one a `.env` file must not be able to set.
 pub(crate) fn dotenv_key_is_denied(key: &str, prefix: &str) -> bool {
     // ENG-12596 (patched post-generation; delete when ENG-12663 lands
-    // upstream): compare in any case. reqwest reads the lowercase proxy
-    // variables, and Windows resolves a variable whatever case its name is
-    // set in, so `https_proxy` and `Https_Proxy` must be denied like
-    // `HTTPS_PROXY`.
+    // upstream): compare in any case. Windows resolves a variable whatever
+    // case its name is set in, so `Hedra_Cli_Base_Url` must be denied like
+    // `HEDRA_CLI_BASE_URL`.
     let key = key.to_ascii_uppercase();
     if DOTENV_DENIED_BARE.contains(&key.as_str()) {
         return true;
@@ -131,7 +128,27 @@ pub(crate) fn dotenv_key_is_denied(key: &str, prefix: &str) -> bool {
         .is_some_and(|rest| DOTENV_DENIED_SUFFIXES.contains(&rest))
 }
 
-/// Load `.env`, ignoring keys that control transport or execution.
+/// True when a `.env` file may set `key` at all, before
+/// [`dotenv_key_is_denied`] applies: the CLI vendor's own variables, which
+/// start with the first `_`-separated segment of `prefix` (`HEDRA_` for
+/// `HEDRA_CLI`), and `NO_COLOR`, compared in any case.
+///
+/// ENG-12596 (patched post-generation; delete when ENG-12663 lands
+/// upstream). Libraries the CLI links read variables of their own, so a
+/// list of keys to refuse cannot be complete. Every other key has to come
+/// from the real environment.
+pub(crate) fn dotenv_key_is_allowed(key: &str, prefix: &str) -> bool {
+    const ALSO_ALLOWED: &[&str] = &["NO_COLOR"];
+    let key = key.to_ascii_uppercase();
+    let prefix = prefix.to_ascii_uppercase();
+    let vendor = match prefix.split('_').next() {
+        Some(segment) if !segment.is_empty() => format!("{segment}_"),
+        _ => format!("{prefix}_"),
+    };
+    key.starts_with(&vendor) || ALSO_ALLOWED.contains(&key.as_str())
+}
+
+/// Load `.env`, keeping only the keys a `.env` file may set.
 ///
 /// A generated CLI is routinely run inside repositories the operator did not
 /// write, and `dotenvy::dotenv()` searches the working directory and its
@@ -141,11 +158,15 @@ pub(crate) fn dotenv_key_is_denied(key: &str, prefix: &str) -> bool {
 /// name an arbitrary program for the CLI to execute as its pager. The last is
 /// the sharpest: `<PREFIX>_PAGER` is run as a command.
 ///
-/// The legitimate use of `.env` — credentials and output preferences — is
-/// unaffected; only the keys in [`DOTENV_DENIED_BARE`] and
-/// [`DOTENV_DENIED_SUFFIXES`] are dropped. Real process environment always
-/// wins, matching `dotenvy::dotenv()`'s own precedence, so anything genuinely
-/// exported by the operator's shell still applies.
+/// ENG-12596 (patched post-generation; delete when ENG-12663 lands
+/// upstream): a key loads only when [`dotenv_key_is_allowed`] admits it, as
+/// one of the CLI vendor's own variables or `NO_COLOR`, and
+/// [`dotenv_key_is_denied`] does not refuse it as one of the transport, TLS,
+/// pager and log-file settings in [`DOTENV_DENIED_BARE`] and
+/// [`DOTENV_DENIED_SUFFIXES`]. Credentials and output preferences still
+/// load. Real process environment always wins, matching
+/// `dotenvy::dotenv()`'s own precedence, so anything genuinely exported by
+/// the operator's shell still applies.
 /// Returns the keys that were ignored, in file order, so the caller can report
 /// them *after* logging is initialized. Warning from inside this function would
 /// be silently dropped: it runs before `init_logging`, so no subscriber exists
@@ -160,7 +181,10 @@ pub fn load_dotenv_filtered(cli_name: &str) -> Vec<String> {
     };
     for entry in entries.flatten() {
         let (key, value) = entry;
-        if dotenv_key_is_denied(&key, &prefix) {
+        // ENG-12596 (patched post-generation; delete when ENG-12663 lands
+        // upstream): a key loads only when `dotenv_key_is_allowed` admits it
+        // and the deny-lists named above do not refuse it.
+        if !dotenv_key_is_allowed(&key, &prefix) || dotenv_key_is_denied(&key, &prefix) {
             ignored.push(key);
             continue;
         }
@@ -178,8 +202,10 @@ pub fn warn_ignored_dotenv_keys(ignored: &[String]) {
     for key in ignored {
         tracing::warn!(
             key = %key,
-            "ignoring {key} from .env: it controls transport or process execution, and a \
-             .env file is not a trusted source for it. Export it from your shell instead."
+            "ignoring {key} from .env: a .env file may set only this CLI's own \
+             variables and NO_COLOR, other than its transport, TLS, pager and \
+             log-file settings. \
+             Export it from your shell instead."
         );
     }
 }
