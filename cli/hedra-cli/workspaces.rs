@@ -981,6 +981,31 @@ mod tests {
         );
     }
 
+    /// An org-less mint has no workspace entry, so its scopes go on
+    /// `unbound_key` with the key.
+    #[test]
+    #[serial_test::serial]
+    fn record_key_stores_scopes_on_an_unbound_key() {
+        fresh_keyring();
+        let granted = [ApiKeyScope::JobsRead];
+        record_key(
+            "test-cli",
+            None,
+            "key_u",
+            "key_u:a",
+            None,
+            None,
+            Some(&granted),
+            true,
+        )
+        .unwrap();
+        let map = WorkspaceKeyMap::load("test-cli");
+        assert_eq!(
+            map.unbound_key.as_ref().unwrap().scopes.as_deref(),
+            Some(&granted[..])
+        );
+    }
+
     #[test]
     #[serial_test::serial]
     fn record_key_upserts_and_marks_active() {
