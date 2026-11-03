@@ -29,6 +29,8 @@ mod views;
 #[path = "workspaces.rs"]
 mod workspaces;
 
+use std::io::Write;
+
 use fern_cli_sdk::app::CliApp;
 use fern_cli_sdk::error::CliError;
 use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
@@ -43,11 +45,26 @@ pub fn register(app: CliApp) -> CliApp {
     // returned — so any env read below would miss .env-set values. Loading
     // it here too is safe: the filtered loader never overrides existing
     // process env, and the runtime's later call sets nothing new. It is the
-    // runtime's own filtered loader, so a `.env` cannot set here a proxy, a
-    // trust store or a base URL the runtime refuses from one. The keys it
-    // drops are reported by the runtime's call, once logging is initialized
-    // and when `HEDRA_CLI_LOG` asks for warnings.
-    let _ = fern_cli_sdk::load_dotenv_filtered("hedra-cli");
+    // runtime's own filtered loader, so a `.env` cannot set here a key the
+    // runtime refuses from one.
+    //
+    // The login endpoint overrides start with `HEDRA_`, so the runtime's
+    // allow-list admits them and this load sets a `.env` value for them;
+    // auth.rs then ignores it, comparing against what was set before.
+    //
+    // Ignored keys meant for this CLI are named once on stderr; see
+    // `ignored_dotenv_keys_line`. The runtime's own report is a tracing
+    // warning, shown only when `HEDRA_CLI_LOG` asks for warnings, and it
+    // cannot know about the endpoint overrides.
+    let endpoint_override_keys_in_env = auth::endpoint_override_keys_in_env();
+    let ignored = fern_cli_sdk::load_dotenv_filtered("hedra-cli");
+    let ignored_overrides =
+        auth::ignore_endpoint_override_from_dotenv(&endpoint_override_keys_in_env);
+    if let Some(line) = ignored_dotenv_keys_line(&ignored, &ignored_overrides) {
+        // Not `eprintln!`, which panics when stderr is a closed pipe: this
+        // runs before the runtime resets SIGPIPE handling.
+        let _ = writeln!(std::io::stderr(), "{line}");
+    }
 
     // Credential-store stack, outermost first. Must be installed before
     // anything resolves a credential; nothing in the SDK installs a store
@@ -79,7 +96,9 @@ pub fn register(app: CliApp) -> CliApp {
     // panics on a missing command, and before the table-only return below,
     // since it applies in every format. The hide keeps the group out of
     // `--help` and `man`; shell completion, `--format json --help`,
-    // `--schema` and `generate-skills` would still list it or its operations.
+    // `--schema` and `generate-skills` would still list it or its operations,
+    // a mistyped command can still be answered with a did-you-mean suggestion
+    // of it, and `sandboxes …` itself still runs.
     let app = hide_generated_sandboxes(app, embedded_cli());
 
     if resolve_format_from_argv() != OutputFormat::Table {
@@ -106,6 +125,54 @@ pub fn register(app: CliApp) -> CliApp {
         .transform_response(&["webhooks", "*"], views::defuse_arrays)
         .transform_response(&["log-drains", "*"], views::defuse_arrays)
         .transform_response(&["billing", "*"], views::defuse_arrays)
+}
+
+/// Keys outside `HEDRA_` that the runtime's `.env` deny-list names
+/// (`DOTENV_DENIED_BARE` in src/lib.rs, which is private to the runtime): a
+/// `.env` that sets one was most likely meant to configure this CLI.
+const REPORTED_FOREIGN_KEYS: [&str; 8] = [
+    "PAGER",
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "SSL_CERT_FILE",
+    "CURL_CA_BUNDLE",
+    "REQUESTS_CA_BUNDLE",
+];
+
+/// The stderr line naming the ignored `.env` keys meant for this CLI, or
+/// `None` when there are none.
+///
+/// A project's `.env` usually holds keys for other programs, such as
+/// `DATABASE_URL`; naming those on every run, with advice to export them,
+/// would be noise. So the line lists only ignored keys starting with
+/// `HEDRA_`, the proxy, trust-store and pager keys in
+/// [`REPORTED_FOREIGN_KEYS`], and the ignored login endpoint overrides, all
+/// compared in any case. It also leaves out a key the process environment
+/// already holds: the exported value applies, so there is nothing to tell the
+/// user. The runtime's tracing warning still lists every ignored key at
+/// `HEDRA_CLI_LOG=warn`.
+fn ignored_dotenv_keys_line(ignored: &[String], ignored_overrides: &[&str]) -> Option<String> {
+    let keys: Vec<&str> = ignored
+        .iter()
+        .map(String::as_str)
+        .filter(|key| is_reported_dotenv_key(key) && std::env::var_os(key).is_none())
+        .chain(ignored_overrides.iter().copied())
+        .collect();
+    if keys.is_empty() {
+        return None;
+    }
+    Some(format!(
+        "hedra-cli: ignored from .env (export them from your shell instead): {}",
+        keys.join(", ")
+    ))
+}
+
+/// Whether an ignored `.env` key belongs in [`ignored_dotenv_keys_line`].
+fn is_reported_dotenv_key(key: &str) -> bool {
+    let key = key.to_ascii_uppercase();
+    key.starts_with("HEDRA_") || REPORTED_FOREIGN_KEYS.contains(&key.as_str())
 }
 
 /// The command group the generator would build from `/sandboxes`.
@@ -295,6 +362,36 @@ mod tests {
             fern_cli_sdk::openapi::OpenApiBinding::new().spec(include_str!("openapi0.json")),
         );
         let app = hide_generated_sandboxes(app, embedded_cli());
+        let mut out = Vec::new();
+        let _ = app.try_run_from_with_output(["hedra-cli", "--help"], &mut out);
+        assert!(String::from_utf8_lossy(&out).contains("jobs"));
+    }
+
+    /// `REPORTED_FOREIGN_KEYS` copies the runtime's private `DOTENV_DENIED_BARE`;
+    /// a regeneration that changes that list fails here.
+    #[test]
+    fn reported_foreign_keys_match_the_runtime_bare_deny_list() {
+        let lib = include_str!("../../src/lib.rs");
+        let start = lib
+            .find("const DOTENV_DENIED_BARE: &[&str] = &[")
+            .expect("src/lib.rs declares DOTENV_DENIED_BARE");
+        let end = start + lib[start..].find("];").expect("DOTENV_DENIED_BARE ends");
+        let bare: Vec<&str> = lib[start..end]
+            .lines()
+            .skip(1)
+            .map(str::trim)
+            .filter(|line| line.starts_with('"'))
+            .map(|line| line.trim_end_matches(',').trim_matches('"'))
+            .collect();
+        assert_eq!(bare, REPORTED_FOREIGN_KEYS);
+    }
+
+    #[test]
+    fn the_hide_is_a_no_op_when_the_spec_does_not_parse() {
+        let app = CliApp::new("hedra-cli").binding(
+            fern_cli_sdk::openapi::OpenApiBinding::new().spec(include_str!("openapi0.json")),
+        );
+        let app = hide_generated_sandboxes(app, None);
         let mut out = Vec::new();
         let _ = app.try_run_from_with_output(["hedra-cli", "--help"], &mut out);
         assert!(String::from_utf8_lossy(&out).contains("jobs"));
