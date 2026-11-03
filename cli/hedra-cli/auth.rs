@@ -820,10 +820,9 @@ struct BootstrapRenewResponse {
     expires_at: String,
     #[serde(default)]
     workspace_id: Option<String>,
-    /// The scopes the renewal left the key with. When the server's
-    /// `V3_CLI_KEY_SANDBOX_SCOPES_ENABLED` is on, a renewal sets them to what
-    /// a new login would grant, so they can differ from the held entry's;
-    /// otherwise the server returns the key's existing scopes.
+    /// The scopes the renewal left the key with. A renewal can return a
+    /// different list than the held entry's, for example after the user's
+    /// role changes.
     /// A server from before renewals reported scopes omits the field, which
     /// reads as `None` — unknown — and must never fail the renewal.
     #[serde(default)]
@@ -2147,7 +2146,7 @@ pub(crate) mod tests {
                 "key_id": "key_1", "credential": "key_1:s3cret", "kind": "personal",
                 "workspace_id": "w2", "workspace_name": "Acme", "organization_id": "org_1",
                 "expires_at": "2026-08-19T00:00:00Z",
-                "scopes": ["files:write", "jobs:read", "sandboxes:read"],
+                "scopes": ["files:write", "jobs:read", "usage:read"],
             })))
             .expect(1)
             .mount(&server)
@@ -2170,8 +2169,8 @@ pub(crate) mod tests {
         assert_eq!(map.active_workspace_id.as_deref(), Some("w2"));
         assert_eq!(map.keys["w2"].credential, "key_1:s3cret");
         assert_eq!(map.keys["w2"].workspace_name.as_deref(), Some("Acme"));
-        // Wire strings, so this holds before and after the regeneration
-        // that teaches `ApiKeyScope` the sandbox scopes.
+        // Wire strings, so this holds whichever scopes this build's
+        // `ApiKeyScope` names.
         assert_eq!(
             map.keys["w2"]
                 .scopes
@@ -2180,7 +2179,7 @@ pub(crate) mod tests {
             Some(vec![
                 "files:write".to_string(),
                 "jobs:read".to_string(),
-                "sandboxes:read".to_string(),
+                "usage:read".to_string(),
             ]),
             "the entry must hold the scopes the mint granted"
         );

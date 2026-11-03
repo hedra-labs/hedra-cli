@@ -72,9 +72,8 @@ pub(crate) struct HeldKey {
     #[serde(default)]
     pub(crate) expires_at: Option<String>,
     /// The scopes the login plane reported for this key, from the answer to
-    /// the mint or renewal that last stored it. They are for the planned
-    /// `sandbox shell --gpu` pre-check, which refuses before it creates (and
-    /// pays for) a sandbox the broker would refuse.
+    /// the mint or renewal that last stored it, so a command can check what
+    /// the held key may do before it sends a request.
     ///
     /// `None` means UNKNOWN, never "no scopes": an entry written before this
     /// field existed, a pasted key, and an answer from a server that does not
@@ -860,8 +859,8 @@ mod tests {
     }
 
     /// An entry written before `scopes` existed must load, and must load as
-    /// UNKNOWN. Reading it as an empty grant would make the planned
-    /// `sandbox shell --gpu` pre-check refuse every pre-upgrade key; failing
+    /// UNKNOWN. Reading it as an empty grant would make a scope check
+    /// refuse every pre-upgrade key; failing
     /// to read it would, through `load`'s fall-back to an empty map,
     /// silently log the user out.
     #[test]
@@ -1821,7 +1820,7 @@ mod tests {
             .and(header("authorization", "Bearer key_w2:held"))
             .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
                 "key_id": "key_w2", "expires_at": "2027-01-01T00:00:00Z", "workspace_id": "w2",
-                "scopes": ["jobs:read", "jobs:write", "sandboxes:exec"],
+                "scopes": ["jobs:read", "jobs:write", "webhooks:manage"],
             })))
             .expect(1)
             .mount(&server)
@@ -1853,8 +1852,8 @@ mod tests {
             "…but the extension has to be recorded, or the key was not really renewed"
         );
         // The seeded entry held no scopes; the renewal's answer refreshes
-        // them. Compared as wire strings so the assertion holds whether or
-        // not this build's `ApiKeyScope` names the sandbox scopes yet.
+        // them. Compared as wire strings so the assertion holds whichever
+        // scopes this build's `ApiKeyScope` names.
         assert_eq!(
             map.keys["w2"]
                 .scopes
@@ -1863,7 +1862,7 @@ mod tests {
             Some(vec![
                 "jobs:read".to_string(),
                 "jobs:write".to_string(),
-                "sandboxes:exec".to_string(),
+                "webhooks:manage".to_string(),
             ]),
             "select must store the scopes the renewal reported"
         );
