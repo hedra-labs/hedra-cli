@@ -19,8 +19,12 @@ re-applied after every regeneration:
            is set in, so the generated case-sensitive match lets a `.env` set
            a proxy as `https_proxy` or `Https_Proxy`.
 
-The oracle for the injected Rust is tests/dotenv_loading.rs: its tests fail on
-the generated tree and pass on the patched one.
+The oracle for the injected Rust is tests/dotenv_filter.rs: it fails on the
+generated tree and passes on the patched one.
+
+.fern/replay.yml excludes src/lib.rs, as it does src/http.rs and
+src/sdk_executor.rs: this script owns the file's one deviation from generated
+output, so a frozen Replay copy of the same fix could only conflict with it.
 
 Anchors are exact text with an exactly-one-match-or-SystemExit discipline,
 never a silent no-op: when regeneration changes the file's shape, the next

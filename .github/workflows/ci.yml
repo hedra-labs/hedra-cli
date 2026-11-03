@@ -99,7 +99,7 @@ jobs:
       # runs `dist generate --check`, so this is the only thing that would notice.
       #
       # A step in the already-required `rust` job rather than a job of its own,
-      # so it needs no branch-protection change — same reasoning as the two
+      # so it needs no branch-protection change — same reasoning as the three
       # above. A hard error on every event, unlike them: this is a static
       # property of committed files, and release-sdks.yml's direct-to-main
       # commits cannot perturb it.

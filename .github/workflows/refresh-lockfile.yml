@@ -1,6 +1,7 @@
 # Repair a fern-bot regeneration branch so it can land green: align the
 # workspace crate versions (ENG-10219), re-apply the SDK header patches
-# (ENG-10226), then refresh Cargo.lock (ENG-10202). All fixes go out in ONE
+# (ENG-10226) and the .env deny-list patches (ENG-12596), then refresh
+# Cargo.lock (ENG-10202). All fixes go out in ONE
 # commit — see "Gating" below for why that is not negotiable.
 #
 # --- SDK header patches ---
@@ -229,7 +230,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           . .github/scripts/crate-layout.sh
-          # A set check, not a string compare: up to six files can legitimately
+          # A set check, not a string compare: up to seven files can legitimately
           # be dirty now, in any combination.
           #
           # The allowlist and the message it prints are built from one list, so
@@ -239,7 +240,7 @@ jobs:
           # leave a guard that either passes on ANYTHING or rejects everything,
           # while still reading correctly in review. Widening this to `.*` is
           # strictly worse than the loud failure it replaces.
-          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs)
+          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs src/lib.rs)
           # Escape the dots so `config.rs` cannot also match `configXrs`; the
           # crate directory names themselves carry no regex metacharacters.
           escaped="$(printf '%s\n' "${allowed[@]}" | sed 's/\./\\./g' | paste -sd '|' -)"
@@ -260,6 +261,9 @@ jobs:
           fi
           if ! git diff --cached --quiet -- "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs; then
             parts="${parts:+$parts and }re-apply the SDK header patches"
+          fi
+          if ! git diff --cached --quiet -- src/lib.rs; then
+            parts="${parts:+$parts and }re-apply the .env deny-list patches"
           fi
           if ! git diff --cached --quiet -- Cargo.lock; then
             parts="${parts:+$parts and }refresh Cargo.lock"
