@@ -97,7 +97,7 @@ patch-headers:
 # files.
 [doc('Everything the required `rust` job runs, in its order.')]
 [group('ci')]
-ci: check-versions check-headers check-homebrew test-scripts check-default check-rustls test
+ci: check-versions check-headers check-homebrew test-scripts check-default check-rustls test test-sandbox
 
 # The three workspace crates carry the same version.
 [group('ci')]
@@ -142,6 +142,11 @@ check-rustls:
 [group('ci')]
 test:
     cargo test --locked
+
+# The hand-written sandbox crate, through its own manifest (no [workspace]).
+[group('ci')]
+test-sandbox:
+    cargo test --manifest-path hedra-cli-sandbox/Cargo.toml --features fake-broker
 
 # ---------------------------------------------------------------- release ---
 
