@@ -90,11 +90,6 @@ patch-headers:
     python3 {{ scripts }}/patch-sdk-headers.py "$version" \
         {{ sdk_dir }}/src/config.rs src/http.rs src/sdk_executor.rs
 
-# Re-apply the .env filter patches the generator drops (ENG-12596).
-[group('version')]
-patch-dotenv:
-    @python3 {{ scripts }}/patch-dotenv-filter.py src/lib.rs
-
 # --------------------------------------------------------------------- ci ---
 
 # There is deliberately no formatting recipe: CI checks none, and the generated
@@ -102,7 +97,7 @@ patch-dotenv:
 # files.
 [doc('Everything the required `rust` job runs, in its order.')]
 [group('ci')]
-ci: check-versions check-headers check-dotenv check-homebrew test-scripts check-default check-rustls test
+ci: check-versions check-headers check-homebrew test-scripts check-default check-rustls test
 
 # The three workspace crates carry the same version.
 [group('ci')]
@@ -123,12 +118,6 @@ check-headers:
     python3 {{ scripts }}/patch-sdk-headers.py --check "$version" \
         {{ sdk_dir }}/src/config.rs src/http.rs src/sdk_executor.rs \
         || { echo "hint: just patch-headers" >&2; exit 1; }
-
-# The .env filter patches survived the last regeneration.
-[group('ci')]
-check-dotenv:
-    @python3 {{ scripts }}/patch-dotenv-filter.py --check src/lib.rs \
-        || { echo "hint: just patch-dotenv" >&2; exit 1; }
 
 # The Homebrew publish path still opens a PR rather than pushing (ENG-10303).
 [group('ci')]

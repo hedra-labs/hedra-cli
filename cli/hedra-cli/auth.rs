@@ -290,16 +290,18 @@ fn resolve_auth_endpoints(
 /// Not advertised in `--help` or the README: it exists for operators
 /// recovering from a broken discovery document, and for pointing the flow at
 /// a local or mock authorization server. Both legs must be https (loopback
-/// exempt) — the token leg carries the PKCE exchange.
-///
-/// Only the process environment counts: a value a `.env` file set is ignored,
-/// see [`ignore_endpoint_override_from_dotenv`].
+/// exempt) — the token leg carries the PKCE exchange. Only the process
+/// environment can set them: `dotenv.rs` refuses both from a `.env`.
 fn endpoint_override(resource_base_url: &str) -> Result<Option<AuthEndpoints>, String> {
-    let from_dotenv = endpoint_override_from_dotenv();
-    warn_endpoint_override_from_dotenv(from_dotenv);
+    let read = |key: &str| {
+        std::env::var(key)
+            .ok()
+            .map(|v| v.trim().to_string())
+            .filter(|v| !v.is_empty())
+    };
     match (
-        read_endpoint_override(AUTHORIZE_URL_KEY, from_dotenv),
-        read_endpoint_override(TOKEN_URL_KEY, from_dotenv),
+        read("HEDRA_AUTH_AUTHORIZE_URL"),
+        read("HEDRA_AUTH_TOKEN_URL"),
     ) {
         (None, None) => Ok(None),
         (Some(authorization_endpoint), Some(token_endpoint)) => {
@@ -311,95 +313,12 @@ fn endpoint_override(resource_base_url: &str) -> Result<Option<AuthEndpoints>, S
                 token_endpoint,
             }))
         }
-        _ => Err(half_configured_override_error(from_dotenv)),
+        _ => Err(
+            "HEDRA_AUTH_AUTHORIZE_URL and HEDRA_AUTH_TOKEN_URL must be set together \
+                  (one alone would mix an overridden endpoint with a discovered one)"
+                .to_string(),
+        ),
     }
-}
-
-/// The error for an override with one leg set. When the missing leg was set
-/// in `.env` and ignored, it says so, since that is the fix the user needs.
-fn half_configured_override_error(from_dotenv: &[&str]) -> String {
-    let mut message = "HEDRA_AUTH_AUTHORIZE_URL and HEDRA_AUTH_TOKEN_URL must be set together \
-                       (one alone would mix an overridden endpoint with a discovered one)"
-        .to_string();
-    for key in from_dotenv {
-        message.push_str(&format!(
-            "; {key} was ignored because it came from .env, so export it from your shell"
-        ));
-    }
-    message
-}
-
-const AUTHORIZE_URL_KEY: &str = "HEDRA_AUTH_AUTHORIZE_URL";
-const TOKEN_URL_KEY: &str = "HEDRA_AUTH_TOKEN_URL";
-
-/// The endpoint-override variables a `.env` file set, as recorded by
-/// [`ignore_endpoint_override_from_dotenv`]. Unset in unit tests, which set
-/// the variables directly.
-static ENDPOINT_OVERRIDE_FROM_DOTENV: OnceLock<Vec<&'static str>> = OnceLock::new();
-
-/// The endpoint-override variables present in the process environment. Call
-/// before `.env` is loaded, and hand the result to
-/// [`ignore_endpoint_override_from_dotenv`] after.
-pub(crate) fn endpoint_override_keys_in_env() -> Vec<&'static str> {
-    [AUTHORIZE_URL_KEY, TOKEN_URL_KEY]
-        .into_iter()
-        .filter(|key| std::env::var_os(key).is_some())
-        .collect()
-}
-
-/// Make [`endpoint_override`] ignore every override variable that is set now
-/// but was not in `set_before_load`, i.e. one a `.env` file set, and return
-/// those variables.
-///
-/// A `.env` must not set these: they choose where `auth login` sends the
-/// browser and the authorization code. The runtime's `.env` filter admits
-/// them: its allow-list takes every `HEDRA_` key, and its generated
-/// deny-lists know only generic `HEDRA_CLI_` settings. Removing them from the
-/// environment here would not hold either, since the runtime loads `.env`
-/// again before dispatch and would set them back, so they are recorded and
-/// skipped when read.
-pub(crate) fn ignore_endpoint_override_from_dotenv(set_before_load: &[&str]) -> Vec<&'static str> {
-    let from_dotenv: Vec<&'static str> = [AUTHORIZE_URL_KEY, TOKEN_URL_KEY]
-        .into_iter()
-        .filter(|key| !set_before_load.contains(key) && std::env::var_os(key).is_some())
-        .collect();
-    let _ = ENDPOINT_OVERRIDE_FROM_DOTENV.set(from_dotenv.clone());
-    from_dotenv
-}
-
-/// The endpoint-override variables a `.env` file set; empty when none did or
-/// nothing recorded them.
-fn endpoint_override_from_dotenv() -> &'static [&'static str] {
-    ENDPOINT_OVERRIDE_FROM_DOTENV
-        .get()
-        .map(Vec::as_slice)
-        .unwrap_or_default()
-}
-
-/// Warn about each ignored override variable, once per process.
-fn warn_endpoint_override_from_dotenv(from_dotenv: &[&str]) {
-    static WARNED: std::sync::Once = std::sync::Once::new();
-    WARNED.call_once(|| {
-        for key in from_dotenv {
-            tracing::warn!(
-                key = %key,
-                "ignoring {key} from .env: it chooses where `auth login` sends the \
-                 authorization code, and a .env file is not a trusted source for it. \
-                 Export it from your shell instead."
-            );
-        }
-    });
-}
-
-/// `key`'s trimmed, non-empty value, unless it is in `from_dotenv`.
-fn read_endpoint_override(key: &str, from_dotenv: &[&str]) -> Option<String> {
-    if from_dotenv.contains(&key) {
-        return None;
-    }
-    std::env::var(key)
-        .ok()
-        .map(|v| v.trim().to_string())
-        .filter(|v| !v.is_empty())
 }
 
 async fn discover_endpoints(resource_base_url: &str) -> Result<AuthEndpoints, String> {
@@ -556,14 +475,11 @@ fn require_https(what: &str, url: &str) -> Result<(), String> {
 /// wholesale (executor `build_url`), so it must carry the `/v3` prefix the
 /// spec's `https://api.hedra.com/v3` server carries.
 ///
-/// A `.env`-set `HEDRA_ENV` is honored too: `register()` loads `.env` through
-/// the runtime's filtered loader before calling this (the runtime only loads
-/// it later, inside `run()`). Without that early load the login plane (which
-/// reads `HEDRA_ENV` at dispatch time, post-dotenv) and the data plane would
-/// split-brain on a `.env`-only `HEDRA_ENV=staging`. A `.env`-set
-/// `HEDRA_CLI_BASE_URL` is not: the filter drops it, so only the shell or
-/// `--base-url` can point the data plane at a host other than the two
-/// `resource_base_url` knows.
+/// A `.env`-set `HEDRA_ENV` is honored too: `register()` loads `.env` before
+/// calling this, so the login plane (which reads `HEDRA_ENV` at dispatch
+/// time) and the data plane agree on a `.env`-only `HEDRA_ENV=staging`. A
+/// `.env`-set `HEDRA_CLI_BASE_URL` is not: `dotenv.rs` refuses it, so only
+/// the shell or `--base-url` can point the data plane at another host.
 pub(crate) fn derive_base_url_from_hedra_env() {
     if std::env::var_os("HEDRA_CLI_BASE_URL").is_some() {
         return; // explicit override — never clobber
@@ -614,9 +530,8 @@ const ERROR_PAGE_URL: &str = "https://www.hedra.com/cli/auth/error";
 
 /// Graft the discovered endpoints onto the env-independent base flow.
 /// Callers must only invoke this at dispatch/request time — `register()`
-/// runs after its early filtered `.env` load but before argument parsing, so
-/// an eager call there would resolve endpoints before the command line can
-/// retarget them (and discovery is I/O besides).
+/// runs before argument parsing, so an eager call would resolve endpoints
+/// before the command line can retarget them (and discovery is I/O besides).
 /// The login carries NO workspace selector — deliberately. The identity
 /// provider's organization cannot name an org-less ("born-free") workspace, so
 /// hinting the hosted login at an org selects the wrong thing or nothing;
@@ -814,8 +729,7 @@ impl LoginFlow for EnvPkceLoginFlow {
     }
     fn build_auth_provider(&self, cli_name: &str) -> Option<DynAuthProvider> {
         // The one method that must NOT delegate to the base: it is called
-        // at registration time (after register()'s early filtered `.env`
-        // load, before argument parsing) and the base has no
+        // at registration time (before argument parsing) and the base has no
         // token_url/client_id yet — return a lazy shell only.
         Some(Arc::new(EnvOAuthProvider {
             cli_name: cli_name.to_string(),
@@ -2066,17 +1980,6 @@ pub(crate) mod tests {
         assert!(err.contains("must be set together"), "unexpected: {err}");
 
         clear_endpoint_override();
-    }
-
-    #[test]
-    fn a_half_configured_override_names_the_leg_ignored_from_dotenv() {
-        let err = half_configured_override_error(&[TOKEN_URL_KEY]);
-        assert!(err.contains("must be set together"), "unexpected: {err}");
-        assert!(
-            err.contains("HEDRA_AUTH_TOKEN_URL was ignored because it came from .env"),
-            "unexpected: {err}"
-        );
-        assert!(!half_configured_override_error(&[]).contains(".env"));
     }
 
     #[tokio::test(flavor = "multi_thread")]

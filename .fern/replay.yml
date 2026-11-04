@@ -208,25 +208,6 @@ exclude:
   # survive.
   - src/http.rs
 
-  # The ENG-12596 `.env` filter fixes in src/lib.rs (only HEDRA_ keys and
-  # NO_COLOR load, minus the transport, TLS, pager and log-file settings,
-  # compared in any case).
-  #
-  # Same shape as the two entries above: src/lib.rs is generated, and its only
-  # deviations from generated output are machine-owned — patch-dotenv-filter.py
-  # re-applies them after every regeneration. A recorded copy would be frozen at
-  # detection, so when the generator changes nearby lines Replay's frozen hunk
-  # would conflict ("Action required") or merge into duplicated lines, while
-  # the script alone either applies cleanly or refuses loudly.
-  #
-  # Every other file the introducing commit touches is .fernignore'd, so
-  # skipping that commit's patch whole, per the WHOLE-PATCH SEMANTICS note,
-  # drops nothing that needs Replay to survive. From here on Replay carries no
-  # hand edit to src/lib.rs: make further fixes through patch-dotenv-filter.py,
-  # and keep a src/lib.rs change out of any commit that also edits a generated
-  # file Replay carries, or that file's edit is skipped with it.
-  - src/lib.rs
-
   # NOT excluded, deliberately: hedra-cli-sdk/Cargo.toml,
   # hedra-cli-types/Cargo.toml and hedra-cli-sdk/src/config.rs — the post-rename
   # paths of the two stamps above. release/1.0.x and release/2.0.0 do list the

@@ -75,22 +75,6 @@ jobs:
           fi
           echo "::warning::The SDK header patches are not applied — $hint"
 
-      # Same backstop for the .env filter patches (ENG-12596): a hand-made
-      # regeneration PR would otherwise fail tests/dotenv_filter.rs with a far
-      # less legible message. Delete it together with patch-dotenv-filter.py
-      # when ENG-12663 lands upstream.
-      - name: Check the .env filter patches are applied
-        run: |
-          if python3 .github/scripts/patch-dotenv-filter.py --check src/lib.rs; then
-            exit 0
-          fi
-          hint="run: python3 .github/scripts/patch-dotenv-filter.py src/lib.rs"
-          if [ "${{ github.event_name }}" = "pull_request" ]; then
-            echo "::error::The .env filter patches are not applied — $hint"
-            exit 1
-          fi
-          echo "::warning::The .env filter patches are not applied — $hint"
-
       # Anti-revert guard for ENG-10303. The Homebrew publish path opens a PR
       # into the tap because the tap's main requires one; the built-in cargo-dist
       # job pushes instead, and `dist init` or a cargo-dist bump would restore it
@@ -99,7 +83,7 @@ jobs:
       # runs `dist generate --check`, so this is the only thing that would notice.
       #
       # A step in the already-required `rust` job rather than a job of its own,
-      # so it needs no branch-protection change — same reasoning as the three
+      # so it needs no branch-protection change — same reasoning as the two
       # above. A hard error on every event, unlike them: this is a static
       # property of committed files, and release-sdks.yml's direct-to-main
       # commits cannot perturb it.

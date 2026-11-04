@@ -3,13 +3,11 @@
 //! CLI's traffic through a proxy or redirect `auth login`, and its
 //! `HEDRA_ENV` still retargets the data plane.
 //!
-//! The filter itself is tested in `tests/dotenv_filter.rs`. This file covers what
-//! those tests cannot: that `custom::register` loads `.env` through the
-//! filter at all, early enough for `HEDRA_ENV`, and that it ignores the login
-//! endpoint overrides, which the runtime's filter does not know. It used to call `dotenvy::dotenv()` first, which set every
-//! key before the runtime's filtered loader ran, so the deny-list never
-//! applied; and the deny-list matched only upper case, so `http_proxy` passed
-//! it anyway.
+//! The allow-list itself is unit-tested in `cli/hedra-cli/dotenv.rs`. This
+//! file covers what those tests cannot: that `custom::register` loads `.env`
+//! through it at all, early enough for `HEDRA_ENV`, and that the runtime's own
+//! `.env` loader, which admits far more, never runs. `register` used to call
+//! `dotenvy::dotenv()`, which set every key in the `.env` (ENG-12596).
 //!
 //! Hand-written and .fernignore-protected (the `tests/` entry), with no new
 //! dev-dependency: `CARGO_BIN_EXE_hedra-cli` plus the present `tempfile` and
