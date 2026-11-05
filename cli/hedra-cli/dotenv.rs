@@ -213,8 +213,9 @@ pub(crate) fn report_ignored(ignored: &IgnoredKeys, name_refused_keys: bool) {
 /// A refused base URL would send such a command, with the stored credential,
 /// to the default API instead of the host the `.env` named, so it fails
 /// instead. A command that sends nothing, or whose target the user chose
-/// (`--base-url`, or `HEDRA_ENV` exported from the shell, which
-/// `hedra_env_exported` says), still runs. `args` excludes the program name.
+/// (`--base-url` outside `auth` and `workspaces`, or a `HEDRA_ENV` naming an
+/// environment exported from the shell, which `hedra_env_exported` says),
+/// still runs. `args` excludes the program name.
 pub(crate) fn base_url_refusal(
     ignored: &IgnoredKeys,
     args: &[String],

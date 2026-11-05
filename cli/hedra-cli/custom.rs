@@ -73,7 +73,7 @@ pub fn register(app: CliApp) -> CliApp {
     let refusal = dotenv::base_url_refusal(&ignored_dotenv_keys, &args, hedra_env_exported);
     dotenv::report_ignored(&ignored_dotenv_keys, refusal.is_none());
     if let Some(message) = refusal {
-        exit_with_validation_error(message);
+        exit_with_validation_error(message, &args);
     }
 
     let code = configure(app).try_run_from(std::env::args_os());
@@ -82,14 +82,13 @@ pub fn register(app: CliApp) -> CliApp {
 
 /// Print `message` as a validation error the way the runtime prints one, the
 /// JSON envelope on stdout for a machine-readable format and a line on stderr
-/// otherwise, and exit with the validation exit code.
-fn exit_with_validation_error(message: String) -> ! {
+/// otherwise, and exit with the validation exit code. `args` is the command
+/// line without the program name, already converted from `args_os`, since
+/// `std::env::args` panics on an argument that is not valid Unicode.
+fn exit_with_validation_error(message: String, args: &[String]) -> ! {
     let error = CliError::Validation(message);
     let context = ErrorDisplayContext {
-        format: fern_cli_sdk::formatter::resolve_format_from_raw_args(
-            &std::env::args().collect::<Vec<_>>(),
-            "hedra-cli",
-        ),
+        format: fern_cli_sdk::formatter::resolve_format_from_raw_args(args, "hedra-cli"),
         ..ErrorDisplayContext::default()
     };
     write_error_json(&error, &mut std::io::stdout(), Some(&context));
