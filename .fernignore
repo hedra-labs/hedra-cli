@@ -111,6 +111,12 @@ justfile
 # it (see the .gitattributes entry above and PR #29).
 tests/
 
+# The hand-written sandbox crate, whose own Cargo.toml, not the generator-owned
+# root manifest, carries its dependencies. The generator never emits anything
+# under it, so this entry is load-bearing for the same reason tests/ above is:
+# without it, regeneration would DELETE the crate.
+hedra-cli-sandbox/
+
 # Hand-owned Replay config (ENG-10241) — the .gitattributes shape again, and
 # the worst case of it: hand-written, never emitted, and — unlike
 # .fern/replay.lock — never rewritten by Replay either, so nothing would put it

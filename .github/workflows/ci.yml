@@ -116,6 +116,11 @@ jobs:
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
+        with:
+          # The sandbox crate builds into its own target/ (no [workspace]).
+          cache-workspaces: |
+            . -> target
+            hedra-cli-sandbox -> target
 
       - name: Check default features
         run: cargo check --locked --all-targets
@@ -125,6 +130,14 @@ jobs:
 
       - name: Test
         run: cargo test --locked
+
+      # The hand-written sandbox crate. The root has no [workspace] table, so
+      # the step above runs only the root package's tests; the crate is tested
+      # through its own manifest, resolving its own Cargo.lock fresh (the
+      # crate's .gitignore ignores it). A step in the required `rust` job, so
+      # it needs no branch-protection change.
+      - name: Test the sandbox crate
+        run: cargo test --manifest-path hedra-cli-sandbox/Cargo.toml --features fake-broker
 
   # Contract for what a fern-api[bot] regeneration may change. Required status
   # check; autoland-regen.yml will not merge a PR without it. Always runs and

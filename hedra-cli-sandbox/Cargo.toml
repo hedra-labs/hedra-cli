@@ -1,0 +1,16 @@
+[package]
+name = "hedra_cli_sandbox"
+version = "0.1.0"
+edition = "2021"
+description = "The streaming client behind hedra-cli's sandbox commands"
+license = "Apache-2.0"
+# Never released on its own; cargo-dist ships only the hedra-cli binary.
+publish = false
+
+[lib]
+doctest = false
+
+[features]
+# A local broker for tests, enabled only from a dev-dependency so a release
+# build never compiles it. Empty until there is a broker to gate.
+fake-broker = []
