@@ -1,19 +1,53 @@
-//! Checks on the generated code `custom::register` depends on (ENG-12596).
+//! Checks on the generated code `custom::register` depends on.
 //!
 //! `register` runs the command itself through `CliApp::try_run_from` and
 //! exits, so the runtime's own `.env` loader in `CliApp::run` never runs. That
 //! holds only while the generated `main.rs` calls `register` and then `run`,
-//! and while `run`'s setup is the one `register` copies. A regeneration that
-//! changes either fails here, so the copy in `register` is checked again
-//! before the regeneration lands. The same goes for the runtime's own `.env`
-//! deny-list, which `dotenv.rs` copies.
+//! while `run`'s setup is the one `register` copies, and while nothing else
+//! in the runtime loads `.env`. A regeneration that changes any of these
+//! fails here, so the copy in `register` is checked again before the
+//! regeneration lands. The same goes for the settings the runtime reads from
+//! the environment: each must be one `dotenv.rs` allows from a `.env` or one
+//! this file lists as refused on purpose.
 //!
 //! Hand-written and .fernignore-protected (the `tests/` entry).
+
+use std::path::{Path, PathBuf};
 
 const MAIN_RS: &str = include_str!("../cli/hedra-cli/main.rs");
 const APP_RS: &str = include_str!("../src/app.rs");
 const LIB_RS: &str = include_str!("../src/lib.rs");
+const USER_AGENT_RS: &str = include_str!("../src/user_agent.rs");
 const DOTENV_RS: &str = include_str!("../cli/hedra-cli/dotenv.rs");
+
+/// `HEDRA_CLI_…` settings the runtime reads that a `.env` may not set, by
+/// the name after the prefix. Everything not in `dotenv.rs`'s
+/// `ALLOWED_CLI_SETTINGS` is refused anyway; this list records that each
+/// known one was refused on purpose, so a setting a regeneration adds fails
+/// [`every_runtime_setting_is_classified`] until someone decides.
+const REFUSED_CLI_SETTINGS: [&str; 14] = [
+    // Where requests go, through what, and what is trusted.
+    "BASE_URL",
+    "PROXY",
+    "NO_PROXY",
+    "INSECURE",
+    "INSECURE_SKIP_VERIFY",
+    "CA_BUNDLE",
+    "EXTRA_CA_CERTS",
+    "ALLOW_CROSS_HOST_REDIRECTS",
+    "ALLOW_CROSS_HOST_PAGINATION",
+    // A program to run, and a directory to write logs to.
+    "PAGER",
+    "LOG_FILE",
+    // Chooses a stored profile, which can carry a base URL. Profiles are not
+    // enabled for this binary.
+    "PROFILE",
+    // Read only for AsyncAPI bindings, which this binary has none of.
+    "WS_RESPONSE_TIMEOUT_SECS",
+    // Read by a runtime with dynamic shell completion to turn an invocation
+    // into a completion request.
+    "COMPLETE",
+];
 
 /// `source`'s code lines, trimmed, without comments or blank lines.
 fn code_lines(source: &str) -> Vec<&str> {
@@ -24,17 +58,66 @@ fn code_lines(source: &str) -> Vec<&str> {
         .collect()
 }
 
-/// The code lines of the body of the method whose signature line starts with
-/// `signature`, up to its closing brace at the method's indentation.
+/// The lines of the item in `source` whose first line starts with
+/// `signature` (after its indentation), through the closing brace at that
+/// indentation, with `\r` line endings removed. `None` when there is no
+/// such item.
+fn item_lines<'a>(source: &'a str, signature: &str) -> Option<Vec<&'a str>> {
+    let lines: Vec<&str> = source
+        .lines()
+        .map(|line| line.trim_end_matches('\r'))
+        .collect();
+    let start = lines
+        .iter()
+        .position(|line| line.trim_start().starts_with(signature))?;
+    let indent = &lines[start][..lines[start].len() - lines[start].trim_start().len()];
+    let closing = format!("{indent}}}");
+    let end = start + lines[start..].iter().position(|line| *line == closing)?;
+    Some(lines[start..=end].to_vec())
+}
+
+/// The code lines of the body of the `src/app.rs` method whose signature line
+/// starts with `signature`, up to its closing brace at the method's
+/// indentation.
 fn method_body(signature: &str) -> Vec<&'static str> {
-    let start = APP_RS
-        .find(signature)
-        .unwrap_or_else(|| panic!("src/app.rs has no `{signature}`"));
-    let rest = &APP_RS[start..];
-    let end = rest
-        .find("\n    }\n")
-        .unwrap_or_else(|| panic!("`{signature}` has no closing brace"));
-    code_lines(&rest[..end])
+    let lines = item_lines(APP_RS, signature)
+        .unwrap_or_else(|| panic!("src/app.rs has no `{signature}` with a closing brace"));
+    // Without the closing brace, which `code_lines` would otherwise keep.
+    lines[..lines.len() - 1]
+        .iter()
+        .flat_map(|line| code_lines(line))
+        .collect()
+}
+
+/// Every `.rs` file under `dir`, recursively, with its contents.
+fn rust_sources(dir: &Path) -> Vec<(PathBuf, String)> {
+    let mut sources = Vec::new();
+    let mut pending = vec![dir.to_path_buf()];
+    while let Some(dir) = pending.pop() {
+        for entry in std::fs::read_dir(&dir).expect("read a src/ directory") {
+            let path = entry.expect("a src/ entry").path();
+            if path.is_dir() {
+                pending.push(path);
+            } else if path.extension().is_some_and(|ext| ext == "rs") {
+                let source = std::fs::read_to_string(&path).expect("read a src/ file");
+                sources.push((path, source));
+            }
+        }
+    }
+    sources.sort();
+    sources
+}
+
+fn runtime_sources() -> Vec<(PathBuf, String)> {
+    rust_sources(&Path::new(env!("CARGO_MANIFEST_DIR")).join("src"))
+}
+
+/// The code lines of `source` holding `needle`, outside comments.
+fn code_lines_containing<'a>(source: &'a str, needle: &str) -> Vec<&'a str> {
+    code_lines(source)
+        .into_iter()
+        .filter(|line| line.contains(needle))
+        .collect()
 }
 
 #[test]
@@ -51,20 +134,55 @@ fn main_runs_the_app_right_after_register() {
     );
 }
 
+/// `dotenvy` is used only inside `src/lib.rs`'s `load_dotenv_filtered`, and
+/// that is called only from `run_with_args`, which `register` skips.
 #[test]
 fn only_run_with_args_loads_dotenv() {
     assert!(
         !MAIN_RS.contains("dotenv"),
         "main.rs loads .env before custom::register"
     );
+    let loader = item_lines(LIB_RS, "pub fn load_dotenv_filtered(")
+        .expect("src/lib.rs defines load_dotenv_filtered");
+    let loader = loader.join("\n");
+    let run_with_args = item_lines(APP_RS, "pub fn run_with_args<I, T>")
+        .expect("src/app.rs defines run_with_args")
+        .join("\n");
+    for (path, source) in runtime_sources() {
+        let is_lib = path.ends_with("src/lib.rs");
+        let is_app = path.ends_with("src/app.rs");
+        let dotenvy_uses = code_lines_containing(&source, "dotenvy::");
+        let allowed_uses = if is_lib {
+            code_lines_containing(&loader, "dotenvy::")
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            dotenvy_uses,
+            allowed_uses,
+            "{} uses dotenvy outside load_dotenv_filtered",
+            path.display()
+        );
+        let calls = code_lines_containing(&source, "load_dotenv_filtered(");
+        let allowed_calls = if is_lib {
+            vec!["pub fn load_dotenv_filtered(cli_name: &str) -> Vec<String> {"]
+        } else if is_app {
+            code_lines_containing(&run_with_args, "load_dotenv_filtered(")
+        } else {
+            Vec::new()
+        };
+        assert_eq!(
+            calls,
+            allowed_calls,
+            "{} loads .env outside run_with_args",
+            path.display()
+        );
+    }
     assert_eq!(
-        APP_RS.matches("load_dotenv_filtered(").count(),
+        code_lines_containing(&run_with_args, "load_dotenv_filtered(").len(),
         1,
-        "src/app.rs loads .env outside run_with_args"
+        "run_with_args no longer loads .env, so register's copy of its setup is stale"
     );
-    assert!(method_body("pub fn run_with_args<I, T>")
-        .iter()
-        .any(|line| line.contains("load_dotenv_filtered(")));
 }
 
 #[test]
@@ -77,41 +195,51 @@ fn run_is_the_setup_register_copies_then_try_run_from() {
             "self.run_with_args(args)",
         ],
     );
+    // `run_with_args` must be exactly `register`'s setup followed by
+    // `try_run_from`'s pipeline and an exit. Compared with each other rather
+    // than with literal text, so a regeneration that changes both pipelines
+    // alike (a new `run_inner` argument) passes, and one that adds setup to
+    // `run_with_args` alone fails. On a failure: mirror the new setup in
+    // `custom::register`, then update the lines below.
+    let generic = [
+        "where",
+        "I: IntoIterator<Item = T>,",
+        "T: Into<std::ffi::OsString>,",
+        "{",
+    ];
+    let run_with_args = method_body("pub fn run_with_args<I, T>");
+    let try_run_from = method_body("pub fn try_run_from<I, T>");
     assert_eq!(
-        method_body("pub fn run_with_args<I, T>"),
+        run_with_args[0],
+        "pub fn run_with_args<I, T>(mut self, args: I)"
+    );
+    assert_eq!(
+        try_run_from[0],
+        "pub fn try_run_from<I, T>(mut self, args: I) -> i32"
+    );
+    assert_eq!(run_with_args[1..5], generic);
+    assert_eq!(try_run_from[1..5], generic);
+    assert_eq!(
+        run_with_args[5..9],
         [
-            "pub fn run_with_args<I, T>(mut self, args: I)",
-            "where",
-            "I: IntoIterator<Item = T>,",
-            "T: Into<std::ffi::OsString>,",
-            "{",
             "crate::reset_sigpipe();",
             "let ignored_dotenv_keys = crate::load_dotenv_filtered(&self.name);",
             "crate::init_logging(&self.name);",
             "crate::warn_ignored_dotenv_keys(&ignored_dotenv_keys);",
-            "let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();",
-            "let prepare_error = self.prepare(&args);",
-            "let rt = tokio::runtime::Runtime::new().expect(\"Failed to create tokio runtime\");",
-            "let mut out = std::io::stdout().lock();",
-            "let exit = rt.block_on(self.run_inner(args, prepare_error, &mut out));",
-            "drop(out);",
-            "std::process::exit(exit);",
         ],
+        "run_with_args's setup changed; mirror it in custom::register"
     );
+    let (result, pipeline) = try_run_from[5..]
+        .split_last()
+        .expect("try_run_from has a body");
+    let mut expected: Vec<String> = pipeline.iter().map(|line| line.to_string()).collect();
+    expected.push(format!("let exit = {result};"));
+    expected.push("drop(out);".into());
+    expected.push("std::process::exit(exit);".into());
     assert_eq!(
-        method_body("pub fn try_run_from<I, T>"),
-        [
-            "pub fn try_run_from<I, T>(mut self, args: I) -> i32",
-            "where",
-            "I: IntoIterator<Item = T>,",
-            "T: Into<std::ffi::OsString>,",
-            "{",
-            "let args: Vec<std::ffi::OsString> = args.into_iter().map(Into::into).collect();",
-            "let prepare_error = self.prepare(&args);",
-            "let rt = tokio::runtime::Runtime::new().expect(\"Failed to create tokio runtime\");",
-            "let mut out = std::io::stdout().lock();",
-            "rt.block_on(self.run_inner(args, prepare_error, &mut out))",
-        ],
+        run_with_args[9..],
+        expected,
+        "run_with_args no longer runs exactly try_run_from's pipeline after its setup"
     );
 }
 
@@ -132,12 +260,99 @@ fn string_constant(source: &'static str, name: &str) -> Vec<&'static str> {
 
 #[test]
 fn dotenv_refuses_every_setting_the_runtime_refuses() {
-    let ours = string_constant(DOTENV_RS, "DENIED_CLI_SUFFIXES");
+    let allowed = string_constant(DOTENV_RS, "ALLOWED_CLI_SETTINGS");
     for suffix in string_constant(LIB_RS, "DOTENV_DENIED_SUFFIXES") {
         let setting = suffix.trim_start_matches('_');
         assert!(
-            ours.contains(&setting),
-            "the runtime refuses `<PREFIX>{suffix}` from .env and dotenv.rs does not"
+            !allowed.contains(&setting),
+            "the runtime refuses `<PREFIX>{suffix}` from .env and dotenv.rs allows it"
+        );
+    }
+}
+
+/// The upper-case setting name (`[A-Z0-9_]`, without a leading `_`) at the
+/// start of `text`, or `None` when `text` does not start with one.
+fn setting_name_at(text: &str) -> Option<&str> {
+    let text = text.strip_prefix('_')?;
+    let end = text
+        .find(|c: char| !(c.is_ascii_uppercase() || c.is_ascii_digit() || c == '_'))
+        .unwrap_or(text.len());
+    let name = text[..end].trim_end_matches('_');
+    name.starts_with(|c: char| c.is_ascii_uppercase())
+        .then_some(name)
+}
+
+/// The settings the runtime source builds from the binary's prefix, by the
+/// name after it: `format!("{prefix}_NAME")` and `format!("{}_NAME", …)`,
+/// `scoped(prefix, "_NAME")`, the runtime's `.env` deny-list, and the
+/// default User-Agent suffix flag. Test modules are skipped.
+fn runtime_settings() -> std::collections::BTreeSet<String> {
+    let mut settings = std::collections::BTreeSet::new();
+    for (_, source) in runtime_sources() {
+        let source = source
+            .split("#[cfg(test)]\nmod ")
+            .next()
+            .unwrap_or_default();
+        for line in code_lines(source) {
+            for marker in ["{prefix}", "{}", "\""] {
+                for (index, _) in line.match_indices(marker) {
+                    let rest = &line[index + marker.len()..];
+                    let quoted_suffix = marker == "\"";
+                    let Some(name) = setting_name_at(rest) else {
+                        continue;
+                    };
+                    // A quoted `"_NAME"` counts only as a whole literal, as
+                    // in `scoped(prefix, "_NAME")` or the deny-list.
+                    if quoted_suffix && !rest[1 + name.len()..].starts_with('"') {
+                        continue;
+                    }
+                    settings.insert(name.to_string());
+                }
+            }
+        }
+    }
+    let flag = string_constant_value(USER_AGENT_RS, "DEFAULT_SUFFIX_FLAG");
+    settings.insert(flag.to_ascii_uppercase().replace('-', "_"));
+    settings
+}
+
+/// The value of the `&str` constant `name` in `source`.
+fn string_constant_value(source: &'static str, name: &str) -> &'static str {
+    let start = source
+        .find(&format!("const {name}: &str = \""))
+        .unwrap_or_else(|| panic!("no &str constant {name}"));
+    let value = &source[start..].split('"').nth(1).expect("a string value");
+    value
+}
+
+#[test]
+fn every_runtime_setting_is_classified() {
+    let allowed = string_constant(DOTENV_RS, "ALLOWED_CLI_SETTINGS");
+    let settings = runtime_settings();
+    for expected in ["OUTPUT", "LOG", "BASE_URL", "PROXY", "USER_AGENT_SUFFIX"] {
+        assert!(
+            settings.contains(expected),
+            "the scan of src/ no longer finds `{expected}`; it has stopped matching \
+             how the runtime builds setting names: {settings:?}"
+        );
+    }
+    let unclassified: Vec<&String> = settings
+        .iter()
+        .filter(|setting| {
+            !allowed.contains(&setting.as_str())
+                && !REFUSED_CLI_SETTINGS.contains(&setting.as_str())
+        })
+        .collect();
+    assert!(
+        unclassified.is_empty(),
+        "the runtime reads HEDRA_CLI_ settings that are neither allowed from .env \
+         (ALLOWED_CLI_SETTINGS, cli/hedra-cli/dotenv.rs) nor refused on purpose \
+         (REFUSED_CLI_SETTINGS, here): {unclassified:?}"
+    );
+    for setting in &allowed {
+        assert!(
+            settings.contains(*setting),
+            "dotenv.rs allows `HEDRA_CLI_{setting}`, which the runtime does not read"
         );
     }
 }
