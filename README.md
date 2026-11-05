@@ -375,8 +375,25 @@ hedra-cli jobs list --page-all --page-limit 5
 | `HEDRA_CLI_PROXY` | HTTP(S) proxy URL |
 | `HEDRA_CLI_TIMEOUT_SECS` | Total request timeout in seconds |
 
-A `.env` file in the working directory is loaded on startup. Standard `HTTPS_PROXY` /
-`HTTP_PROXY` / `NO_PROXY` / `SSL_CERT_FILE` are also honored.
+The nearest `.env` file, in the working directory or a parent, is loaded on startup. A `.env`
+can set only these keys, compared in any letter case: `HEDRA_API_KEY`, `HEDRA_ENV`,
+`HEDRA_CLI_OUTPUT`, `HEDRA_CLI_LOG`, `HEDRA_CLI_RETRIES`, `HEDRA_CLI_TIMEOUT_SECS`,
+`HEDRA_CLI_CONNECT_TIMEOUT_SECS`, `HEDRA_CLI_USER_AGENT_SUFFIX` and `NO_COLOR`. The CLI
+ignores every other key in a `.env`, including the other `HEDRA_*` settings (the base URL,
+proxy, TLS, pager and log-file settings, and the login endpoint overrides), and names the
+ignored `HEDRA_*`, proxy, trust-store and pager keys in one line on stderr. If you set one of
+those yourself, set it in your shell. A `.env` that sets `HEDRA_CLI_BASE_URL` stops the
+command with an error (exit code 3) before it sends any request, rather than letting it run
+against the default API. Standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` / `SSL_CERT_FILE`
+are honored when exported from the shell. A `.env` that sets `HEDRA_API_KEY` chooses the key
+the CLI uses in that directory, ahead of the one `auth login` stored.
+
+Known limitations of `.env` loading:
+
+- The CLI reads a `.env` in any parent directory of the working directory, including one
+  another local user could write on a shared host.
+- A `.env` value can copy any variable exported in your shell with `${NAME}`, so a `.env` can
+  place the value of an unrelated exported variable into one of the keys above.
 
 ## Shell completion
 
