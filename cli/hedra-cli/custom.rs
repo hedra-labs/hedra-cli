@@ -20,6 +20,8 @@
 mod active_key;
 #[path = "auth.rs"]
 mod auth;
+#[path = "dotenv.rs"]
+mod dotenv;
 #[path = "keyring_cache.rs"]
 mod keyring_cache;
 #[path = "media_refs.rs"]
@@ -30,24 +32,74 @@ mod views;
 mod workspaces;
 
 use fern_cli_sdk::app::CliApp;
-use fern_cli_sdk::error::CliError;
+use fern_cli_sdk::error::{write_error_json, CliError, ErrorDisplayContext};
 use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
 use fern_cli_sdk::openapi::{commands, load_openapi_spec};
 use serde_json::Value;
 
-/// Register custom commands on the CLI app builder.
+/// Set up the CLI and run the command, then exit with its code. Never returns.
 ///
-/// Called from `main.rs` during startup.
+/// Called from `main.rs` during startup, which would run the app with
+/// `CliApp::run` next. `run` loads `.env` through the runtime's own loader,
+/// which admits keys this CLI must not take from a `.env` (see `dotenv.rs`),
+/// and `run` is generated code. So this function does `run`'s setup itself,
+/// with `dotenv::load` in place of the runtime's loader, and runs the command
+/// through `CliApp::try_run_from`, the same pipeline without that setup.
+/// Unlike `run`, `try_run_from` drops its tokio runtime before the exit, so a
+/// blocking task still running then, such as a DNS lookup that outlived its
+/// request's timeout, delays the exit until it returns.
+/// `tests/startup_contract.rs` fails if a regeneration changes `main.rs`'s
+/// call to this function or `run`'s setup, so the copy here is re-checked.
 pub fn register(app: CliApp) -> CliApp {
-    // The runtime only loads .env inside run() — after this function has
-    // returned — so any env read below would miss .env-set values. Loading
-    // it here too is safe: dotenvy never overrides existing process env,
-    // and the runtime's later call just becomes a no-op.
-    let _ = dotenvy::dotenv();
+    // `run`'s setup, in `run`'s order. `.env` loads before anything below
+    // reads the environment, and before logging, which reads `HEDRA_CLI_LOG`.
+    fern_cli_sdk::reset_sigpipe();
+    // Read before `.env` can set it: only a shell `HEDRA_ENV` naming a known
+    // environment is the user's own choice of target.
+    let hedra_env_exported = std::env::var("HEDRA_ENV")
+        .is_ok_and(|v| v.eq_ignore_ascii_case("staging") || v.eq_ignore_ascii_case("prod"));
+    let ignored_dotenv_keys = dotenv::load();
+    // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
+    // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise. It writes the
+    // environment, so it runs before logging can start a thread.
+    auth::derive_base_url_from_hedra_env();
+    fern_cli_sdk::init_logging("hedra-cli");
+    // Not part of `run`'s setup: a `.env` base URL the CLI refuses would send
+    // the command to the default API, so it fails before any request.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let refusal = dotenv::base_url_refusal(&ignored_dotenv_keys, &args, hedra_env_exported);
+    dotenv::report_ignored(&ignored_dotenv_keys, refusal.is_none());
+    if let Some(message) = refusal {
+        exit_with_validation_error(message, &args);
+    }
 
+    let code = configure(app).try_run_from(std::env::args_os());
+    std::process::exit(code)
+}
+
+/// Print `message` as a validation error the way the runtime prints one, the
+/// JSON envelope on stdout for a machine-readable format and a line on stderr
+/// otherwise, and exit with the validation exit code. `args` is the command
+/// line without the program name, already converted from `args_os`, since
+/// `std::env::args` panics on an argument that is not valid Unicode.
+fn exit_with_validation_error(message: String, args: &[String]) -> ! {
+    let error = CliError::Validation(message);
+    let context = ErrorDisplayContext {
+        format: fern_cli_sdk::formatter::resolve_format_from_raw_args(args, "hedra-cli"),
+        ..ErrorDisplayContext::default()
+    };
+    write_error_json(&error, &mut std::io::stdout(), Some(&context));
+    std::process::exit(error.exit_code())
+}
+
+/// Register custom commands and hooks on the CLI app builder.
+fn configure(app: CliApp) -> CliApp {
     // Credential-store stack, outermost first. Must be installed before
     // anything resolves a credential; nothing in the SDK installs a store
-    // eagerly, and this runs before CliApp::run, so it wins the slot.
+    // eagerly, and this runs before `try_run_from` below, so it wins the slot.
     //
     // The KeyAuth projection sits outside the memo so the workspace-map read
     // it performs is cached like any other. The reverse order would memoise
@@ -55,10 +107,6 @@ pub fn register(app: CliApp) -> CliApp {
     fern_cli_sdk::auth::set_active_store(active_key::project(keyring_cache::memoize(
         fern_cli_sdk::auth::auto_store(),
     )));
-
-    // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
-    // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise.
-    auth::derive_base_url_from_hedra_env();
 
     // `--input.source-image asset_…` / `https://…` as shorthand for the
     // MediaRef object. Request-side, so it applies in every output format.

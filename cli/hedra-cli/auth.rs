@@ -287,10 +287,11 @@ fn resolve_auth_endpoints(
 /// authorization code to an unintended token endpoint is the one mistake here
 /// that hands over a credential — so it errors instead.
 ///
-/// Not advertised in `--help` or the README: it exists for operators
+/// Not advertised in `--help`: it exists for operators
 /// recovering from a broken discovery document, and for pointing the flow at
 /// a local or mock authorization server. Both legs must be https (loopback
-/// exempt) — the token leg carries the PKCE exchange.
+/// exempt) — the token leg carries the PKCE exchange. Only the process
+/// environment can set them: `dotenv.rs` refuses both from a `.env`.
 fn endpoint_override(resource_base_url: &str) -> Result<Option<AuthEndpoints>, String> {
     let read = |key: &str| {
         std::env::var(key)
@@ -474,12 +475,11 @@ fn require_https(what: &str, url: &str) -> Result<(), String> {
 /// wholesale (executor `build_url`), so it must carry the `/v3` prefix the
 /// spec's `https://api.hedra.com/v3` server carries.
 ///
-/// `.env` values are honored too: `register()` loads dotenv before calling
-/// this (the runtime only loads it later, inside `run()`), so both a
-/// `.env`-set `HEDRA_ENV` and a `.env`-set `HEDRA_CLI_BASE_URL` are visible
-/// here. Without that early load the login plane (which reads `HEDRA_ENV`
-/// at dispatch time, post-dotenv) and the data plane would split-brain on a
-/// `.env`-only `HEDRA_ENV=staging`.
+/// A `.env`-set `HEDRA_ENV` is honored too: `register()` loads `.env` before
+/// calling this, so the login plane (which reads `HEDRA_ENV` at dispatch
+/// time) and the data plane agree on a `.env`-only `HEDRA_ENV=staging`. A
+/// `.env`-set `HEDRA_CLI_BASE_URL` is not: `dotenv.rs` refuses it, so only
+/// the shell or `--base-url` can point the data plane at another host.
 pub(crate) fn derive_base_url_from_hedra_env() {
     if std::env::var_os("HEDRA_CLI_BASE_URL").is_some() {
         return; // explicit override — never clobber
@@ -530,8 +530,8 @@ const ERROR_PAGE_URL: &str = "https://www.hedra.com/cli/auth/error";
 
 /// Graft the discovered endpoints onto the env-independent base flow.
 /// Callers must only invoke this at dispatch/request time — `register()`
-/// runs before `run_with_args` loads `.env`, so an eager call would freeze
-/// the wrong env (and discovery is I/O besides).
+/// runs before argument parsing, so an eager call would resolve endpoints
+/// before the command line can retarget them (and discovery is I/O besides).
 /// The login carries NO workspace selector — deliberately. The identity
 /// provider's organization cannot name an org-less ("born-free") workspace, so
 /// hinting the hosted login at an org selects the wrong thing or nothing;
@@ -729,7 +729,7 @@ impl LoginFlow for EnvPkceLoginFlow {
     }
     fn build_auth_provider(&self, cli_name: &str) -> Option<DynAuthProvider> {
         // The one method that must NOT delegate to the base: it is called
-        // at registration time (pre-.env, pre-parse) and the base has no
+        // at registration time (before argument parsing) and the base has no
         // token_url/client_id yet — return a lazy shell only.
         Some(Arc::new(EnvOAuthProvider {
             cli_name: cli_name.to_string(),
