@@ -231,3 +231,23 @@ exclude:
   # docs/ entry there is now in place — but it has NOT retired the patch, as
   # this note used to claim. The trailing slash defeats Replay's cleanse matcher
   # at 5.94.0; the docs/ entry in .fernignore carries the measurement.
+
+# NOT an exclude: the ten src/lib.rs commits from #169's branch are forgotten
+# by content hash in .fern/replay.lock's `forgotten_hashes` instead.
+#
+# #169 landed with a merge commit, so every commit on its branch reached main
+# under its own SHA, including ten that edited the generated src/lib.rs (a
+# .env deny-list patch) before the branch's last commit, d923632, reverted
+# them and moved the logic into hand-written cli/hedra-cli/ files. Their net
+# change to src/lib.rs is zero. The regeneration in #174 reported all ten as
+# "absorbed by generator", but absorption only holds while the generated
+# src/lib.rs matches what they leave behind: once a generator bump changes
+# those lines, Replay would try to re-apply them in order.
+#
+# Forgetting the commits rather than excluding src/lib.rs keeps the file open
+# to a real customization later. The ten hashes were computed the way
+# PatchDetector does (fern-api 5.197.0: computeContentHash over
+# materializeCommitPatch's patch), and the same code reproduces 24 hashes
+# already in this lock. A forgotten hash only matches while the commit's patch
+# is computed the same way, so a change to .fernignore that adds or removes a
+# file one of these commits touches changes its hash.
