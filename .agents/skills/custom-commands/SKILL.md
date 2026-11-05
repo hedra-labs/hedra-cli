@@ -73,6 +73,8 @@ with the following sub-clients:
 | `client.billing` | `hedra_cli_sdk::api::BillingClient` | billing operations |
 | `client.webhooks` | `hedra_cli_sdk::api::WebhooksClient` | webhooks operations |
 | `client.log_drains` | `hedra_cli_sdk::api::LogDrainsClient` | log_drains operations |
+| `client.sandbox` | `hedra_cli_sdk::api::SandboxClient` | sandbox operations |
+| `client.secrets` | `hedra_cli_sdk::api::SecretsClient` | secrets operations |
 | `client.run_a_model` | `hedra_cli_sdk::api::RunAModelClient` | run_a_model operations |
 
 ### 3. Key Patterns

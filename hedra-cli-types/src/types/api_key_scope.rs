@@ -15,6 +15,9 @@ pub enum ApiKeyScope {
     UsageRead,
     KeysManage,
     ChatWrite,
+    SandboxesRead,
+    SandboxesWrite,
+    SandboxesExec,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -32,6 +35,9 @@ impl Serialize for ApiKeyScope {
             Self::UsageRead => serializer.serialize_str("usage:read"),
             Self::KeysManage => serializer.serialize_str("keys:manage"),
             Self::ChatWrite => serializer.serialize_str("chat:write"),
+            Self::SandboxesRead => serializer.serialize_str("sandboxes:read"),
+            Self::SandboxesWrite => serializer.serialize_str("sandboxes:write"),
+            Self::SandboxesExec => serializer.serialize_str("sandboxes:exec"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -50,6 +56,9 @@ impl<'de> Deserialize<'de> for ApiKeyScope {
             "usage:read" => Ok(Self::UsageRead),
             "keys:manage" => Ok(Self::KeysManage),
             "chat:write" => Ok(Self::ChatWrite),
+            "sandboxes:read" => Ok(Self::SandboxesRead),
+            "sandboxes:write" => Ok(Self::SandboxesWrite),
+            "sandboxes:exec" => Ok(Self::SandboxesExec),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -67,6 +76,9 @@ impl fmt::Display for ApiKeyScope {
             Self::UsageRead => write!(f, "usage:read"),
             Self::KeysManage => write!(f, "keys:manage"),
             Self::ChatWrite => write!(f, "chat:write"),
+            Self::SandboxesRead => write!(f, "sandboxes:read"),
+            Self::SandboxesWrite => write!(f, "sandboxes:write"),
+            Self::SandboxesExec => write!(f, "sandboxes:exec"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }

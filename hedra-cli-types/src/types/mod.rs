@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 154 types for API operations
-//! - **Model Types**: 566 types for data representation
+//! - **Request/Response Types**: 164 types for API operations
+//! - **Model Types**: 587 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -56,6 +56,31 @@ pub mod model_summary;
 pub mod output_item;
 pub mod output_status;
 pub mod result_response;
+pub mod sandbox;
+pub mod sandbox_billing_summary;
+pub mod sandbox_egress;
+pub mod sandbox_egress_mode;
+pub mod sandbox_end_reason;
+pub mod sandbox_endpoint_token;
+pub mod sandbox_event;
+pub mod sandbox_event_kind;
+pub mod sandbox_event_list_response;
+pub mod sandbox_failure_reason;
+pub mod sandbox_gpu;
+pub mod sandbox_gpu_list_response;
+pub mod sandbox_instance;
+pub mod sandbox_instance_status;
+pub mod sandbox_list_response;
+pub mod sandbox_logs;
+pub mod sandbox_port;
+pub mod sandbox_quota;
+pub mod sandbox_resources;
+pub mod sandbox_restart_policy;
+pub mod sandbox_secret;
+pub mod sandbox_secret_list_response;
+pub mod sandbox_session;
+pub mod sandbox_signing_key_rotation;
+pub mod sandbox_status;
 pub mod status_response;
 pub mod token_create_response;
 pub mod transaction_list_response;
@@ -717,6 +742,8 @@ pub mod token_create_request;
 pub mod webhook_default_update;
 pub mod log_drain_create;
 pub mod log_drain_update;
+pub mod create_sandbox_request;
+pub mod set_sandbox_secret_request;
 pub mod upload_request;
 pub mod jobs_list_query_request;
 pub mod get_status_query_request;
@@ -728,6 +755,10 @@ pub mod keys_list_query_request;
 pub mod get_usage_query_request;
 pub mod list_transactions_query_request;
 pub mod list_deliveries_query_request;
+pub mod ls_query_request;
+pub mod saved_logs_query_request;
+pub mod events_query_request;
+pub mod session_query_request;
 
 pub use jobs_jobs_stream_response::JobsStreamResponse;
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_event::WebhookJobCompletedPayloadXHedraWebhookEvent;
@@ -777,6 +808,31 @@ pub use model_summary::ModelSummary;
 pub use output_item::OutputItem;
 pub use output_status::OutputStatus;
 pub use result_response::ResultResponse;
+pub use sandbox::Sandbox;
+pub use sandbox_billing_summary::SandboxBillingSummary;
+pub use sandbox_egress::SandboxEgress;
+pub use sandbox_egress_mode::SandboxEgressMode;
+pub use sandbox_end_reason::SandboxEndReason;
+pub use sandbox_endpoint_token::SandboxEndpointToken;
+pub use sandbox_event::SandboxEvent;
+pub use sandbox_event_kind::SandboxEventKind;
+pub use sandbox_event_list_response::SandboxEventListResponse;
+pub use sandbox_failure_reason::SandboxFailureReason;
+pub use sandbox_gpu::SandboxGpu;
+pub use sandbox_gpu_list_response::SandboxGpuListResponse;
+pub use sandbox_instance::SandboxInstance;
+pub use sandbox_instance_status::SandboxInstanceStatus;
+pub use sandbox_list_response::SandboxListResponse;
+pub use sandbox_logs::SandboxLogs;
+pub use sandbox_port::SandboxPort;
+pub use sandbox_quota::SandboxQuota;
+pub use sandbox_resources::SandboxResources;
+pub use sandbox_restart_policy::SandboxRestartPolicy;
+pub use sandbox_secret::SandboxSecret;
+pub use sandbox_secret_list_response::SandboxSecretListResponse;
+pub use sandbox_session::SandboxSession;
+pub use sandbox_signing_key_rotation::SandboxSigningKeyRotation;
+pub use sandbox_status::SandboxStatus;
 pub use status_response::StatusResponse;
 pub use token_create_response::TokenCreateResponse;
 pub use transaction_list_response::TransactionListResponse;
@@ -1438,6 +1494,8 @@ pub use token_create_request::TokenCreateRequest;
 pub use webhook_default_update::WebhookDefaultUpdate;
 pub use log_drain_create::LogDrainCreate;
 pub use log_drain_update::LogDrainUpdate;
+pub use create_sandbox_request::CreateSandboxRequest;
+pub use set_sandbox_secret_request::SetSandboxSecretRequest;
 pub use upload_request::UploadRequest;
 pub use jobs_list_query_request::JobsListQueryRequest;
 pub use get_status_query_request::GetStatusQueryRequest;
@@ -1449,4 +1507,8 @@ pub use keys_list_query_request::KeysListQueryRequest;
 pub use get_usage_query_request::GetUsageQueryRequest;
 pub use list_transactions_query_request::ListTransactionsQueryRequest;
 pub use list_deliveries_query_request::ListDeliveriesQueryRequest;
+pub use ls_query_request::LsQueryRequest;
+pub use saved_logs_query_request::SavedLogsQueryRequest;
+pub use events_query_request::EventsQueryRequest;
+pub use session_query_request::SessionQueryRequest;
 

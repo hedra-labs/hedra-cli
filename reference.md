@@ -11,6 +11,8 @@ Full command reference for `hedra-cli`.
 - [`hedra-cli log-drains`](#hedra-cli-log-drains)
 - [`hedra-cli models`](#hedra-cli-models)
 - [`hedra-cli run-a-model`](#hedra-cli-run-a-model)
+- [`hedra-cli sandbox`](#hedra-cli-sandbox)
+- [`hedra-cli sandbox secrets`](#hedra-cli-sandbox-secrets)
 - [`hedra-cli tokens`](#hedra-cli-tokens)
 - [`hedra-cli webhooks`](#hedra-cli-webhooks)
 
@@ -1736,6 +1738,170 @@ Anthropic-compatible Messages API. Set the base URL of an Anthropic SDK or of Cl
 OpenAI-compatible Responses API. Each request runs as a chat completion, and is charged, limited and recorded as one. Each request must send the whole conversation in `input`: `store: true`, a `previous_response_id`, a `conversation` or an `item_reference` input item gets a 400 that says so. A request without `max_output_tokens` is bounded at 32,768 output tokens, or the model's lower limit. Function and namespace tools are served, and `web_search` tools are ignored. Each image the model does not accept becomes a text note in its place: every image on a model without image input, and on any other model the oldest images beyond the model's `max_images_per_request`. `text.format` becomes chat's `response_format`. Beside tools under `tool_choice` `auto`, the route instead offers a `json_schema` format's schema to the model as one more function, `final_answer`, and sets `tool_choice` to `required`, so the model can call tools before it answers; the route returns a call to `final_answer` as the answer message, with `phase` `final_answer`, and leaves out any text the model writes, because openai-python's `responses.parse` parses every message as the answer. The route accepts `text.verbosity` and `service_tier` and ignores them. Errors are those of `POST /chat/completions`, and the 400 for a value that chat rejects names the chat field, such as `max_tokens` or `messages[3].content`. With `stream: true` the response is `text/event-stream` in the Responses event format, ending with `response.completed` or `response.incomplete`, or with `response.failed` for a failure after streaming has begun.
 
 `POST /responses`
+
+---
+
+### `hedra-cli sandbox`
+
+#### `hedra-cli sandbox create`
+
+Start one instance per replica, paying the first lease from the API
+wallet before any instance is created. The sandbox runs until you stop
+it, its command exits, the wallet cannot pay a lease, or its
+`ttl_seconds` ends, when you give one. 404 while sandboxes are not enabled
+for your workspace.
+
+`POST /sandboxes`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli sandbox events`
+
+The lifecycle events of one instance.
+
+`GET /sandboxes/{sandbox}/events`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--replica` | `integer` | No | The instance's replica number, from 0. |
+
+#### `hedra-cli sandbox get`
+
+One sandbox with its instances and its charge so far.
+
+`GET /sandboxes/{sandbox}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+
+#### `hedra-cli sandbox gpus`
+
+Every GPU model your workspace can run, at its price after your
+discount. 404 while sandboxes are not enabled for your workspace.
+
+`GET /sandboxes/gpus`
+
+#### `hedra-cli sandbox ls`
+
+Your sandboxes in this workspace, newest first, without `instances`
+and `started_at`: the creating, active and stopping ones, or every one
+with `all=true`. A cursor resumes only under the `name` and `all` it was
+issued with.
+
+`GET /sandboxes`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--limit` | `integer` | No | Maximum items per page. |
+| `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
+| `--name` | `string` | No | Only sandboxes with exactly this name. A name is unique among your creating, active and stopping sandboxes, so without `all=true` the page holds at most one. |
+| `--all` | `boolean` | No | With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes. |
+
+#### `hedra-cli sandbox quota`
+
+How many more GPUs your workspace's sandboxes can hold under its GPU
+quota. 404 while sandboxes are not enabled for your workspace.
+
+`GET /sandboxes/quota`
+
+#### `hedra-cli sandbox rotate-signing-key`
+
+Revoke every session JWT and endpoint token of your workspace's
+sandboxes, every member's included; mint new ones after it answers. Only
+a workspace owner or admin can rotate the key.
+
+`POST /sandboxes/signing-key/rotate`
+
+#### `hedra-cli sandbox saved-logs`
+
+The newest log output of one instance, and whether older output was
+cut.
+
+`GET /sandboxes/{sandbox}/logs`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--replica` | `integer` | No | The instance's replica number, from 0. |
+| `--since` | `string` | No | Only output written at or after this instant: an RFC 3339 timestamp with an offset and up to nanoseconds, such as `2026-11-02T18:32:30.123456789Z`. It is rounded up to a whole microsecond. |
+
+#### `hedra-cli sandbox session`
+
+A short-lived session JWT for one instance of an `active` sandbox,
+to open `Logs` streams on the broker at `broker_url`; `PortForward` too
+when the key holds `sandboxes:write`, and `Exec` and `Invoke` when it
+holds `sandboxes:exec`. Mint a new one for each stream opened after
+`expires_at`.
+
+`POST /sandboxes/{sandbox}/session`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--replica` | `integer` | No | The instance's replica number, from 0. |
+
+#### `hedra-cli sandbox stop`
+
+Stop every instance. Answers the sandbox, also when it is already
+stopping, ended or failed; settlement refunds the unused part of its
+lease once every instance has stopped.
+
+`POST /sandboxes/{sandbox}/stop`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+
+#### `hedra-cli sandbox token`
+
+A token for the `url` of an `active` sandbox created with `ports`, sent
+as `Authorization: Bearer`, and `browser_url`, the link that opens `url`
+in a browser. Both work for every replica until the end of the sandbox's
+`ttl_seconds` or 30 days after the mint, whichever is earlier; rotating
+the signing key revokes them.
+
+`POST /sandboxes/{sandbox}/endpoint-token`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+
+---
+
+### `hedra-cli sandbox secrets`
+
+#### `hedra-cli sandbox secrets ls`
+
+The names of your workspace's secrets, in one page. A secret's value is
+never returned.
+
+`GET /sandboxes/secrets`
+
+#### `hedra-cli sandbox secrets rm`
+
+Delete a secret. Only a workspace owner or admin can delete one.
+
+`DELETE /sandboxes/secrets/{name}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--name` | `string` | Yes | The secret's name. |
+
+#### `hedra-cli sandbox secrets set`
+
+Store a secret that any member's sandbox can name in `secrets`: 201
+for a new name, 200 when it replaces the value of a name your workspace
+holds. Only a workspace owner or admin can set one.
+
+`POST /sandboxes/secrets`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
 
