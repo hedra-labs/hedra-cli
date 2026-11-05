@@ -9,4 +9,6 @@ the broker's. Comments, the messages and services the CLI never reaches, and
 the `ErrorCode` values' custom options are removed.
 
 To update, take the same files from a newer upstream commit, trim them the same
-way, and change the commit above in the same change.
+way, and change the commit above in the same change. Then generate the Rust code
+from the untrimmed files and from the trimmed ones and compare them: every kept
+type and service path must come out identical apart from doc comments.
