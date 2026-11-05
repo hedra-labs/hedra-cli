@@ -8,10 +8,10 @@ use windows_sys::Win32::Foundation::{
 };
 use windows_sys::Win32::Storage::FileSystem::WriteFile;
 use windows_sys::Win32::System::Console::{
-    GetConsoleMode, GetStdHandle, ReadConsoleW, SetConsoleMode, WriteConsoleW, CONSOLE_MODE,
-    ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT, ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT,
-    ENABLE_VIRTUAL_TERMINAL_PROCESSING, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE,
-    STD_OUTPUT_HANDLE,
+    GetConsoleMode, GetStdHandle, PeekConsoleInputW, ReadConsoleInputW, ReadConsoleW,
+    SetConsoleMode, WriteConsoleW, CONSOLE_MODE, ENABLE_ECHO_INPUT, ENABLE_LINE_INPUT,
+    ENABLE_PROCESSED_INPUT, ENABLE_VIRTUAL_TERMINAL_INPUT, ENABLE_VIRTUAL_TERMINAL_PROCESSING,
+    INPUT_RECORD, KEY_EVENT, STD_ERROR_HANDLE, STD_HANDLE, STD_INPUT_HANDLE, STD_OUTPUT_HANDLE,
 };
 use windows_sys::Win32::System::Threading::{GetCurrentProcess, WaitForSingleObject};
 
@@ -214,6 +214,50 @@ pub struct ConsoleReader {
     carry: Option<u16>,
 }
 
+/// What the next console input record is.
+enum NextRecord {
+    /// A key press carrying a character.
+    Char,
+    /// Any other record: a key release, focus, mouse, menu or resize event.
+    Other,
+    /// None is queued.
+    Empty,
+    /// The records cannot be peeked.
+    Unreadable,
+}
+
+fn next_record(handle: HANDLE) -> NextRecord {
+    let mut record = INPUT_RECORD::default();
+    let mut count = 0u32;
+    // SAFETY: `record` and `count` are valid out pointers for one record.
+    if unsafe { PeekConsoleInputW(handle, &mut record, 1, &mut count) } == 0 {
+        return NextRecord::Unreadable;
+    }
+    if count == 0 {
+        return NextRecord::Empty;
+    }
+    if u32::from(record.EventType) != KEY_EVENT {
+        return NextRecord::Other;
+    }
+    // SAFETY: EventType says the union holds a KEY_EVENT_RECORD.
+    let key = unsafe { record.Event.KeyEvent };
+    // SAFETY: both union members are u16-sized views of the same character.
+    let ch = unsafe { key.uChar.UnicodeChar };
+    if key.bKeyDown != 0 && ch != 0 {
+        NextRecord::Char
+    } else {
+        NextRecord::Other
+    }
+}
+
+/// Removes the next input record from the console's queue.
+fn discard_one_record(handle: HANDLE) {
+    let mut record = INPUT_RECORD::default();
+    let mut count = 0u32;
+    // SAFETY: `record` and `count` are valid out pointers for one record.
+    let _ = unsafe { ReadConsoleInputW(handle, &mut record, 1, &mut count) };
+}
+
 impl Default for ConsoleReader {
     fn default() -> Self {
         Self::new()
@@ -225,11 +269,34 @@ impl ConsoleReader {
         Self { carry: None }
     }
 
-    /// Waits up to `timeout` for console input, and says whether to read.
+    /// Waits up to `timeout` for a typed character, and says whether to read.
+    ///
+    /// The console handle is also signalled by key releases, focus, mouse and
+    /// resize events, which `ReadConsoleW` skips while it blocks for a
+    /// character. Reading on those would leave the reader thread blocked in
+    /// `ReadConsoleW` once the stream ends, where it takes the first line the
+    /// user types next. So those records are discarded here, and this says to
+    /// read only when a key press carrying a character is next.
     pub fn wait(&self, timeout: std::time::Duration) -> bool {
-        let ms = timeout.as_millis().min(u128::from(u32::MAX - 1)) as u32;
-        // SAFETY: waits on this process's console input handle.
-        unsafe { WaitForSingleObject(std_handle(Std::In), ms) != WAIT_TIMEOUT }
+        let handle = std_handle(Std::In);
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            let ms = left.as_millis().min(u128::from(u32::MAX - 1)) as u32;
+            // SAFETY: waits on this process's console input handle.
+            if unsafe { WaitForSingleObject(handle, ms) } == WAIT_TIMEOUT {
+                return false;
+            }
+            match next_record(handle) {
+                NextRecord::Char => return true,
+                // A record that carries no character: drop it and wait on.
+                NextRecord::Other => discard_one_record(handle),
+                // Signalled with nothing queued: wait on without spinning.
+                NextRecord::Empty => std::thread::sleep(std::time::Duration::from_millis(10)),
+                // Not a console the records can be read from: let `read` say.
+                NextRecord::Unreadable => return true,
+            }
+        }
     }
 
     pub fn read(&mut self) -> io::Result<Vec<u8>> {

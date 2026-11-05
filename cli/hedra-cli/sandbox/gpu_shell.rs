@@ -119,10 +119,11 @@ pub(crate) async fn run(
     }
 
     let started = Instant::now();
-    let (sandbox, interrupted) = match create(api, &shell, &mut signals, json_errors).await {
-        Ok(created) => created,
-        Err(code) => return code,
-    };
+    let (sandbox, interrupted) =
+        match create(api, &shell, &mut signals, json_errors, &Timing::default()).await {
+            Ok(created) => created,
+            Err(code) => return code,
+        };
     let name = sandbox.name.clone();
     let id = sandbox.id.clone();
     remember(&name, &id);
@@ -176,8 +177,8 @@ async fn create(
     shell: &GpuShell,
     signals: &mut impl NextSig,
     json_errors: bool,
+    timing: &Timing,
 ) -> Result<(Sandbox, Option<Sig>), i32> {
-    let timing = Timing::default();
     // The first signal, whose code a finished create exits with, and whether
     // a Ctrl-C has come, so the next abandons the create.
     let mut interrupted: Option<Sig> = None;
@@ -187,7 +188,7 @@ async fn create(
         let key = lifecycle::idempotency_key();
         let body = request(shell, &name);
         note(format_args!("Creating `{name}`."));
-        let created = lifecycle::create(api, &body, &key, &timing);
+        let created = lifecycle::create(api, &body, &key, timing);
         tokio::pin!(created);
         let abandon = |class| {
             Failure::new(
@@ -245,6 +246,8 @@ async fn create(
                 }
             }
             Created::Refused(f) => {
+                // A definitive refusal created nothing, so a signal that
+                // arrived during the create needs no stop and no line.
                 if let Some(sig) = interrupted {
                     return Err(sig.class().code());
                 }
@@ -252,20 +255,27 @@ async fn create(
                 return Err(255);
             }
             Created::Unknown(f) => {
-                // Only an id recovered through this create's own key is ever
-                // stopped; the name alone does not prove the sandbox is ours.
-                exec::say(
-                    &f.then(
-                        "hedra-cli could not tell whether it was created, so it stops nothing.",
-                    ),
-                    json_errors,
-                )
-                .await;
+                // The sandbox may exist, so this is printed and exits 255 even
+                // after a signal. Only an id recovered through this create's
+                // own key is ever stopped; the name alone does not prove the
+                // sandbox is ours.
+                let note = unknown_note(&f.message);
+                exec::say(&f.then(note), json_errors).await;
                 return Err(255);
             }
         }
     }
     unreachable!("the loop returns on its second attempt")
+}
+
+/// The note after a create whose outcome is unknown, without repeating the
+/// "could not tell" its message may already open with.
+fn unknown_note(message: &str) -> &'static str {
+    if message.starts_with("Could not tell whether") {
+        "hedra-cli stops nothing."
+    } else {
+        "hedra-cli could not tell whether it was created, so it stops nothing."
+    }
 }
 
 /// What becomes of the sandbox once the shell has failed.
@@ -324,7 +334,7 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
         Ended::Failed(ref f) => match after_failure(&driven, f) {
             AfterFailure::Stop => stopper.stop_after(f, signals).await,
             AfterFailure::Lost => {
-                let f = Failure::new(
+                let mut f = Failure::new(
                     Class::ConnectionLost,
                     format!(
                         "Lost the connection to the sandbox{}. {}",
@@ -332,6 +342,7 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
                         kept(api, id, name).await
                     ),
                 );
+                f.reason = driven.status.as_ref().and_then(|s| s.reason.clone());
                 exec::say(&f, json).await;
                 255
             }
@@ -467,7 +478,8 @@ impl Stopper<'_> {
                 .await;
                 return 255;
             }
-            Err(f) => {
+            Err(mut f) => {
+                f.message = format!("Could not stop `{name}`: {}", f.message);
                 let f = f.then(idle_ttl_line(id));
                 exec::say(&f, json).await;
                 return 255;
@@ -584,6 +596,58 @@ mod tests {
     }
 
     #[tokio::test(flavor = "multi_thread")]
+    async fn a_signal_during_a_create_that_may_exist_still_exits_255() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        // An unanswered first attempt, then rate limits past the 429 budget:
+        // the first attempt may have created the sandbox.
+        Mock::given(method("POST"))
+            .and(path("/sandboxes"))
+            .respond_with(ResponseTemplate::new(502).set_body_string("bad gateway"))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/sandboxes"))
+            .respond_with(ResponseTemplate::new(429).set_body_json(serde_json::json!({
+                "error": {"code": "RATE_LIMITED", "message": "Slow down.", "retry_after": 1},
+            })))
+            .mount(&server)
+            .await;
+        let api = Api::for_tests(&server.uri());
+        let shell = GpuShell {
+            gpu: "h100:1".into(),
+            image: "i".into(),
+            ttl_seconds: DEFAULT_MAX_DURATION,
+            term: None,
+        };
+        let timing = Timing {
+            create_loop: Duration::from_secs(20),
+            limit_wait: Duration::from_millis(500),
+            ..Timing::default()
+        };
+        let created = tokio::time::timeout(
+            Duration::from_secs(15),
+            create(&api, &shell, &mut Injected(vec![Sig::Term]), false, &timing),
+        )
+        .await
+        .expect("the create did not finish");
+        // Not SIGTERM's 143: the failure, with the get and stop commands, is
+        // printed and the exit is 255.
+        assert_eq!(created.err(), Some(255));
+    }
+
+    #[test]
+    fn an_unknown_create_says_it_could_not_tell_once() {
+        assert_eq!(
+            unknown_note("Could not tell whether `shell-aaaaaa` was created."),
+            "hedra-cli stops nothing."
+        );
+        assert!(unknown_note("The request timed out.").contains("could not tell"));
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
     async fn ctrl_close_during_a_hanging_create_abandons_it_within_its_grace() {
         use wiremock::matchers::{method, path};
         use wiremock::{Mock, MockServer, ResponseTemplate};
@@ -603,7 +667,13 @@ mod tests {
         let started = std::time::Instant::now();
         let created = tokio::time::timeout(
             Duration::from_secs(10),
-            create(&api, &shell, &mut Injected(vec![Sig::Close]), false),
+            create(
+                &api,
+                &shell,
+                &mut Injected(vec![Sig::Close]),
+                false,
+                &Timing::default(),
+            ),
         )
         .await
         .expect("the create was not abandoned");
@@ -635,7 +705,13 @@ mod tests {
         ] {
             let created = tokio::time::timeout(
                 Duration::from_secs(5),
-                create(&api, &shell, &mut Injected(signals), false),
+                create(
+                    &api,
+                    &shell,
+                    &mut Injected(signals),
+                    false,
+                    &Timing::default(),
+                ),
             )
             .await
             .expect("the second Ctrl-C did not abandon the create");

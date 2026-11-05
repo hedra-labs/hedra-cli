@@ -89,9 +89,11 @@ pub(crate) async fn create(
     let mut limited = Duration::ZERO;
     // Whether an earlier attempt may have created the sandbox unanswered.
     let mut unanswered = false;
+    // A refusal after an unanswered attempt leaves the outcome unknown: that
+    // attempt may have created the sandbox. It keeps the refusal's class.
     let refused = |failure: Failure, unanswered: bool| {
         if unanswered {
-            Created::Refused(failure.then(may_exist(name)))
+            Created::Unknown(failure.then(may_exist(name)))
         } else {
             Created::Refused(failure)
         }
@@ -725,7 +727,7 @@ mod tests {
                 ..short()
             };
             match create(&api, &body(), "k", &timing).await {
-                Created::Refused(f) => {
+                Created::Unknown(f) => {
                     assert_eq!(f.class, Class::Limit);
                     assert!(
                         f.message.contains("hedra-cli sandbox stop --sandbox train"),
@@ -733,7 +735,7 @@ mod tests {
                         f.message
                     );
                 }
-                _ => panic!("not refused"),
+                _ => panic!("not unknown"),
             }
         }
 

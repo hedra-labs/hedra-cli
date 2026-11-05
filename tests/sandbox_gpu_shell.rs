@@ -631,7 +631,7 @@ async fn a_stop_refused_401_exits_255_with_the_sign_in_line() {
     assert_eq!(out.code, 255, "{}", out.stderr);
     let line = class_line(&out.stderr).unwrap_or_default();
     assert!(
-        line.starts_with("hedra-cli: Not signed in (2): "),
+        line.starts_with("hedra-cli: Not signed in (2): Could not stop `shell-"),
         "{}",
         out.stderr
     );
