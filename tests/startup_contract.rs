@@ -286,39 +286,77 @@ fn setting_name_at(text: &str) -> Option<&str> {
         .then_some(name)
 }
 
-/// The settings the runtime source builds from the binary's prefix, by the
-/// name after it: `format!("{prefix}_NAME")` and `format!("{}_NAME", …)`,
-/// `scoped(prefix, "_NAME")`, the runtime's `.env` deny-list, and the
-/// default User-Agent suffix flag. Test modules are skipped.
-fn runtime_settings() -> std::collections::BTreeSet<String> {
+/// The setting names `source` builds from the binary's prefix, by the name
+/// after it: `{prefix}_NAME` or `{}_NAME` in a format string, and a `"_NAME"`
+/// literal passed as the suffix argument of `scoped(`. Another `"_NAME"`
+/// literal, such as a variable name the source reads as it is, does not
+/// count. Test modules are skipped.
+fn settings_in(source: &str) -> std::collections::BTreeSet<String> {
     let mut settings = std::collections::BTreeSet::new();
-    for (_, source) in runtime_sources() {
-        let source = source.replace("\r\n", "\n");
-        let source = source
-            .split("#[cfg(test)]\nmod ")
-            .next()
-            .unwrap_or_default();
-        for line in code_lines(source) {
-            for marker in ["{prefix}", "{}", "\""] {
-                for (index, _) in line.match_indices(marker) {
-                    let rest = &line[index + marker.len()..];
-                    let quoted_suffix = marker == "\"";
-                    let Some(name) = setting_name_at(rest) else {
-                        continue;
-                    };
-                    // A quoted `"_NAME"` counts only as a whole literal, as
-                    // in `scoped(prefix, "_NAME")` or the deny-list.
-                    if quoted_suffix && !rest[1 + name.len()..].starts_with('"') {
-                        continue;
-                    }
+    let source = source.replace("\r\n", "\n");
+    let source = source
+        .split("#[cfg(test)]\nmod ")
+        .next()
+        .unwrap_or_default();
+    for line in code_lines(source) {
+        for marker in ["{prefix}", "{}"] {
+            for (index, _) in line.match_indices(marker) {
+                if let Some(name) = setting_name_at(&line[index + marker.len()..]) {
+                    settings.insert(name.to_string());
+                }
+            }
+        }
+        for (index, _) in line.match_indices("scoped(") {
+            let arguments = &line[index + "scoped(".len()..];
+            let arguments = &arguments[..arguments.find(')').unwrap_or(arguments.len())];
+            let Some((_, suffix)) = arguments.split_once(", \"") else {
+                continue;
+            };
+            if let Some(name) = setting_name_at(suffix) {
+                if suffix[1 + name.len()..].starts_with('"') {
                     settings.insert(name.to_string());
                 }
             }
         }
     }
+    settings
+}
+
+/// The settings the runtime builds from the binary's prefix: those
+/// [`settings_in`] finds in `src/`, the runtime's `.env` deny-list, and the
+/// default User-Agent suffix flag.
+fn runtime_settings() -> std::collections::BTreeSet<String> {
+    let mut settings = std::collections::BTreeSet::new();
+    for (_, source) in runtime_sources() {
+        settings.extend(settings_in(&source));
+    }
+    for suffix in string_constant(LIB_RS, "DOTENV_DENIED_SUFFIXES") {
+        settings.insert(suffix.trim_start_matches('_').to_string());
+    }
     let flag = string_constant_value(USER_AGENT_RS, "DEFAULT_SUFFIX_FLAG");
     settings.insert(flag.to_ascii_uppercase().replace('-', "_"));
     settings
+}
+
+#[test]
+fn the_setting_scan_counts_only_names_joined_to_the_prefix() {
+    let source = "\
+let proxy = first_env([scoped(prefix, \"_PROXY\")]);\r
+let log = format!(\"{prefix}_LOG\");
+let output = format!(\"{}_OUTPUT\", name);
+let index = std::env::var(\"_CLAP_COMPLETE_INDEX\");
+let other = lookup(\"_NOT_A_SETTING\");
+// let commented = format!(\"{prefix}_IN_A_COMMENT\");
+#[cfg(test)]
+mod tests {
+    const IN_A_TEST: &str = \"{prefix}_IN_A_TEST\";
+}
+";
+    let expected: std::collections::BTreeSet<String> = ["LOG", "OUTPUT", "PROXY"]
+        .into_iter()
+        .map(String::from)
+        .collect();
+    assert_eq!(settings_in(source), expected);
 }
 
 /// The value of the `&str` constant `name` in `source`.
