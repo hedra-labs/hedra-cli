@@ -28,6 +28,8 @@ pub mod pb {
 
 #[cfg(windows)]
 pub mod console;
+#[cfg(all(windows, feature = "fake-broker"))]
+pub mod console_host;
 pub mod console_text;
 #[cfg(feature = "fake-broker")]
 pub mod fake_broker;

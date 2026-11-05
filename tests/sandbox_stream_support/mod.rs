@@ -57,6 +57,15 @@ impl Run {
             .env("HEDRA_CLI_SANDBOX_PREVIEW", "1")
             .env("HEDRA_CLI_CA_BUNDLE", ca_bundle())
             .stdin(Stdio::null());
+        // Windows cannot create a socket without `SystemRoot` (WSAEPROVIDERFAILEDINIT,
+        // 10106), and the temp and profile directories are where the binary and its
+        // TLS stack look for scratch space.
+        #[cfg(windows)]
+        for key in ["SystemRoot", "TEMP", "TMP", "USERPROFILE"] {
+            if let Some(value) = std::env::var_os(key) {
+                cmd.env(key, value);
+            }
+        }
         cmd
     }
 
@@ -178,6 +187,7 @@ impl Respond for Sequence {
     }
 }
 
+#[cfg(unix)]
 pub fn signal(child: &Child, sig: i32) {
     // SAFETY: sends a signal to a child this test spawned.
     assert_eq!(unsafe { libc::kill(child.id() as i32, sig) }, 0);
@@ -280,6 +290,7 @@ impl Proxy {
     }
 
     /// Resets each tunnel's client connection (`RST`, not `FIN`).
+    #[cfg(unix)]
     pub fn reset(&self) {
         use std::os::fd::AsRawFd;
         self.control.resetting.store(true, Ordering::SeqCst);

@@ -257,3 +257,49 @@ impl ConsoleReader {
         ))
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // In CI `cargo test` runs with its standard handles as pipes, so these
+    // check the non-console paths, and skip when stdout is a console, as in a
+    // local terminal; tests/sandbox_windows.rs checks the console paths on a
+    // console of its own.
+
+    #[test]
+    fn a_pipe_is_not_a_console() {
+        if is_console(Std::Out) {
+            return;
+        }
+        let out = Output::dup(Std::Out).unwrap();
+        assert!(!out.console);
+    }
+
+    #[test]
+    fn a_failed_write_to_a_pipe_never_counts_as_the_console_gone() {
+        if is_console(Std::Out) {
+            return;
+        }
+        let out = Output::dup(Std::Out).unwrap();
+        assert!(!out.console_gone(&io::Error::from_raw_os_error(232)));
+    }
+
+    #[test]
+    fn raw_mode_is_refused_without_a_console() {
+        if is_console(Std::Out) {
+            return;
+        }
+        assert!(RawConsole::enter().is_err());
+    }
+
+    #[tokio::test]
+    async fn a_write_to_a_pipe_succeeds_and_holds_nothing_back() {
+        if is_console(Std::Out) {
+            return;
+        }
+        let mut out = Output::dup(Std::Out).unwrap();
+        out.write(b"").await.unwrap();
+        assert!(out.pending.is_empty());
+    }
+}

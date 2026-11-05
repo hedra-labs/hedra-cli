@@ -56,7 +56,10 @@ mod tests {
     #[test]
     fn a_non_ascii_keystroke_and_ctrl_z_arrive_as_utf8_and_0x1a() {
         let mut carry = None;
-        assert_eq!(decode_units(&mut carry, &units("é\u{1a}")), "é\u{1a}".as_bytes());
+        assert_eq!(
+            decode_units(&mut carry, &units("é\u{1a}")),
+            "é\u{1a}".as_bytes()
+        );
         assert_eq!(carry, None);
     }
 
