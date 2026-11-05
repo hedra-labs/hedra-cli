@@ -11,8 +11,8 @@
 //! settings in [`ALLOWED_CLI_SETTINGS`], compared in any case and set under
 //! their upper-case name, which is the one the CLI reads: credentials,
 //! the target environment, output and logging preferences, retries and
-//! timeouts. Every other key is refused. A variable the process environment
-//! already holds, as written or in upper case, is left as it is, as
+//! timeouts. Every other key is refused. A key whose upper-case name the
+//! process environment already holds is left as it is, as
 //! `dotenvy::dotenv()` does.
 //!
 //! The runtime has a `.env` loader of its own, called from `CliApp::run`
@@ -119,7 +119,8 @@ pub(crate) fn key_is_allowed(key: &str) -> bool {
 
 /// Load the nearest `.env`, setting each key [`key_is_allowed`] admits, under
 /// its upper-case name, unless the process environment already holds that
-/// upper-case name. Returns the keys it did not set for those reasons. A missing or unreadable `.env` loads nothing.
+/// upper-case name. Returns the keys it did not set for those reasons. A
+/// missing or unreadable `.env` loads nothing.
 pub(crate) fn load() -> IgnoredKeys {
     let Some(contents) = nearest_dotenv().and_then(|path| std::fs::read(path).ok()) else {
         return IgnoredKeys::default();
