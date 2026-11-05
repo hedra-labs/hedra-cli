@@ -544,16 +544,17 @@ async fn each_broker_reason_maps_to_its_class_line_and_exec_exits_255() {
     ];
     for (code, reason, expected) in cases {
         let broker = FakeBroker::start();
-        let metadata: &[(&str, &str)] = if reason == "permission_denied" {
-            &[("scope", "sandbox:exec")]
+        // The real broker names the scope only in its message.
+        let message = if reason == "permission_denied" {
+            "token lacks the sandbox:exec scope"
         } else {
-            &[]
+            "the broker says no"
         };
         broker.push_exec(ExecScript::refuse(broker_status(
             code,
             reason,
-            "the broker says no",
-            metadata,
+            message,
+            &[],
         )));
         let server = running_sandbox(&broker).await;
         let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));

@@ -14,7 +14,8 @@ pub struct BrokerStatus {
     /// carries an `ErrorInfo` in the broker's domain.
     pub reason: Option<String>,
     pub message: String,
-    /// The `ErrorInfo` metadata, such as the scope a `permission_denied` names.
+    /// The `ErrorInfo` metadata. The broker names a `permission_denied`'s
+    /// scope only in `message`, not here.
     pub metadata: Vec<(String, String)>,
 }
 
@@ -109,7 +110,7 @@ mod tests {
         let details = ErrorDetails::with_error_info(
             reason,
             domain,
-            [("scope".to_string(), "sandbox:exec".to_string())],
+            [("field".to_string(), "replica".to_string())],
         );
         tonic::Status::with_error_details(code, "msg", details)
     }
@@ -118,10 +119,7 @@ mod tests {
     fn the_reason_is_read_only_from_the_brokers_domain() {
         let s = BrokerStatus::from(&status(Code::PermissionDenied, DOMAIN, "permission_denied"));
         assert!(s.is(reason::PERMISSION_DENIED));
-        assert_eq!(
-            s.metadata,
-            [("scope".to_string(), "sandbox:exec".to_string())]
-        );
+        assert_eq!(s.metadata, [("field".to_string(), "replica".to_string())]);
         let other = BrokerStatus::from(&status(
             Code::PermissionDenied,
             "example.com",

@@ -149,6 +149,21 @@ impl Needs {
     }
 }
 
+/// The session scope a broker `permission_denied` names in its message
+/// ("token lacks the sandbox:exec scope"), without the `sandbox:` prefix.
+/// The broker sends the scope only in the message, so this is the one
+/// place to read it.
+fn scope_in_message(message: &str) -> Option<&'static str> {
+    message
+        .split(|c: char| !(c.is_ascii_alphanumeric() || c == ':' || c == '_'))
+        .find_map(|word| match word {
+            "sandbox:read" => Some("read"),
+            "sandbox:write" => Some("write"),
+            "sandbox:exec" => Some("exec"),
+            _ => None,
+        })
+}
+
 /// The exit-code class for a broker status. `started` is whether `start`
 /// or `open` was sent: after it, any end that is not a reason the table
 /// names is a dropped stream.
@@ -156,11 +171,8 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
     let message = escape_controls(&s.message);
     let class = match s.reason.as_deref() {
         Some(reason::PERMISSION_DENIED) => {
-            let scope = s
-                .metadata
-                .iter()
-                .find(|(k, _)| k == "scope")
-                .map(|(_, v)| escape_controls(&v.replacen("sandbox:", "sandboxes:", 1)))
+            let scope = scope_in_message(&s.message)
+                .map(|session_scope| format!("sandboxes:{session_scope}"))
                 .unwrap_or_else(|| needs.scope().to_string());
             let mut f = Failure::new(
                 Class::MissingScope,
@@ -1001,10 +1013,19 @@ mod tests {
         reason: Option<&str>,
         meta: &[(&str, &str)],
     ) -> BrokerStatus {
+        status_saying(code, reason, meta, "broker says")
+    }
+
+    fn status_saying(
+        code: hedra_cli_sandbox::tonic::Code,
+        reason: Option<&str>,
+        meta: &[(&str, &str)],
+        message: &str,
+    ) -> BrokerStatus {
         BrokerStatus {
             code,
             reason: reason.map(str::to_string),
-            message: "broker says".into(),
+            message: message.into(),
             metadata: meta
                 .iter()
                 .map(|(k, v)| (k.to_string(), v.to_string()))
@@ -1097,16 +1118,33 @@ mod tests {
     #[test]
     fn a_permission_denied_names_the_sessions_scope_as_the_keys() {
         let f = broker_failure(
-            &status(
+            &status_saying(
                 hedra_cli_sandbox::tonic::Code::PermissionDenied,
                 Some("permission_denied"),
-                &[("scope", "sandbox:exec")],
+                &[],
+                "token lacks the sandbox:exec scope",
             ),
             "t",
             Needs::Read,
             false,
         );
         assert!(f.message.contains("`sandboxes:exec`"), "{}", f.message);
+    }
+
+    #[test]
+    fn a_permission_denied_naming_no_scope_names_the_one_the_call_needs() {
+        let f = broker_failure(
+            &status_saying(
+                hedra_cli_sandbox::tonic::Code::PermissionDenied,
+                Some("permission_denied"),
+                &[],
+                "permission denied",
+            ),
+            "t",
+            Needs::Read,
+            false,
+        );
+        assert!(f.message.contains("`sandboxes:read`"), "{}", f.message);
     }
 
     #[test]
@@ -1123,10 +1161,11 @@ mod tests {
         let line = state_line(&s, "box");
         assert!(!line.contains('\x1b') && !line.contains('\x07'), "{line:?}");
         let f = broker_failure(
-            &status(
+            &status_saying(
                 hedra_cli_sandbox::tonic::Code::PermissionDenied,
                 Some("permission_denied"),
-                &[("scope", "sandbox:exec\x1b]52;c;aGk=\x07")],
+                &[],
+                "token lacks the sandbox:exec\x1b]52;c;aGk=\x07 scope",
             ),
             "t",
             Needs::Exec,
