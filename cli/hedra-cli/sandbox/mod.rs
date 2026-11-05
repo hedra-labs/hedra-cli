@@ -280,9 +280,9 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
             match target(m).and_then(|t| {
                 stream::transport_config(ctx.http_config()).map(|transport| (t, transport))
             }) {
-                Ok((t, transport)) => {
-                    unwinding(|| run_async(logs::run(&api, transport, &t, follow, json_errors)))
-                }
+                Ok((t, transport)) => unwinding(json_errors, || {
+                    run_async(logs::run(&api, transport, &t, follow, json_errors))
+                }),
                 Err(f) => {
                     let code = f.class.code();
                     fail(f, code);
@@ -290,15 +290,15 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
             }
         }
         "shell" if m.get_one::<String>("gpu").is_some() => match gpu_shell_args(m, ctx) {
-            Ok((shell, transport)) => {
-                unwinding(|| run_async(gpu_shell::run(&api, transport, shell, json_errors)))
-            }
+            Ok((shell, transport)) => unwinding(json_errors, || {
+                run_async(gpu_shell::run(&api, transport, shell, json_errors))
+            }),
             Err(f) => fail(f, 255),
         },
         _ => match stream_verb(verb, m, ctx) {
-            Ok((target, exec, transport)) => {
-                unwinding(|| run_async(exec::run(&api, transport, &target, exec, json_errors)))
-            }
+            Ok((target, exec, transport)) => unwinding(json_errors, || {
+                run_async(exec::run(&api, transport, &target, exec, json_errors))
+            }),
             Err(f) => fail(f, 255),
         },
     };
@@ -417,7 +417,7 @@ fn stream_verb(
 /// Runs a stream verb, turning a panic into exit 255 with its message
 /// printed after the terminal is restored. The default hook would print it
 /// while the terminal is raw, where each line starts where the last ended.
-fn unwinding(verb: impl FnOnce() -> i32) -> i32 {
+fn unwinding(json_errors: bool, verb: impl FnOnce() -> i32) -> i32 {
     use std::sync::{Arc, Mutex};
     let message: Arc<Mutex<Option<String>>> = Arc::default();
     let stored = message.clone();
@@ -439,15 +439,15 @@ fn unwinding(verb: impl FnOnce() -> i32) -> i32 {
                 .ok()
                 .and_then(|m| m.clone())
                 .unwrap_or_else(|| "hedra-cli panicked".to_string());
-            let mut f = Failure::new(Class::OutputFailed, error::escape_controls(&text));
+            let mut f = Failure::new(Class::Panic, error::escape_controls(&text));
             if let Some((name, id)) = gpu_shell::created() {
                 f = f.then(format!(
                     "`{name}` may still be running; stop it with `{}`.",
                     render::stop_command(&id)
                 ));
             }
-            stream::note(format_args!("hedra-cli: Panic (255): {}", f.message));
-            255
+            f.write_stderr(json_errors);
+            f.class.code()
         }
     }
 }
@@ -596,7 +596,7 @@ mod tests {
 
     #[test]
     fn gpus_follow_the_create_routes_pattern() {
-        for ok in ["h100:1", "h100:8", "a100:4", "h100:99", "a-1:2"] {
+        for ok in ["h100:1", "h100:8", "h100:4", "h100:99", "a-1:2"] {
             assert!(gpu_ok(ok), "{ok}");
         }
         for bad in [

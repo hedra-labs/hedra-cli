@@ -31,6 +31,8 @@ pub(crate) enum Class {
     ConnectionLost,
     Rejected,
     OutputFailed,
+    /// The verb itself panicked; the run's own failure, so 255.
+    Panic,
     Hangup,
     Terminated,
 }
@@ -51,6 +53,7 @@ impl Class {
             Class::ConnectionLost => 18,
             Class::Rejected => 19,
             Class::OutputFailed => 255,
+            Class::Panic => 255,
             Class::Hangup => 129,
             Class::Terminated => 143,
             Class::Interrupted => 130,
@@ -73,6 +76,7 @@ impl Class {
             Class::ConnectionLost => "Connection lost",
             Class::Rejected => "Rejected request",
             Class::OutputFailed => "Output failed",
+            Class::Panic => "Panic",
             Class::Hangup => "Hangup",
             Class::Terminated => "Terminated",
         }
