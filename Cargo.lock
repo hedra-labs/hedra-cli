@@ -709,6 +709,7 @@ dependencies = [
  "dotenvy",
  "form_urlencoded",
  "futures-util",
+ "hedra_cli_sandbox",
  "hedra_cli_sdk",
  "hmac",
  "httpdate",
@@ -743,6 +744,10 @@ dependencies = [
  "webbrowser",
  "wiremock",
 ]
+
+[[package]]
+name = "hedra_cli_sandbox"
+version = "0.1.0"
 
 [[package]]
 name = "hedra_cli_sdk"
