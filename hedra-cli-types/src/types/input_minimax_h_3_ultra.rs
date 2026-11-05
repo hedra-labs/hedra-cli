@@ -5,9 +5,10 @@ use super::*;
 /// Model-specific inputs for `minimax-h3-ultra`.
 /// 
 /// Accepted field combinations (one per input mode):
-/// (1) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, end_image
-/// (2) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio
-/// (3) requires: aspect_ratio, duration_ms, prompt; must omit: end_image, start_image
+/// (1) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, audios, end_image, images
+/// (2) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio, audios, images
+/// (3) requires: aspect_ratio, duration_ms, images, prompt; must omit: end_image, start_image; accepts aspect_ratio: adaptive | 16:9 | 9:16 | 1:1
+/// (4) requires: aspect_ratio, duration_ms, prompt; must omit: audios, end_image, images, start_image; accepts aspect_ratio: 16:9 | 9:16 | 1:1 | 3:4 | 4:3 | 21:9
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputMinimaxH3Ultra {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -31,9 +32,15 @@ pub struct InputMinimaxH3Ultra {
     /// End frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3UltraEndImage>,
-    /// Output aspect ratio.
+    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
+    /// Reference images. 1 to 4 images, each from 256px to 1024px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<InputMinimaxH3UltraImagesItem>>,
+    /// Reference audios. 1 to 3 audio files, each from 2s to 15s and at most 104.8 MB, at most 15s in total.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub audios: Option<Vec<InputMinimaxH3UltraAudiosItem>>,
 }
 
 impl InputMinimaxH3Ultra {
@@ -53,6 +60,8 @@ pub struct InputMinimaxH3UltraBuilder {
     start_image: Option<InputMinimaxH3UltraStartImage>,
     end_image: Option<InputMinimaxH3UltraEndImage>,
     aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
+    images: Option<Vec<InputMinimaxH3UltraImagesItem>>,
+    audios: Option<Vec<InputMinimaxH3UltraAudiosItem>>,
 }
 
 impl InputMinimaxH3UltraBuilder {
@@ -96,6 +105,16 @@ impl InputMinimaxH3UltraBuilder {
         self
     }
 
+    pub fn images(mut self, value: Vec<InputMinimaxH3UltraImagesItem>) -> Self {
+        self.images = Some(value);
+        self
+    }
+
+    pub fn audios(mut self, value: Vec<InputMinimaxH3UltraAudiosItem>) -> Self {
+        self.audios = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputMinimaxH3Ultra`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputMinimaxH3UltraBuilder::prompt)
@@ -110,6 +129,8 @@ impl InputMinimaxH3UltraBuilder {
             start_image: self.start_image,
             end_image: self.end_image,
             aspect_ratio: self.aspect_ratio,
+            images: self.images,
+            audios: self.audios,
         })
     }
 }

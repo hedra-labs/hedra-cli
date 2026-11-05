@@ -2,12 +2,13 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p.
+/// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p. `mini` — the cheapest level, at 480p and 720p, with no `generate_audio` toggle.
 #[non_exhaustive]
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum InputSeedance20Quality {
     Standard,
     Fast,
+    Mini,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -18,6 +19,7 @@ impl Serialize for InputSeedance20Quality {
         match self {
             Self::Standard => serializer.serialize_str("standard"),
             Self::Fast => serializer.serialize_str("fast"),
+            Self::Mini => serializer.serialize_str("mini"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -29,6 +31,7 @@ impl<'de> Deserialize<'de> for InputSeedance20Quality {
         match value.as_str() {
             "standard" => Ok(Self::Standard),
             "fast" => Ok(Self::Fast),
+            "mini" => Ok(Self::Mini),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -39,6 +42,7 @@ impl fmt::Display for InputSeedance20Quality {
         match self {
             Self::Standard => write!(f, "standard"),
             Self::Fast => write!(f, "fast"),
+            Self::Mini => write!(f, "mini"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }

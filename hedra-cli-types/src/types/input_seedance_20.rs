@@ -7,6 +7,7 @@ use super::*;
 /// Accepted field combinations (one per input mode):
 /// (1) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: standard
 /// (2) requires: aspect_ratio, duration_ms, prompt, resolution; accepts quality: fast; resolution: 480p | 720p
+/// (3) requires: aspect_ratio, duration_ms, prompt, resolution; must omit: generate_audio; accepts quality: mini; resolution: 480p | 720p
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct InputSeedance20 {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -40,7 +41,7 @@ pub struct InputSeedance20 {
     /// Reference audios. 1 to 3 audio files, each at most 104.8 MB, at most 15.15s in total.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub audios: Option<Vec<InputSeedance20AudiosItem>>,
-    /// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p.
+    /// Quality level to generate at. `standard` — the full model, and the only level that reaches 1080p and 4K. `fast` — tuned for turnaround, at 480p and 720p. `mini` — the cheapest level, at 480p and 720p, with no `generate_audio` toggle.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<InputSeedance20Quality>,
 }

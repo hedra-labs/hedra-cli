@@ -5,7 +5,7 @@ use super::*;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(tag = "source")]
 #[non_exhaustive]
-pub enum InputGrokVideoStartImage {
+pub enum InputMinimaxH3UltraImagesItem {
         #[serde(rename = "url")]
         #[non_exhaustive]
         Url {
@@ -27,7 +27,7 @@ pub enum InputGrokVideoStartImage {
         __Unknown(serde_json::Value),
 }
 
-impl InputGrokVideoStartImage {
+impl InputMinimaxH3UltraImagesItem {
     pub fn url(url: String) -> Self {
         Self::Url { url }
     }

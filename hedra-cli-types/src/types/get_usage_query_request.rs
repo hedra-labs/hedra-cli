@@ -5,7 +5,7 @@ use super::*;
 /// Query parameters for getUsage
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
 pub struct GetUsageQueryRequest {
-    /// Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time.
+    /// Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job and sandbox creation time.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start: Option<DateTime<FixedOffset>>,
     /// Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days.

@@ -22,7 +22,7 @@ pub struct InputKrea3 {
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputKrea3Resolution>,
-    /// Seed for reproducible output; omit for a random seed.
+    /// Accepted but not used: Krea 3 renders a different image each time, whatever the seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
 }

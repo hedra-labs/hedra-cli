@@ -36,13 +36,13 @@ pub struct InputKlingO3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
-    /// Start frame. At most 10.4 MB.
+    /// Start frame. With an aspect ratio from 0.4 to 2.5 and at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputKlingO3StartImage>,
-    /// End frame. At most 10.4 MB.
+    /// End frame. With an aspect ratio from 0.4 to 2.5 and at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputKlingO3EndImage>,
-    /// Reference images. 1 to 3 images, each at most 10.4 MB.
+    /// Reference images. 1 to 3 images, each with an aspect ratio from 0.4 to 2.5 and at most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputKlingO3ImagesItem>>,
     /// Quality level to generate at. `standard` — the 720p tier. `pro` — the high-resolution tier, at 1080p and 4K.
