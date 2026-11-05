@@ -290,10 +290,20 @@ impl HttpError {
     }
 }
 
+/// The Missing scope line, which names the next step for the credential in
+/// use: `hedra-cli auth login` cannot replace a key given in `HEDRA_API_KEY`.
 pub(crate) fn missing_scope_line(scope: &str) -> String {
+    let api_key_set = std::env::var_os("HEDRA_API_KEY").is_some_and(|v| !v.is_empty());
+    missing_scope_line_for(scope, api_key_set)
+}
+
+fn missing_scope_line_for(scope: &str, api_key_set: bool) -> String {
+    if api_key_set {
+        return format!("This key lacks `{scope}`. Set HEDRA_API_KEY to a key with it.");
+    }
     format!(
-        "This key lacks `{scope}`. Sign in again with `hedra-cli auth login`, mint a key \
-         with it in the Hedra web app, or ask a workspace owner or admin."
+        "This key lacks `{scope}`. Run `hedra-cli auth login` to get a new key, or ask a \
+         workspace owner or admin for one with it."
     )
 }
 
@@ -434,6 +444,23 @@ mod tests {
                 "class": "Limit", "exit_code": 16, "message": "Slow down.",
                 "reason": "RATE_LIMITED", "trace_id": "trace_1",
             }})
+        );
+    }
+
+    #[test]
+    fn the_missing_scope_line_says_to_sign_in_again() {
+        assert_eq!(
+            missing_scope_line_for("sandboxes:exec", false),
+            "This key lacks `sandboxes:exec`. Run `hedra-cli auth login` to get a new key, \
+             or ask a workspace owner or admin for one with it."
+        );
+    }
+
+    #[test]
+    fn with_hedra_api_key_set_the_missing_scope_line_says_to_replace_it() {
+        assert_eq!(
+            missing_scope_line_for("sandboxes:read", true),
+            "This key lacks `sandboxes:read`. Set HEDRA_API_KEY to a key with it."
         );
     }
 }

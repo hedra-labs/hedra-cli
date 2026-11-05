@@ -4,7 +4,9 @@
 //! commands (`ls`, `get`, `create`, `stop`, …), which this module does not
 //! touch.
 //!
-//! Hidden, and refusing to run, unless `HEDRA_CLI_SANDBOX_PREVIEW=1`.
+//! Unless `HEDRA_CLI_SANDBOX_PREVIEW=1`, the verbs are not grafted at all, so
+//! no help, completion script or typo suggestion names them, and
+//! [`exit_if_unreleased`] refuses a command line that runs one.
 
 mod api;
 mod error;
@@ -34,7 +36,6 @@ const PREVIEW_ENV: &str = "HEDRA_CLI_SANDBOX_PREVIEW";
 /// The verbs this module grafts into the generated group. A test asserts that
 /// no generated leaf of the group shares one of these names, since a graft
 /// replaces a generated leaf of the same name without a warning.
-#[cfg(test)]
 pub(crate) const VERBS: [&str; 4] = ["exec", "shell", "logs", "attach"];
 
 pub(crate) fn preview_enabled() -> bool {
@@ -63,27 +64,82 @@ Exit codes:
  143  terminated
  255  exec, shell: hedra-cli failed, not the command";
 
-/// The stream verbs' commands, each grafted under `sandbox` with its handler.
+/// The stream verbs' commands, each grafted under `sandbox` with its handler,
+/// or none without the preview. A hidden clap command still appears in the
+/// runtime's completion scripts, in clap's "a similar subcommand exists" tip
+/// and in `sandbox help <verb>`, so the verbs are left out of the tree.
 pub(crate) fn commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
-    let hidden = !preview_enabled();
+    if !preview_enabled() {
+        return Vec::new();
+    }
+    stream_commands()
+}
+
+fn stream_commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
     vec![
+        (exec_command(), Box::new(|m, ctx| dispatch("exec", m, ctx))),
         (
-            exec_command().hide(hidden),
-            Box::new(|m, ctx| dispatch("exec", m, ctx)),
-        ),
-        (
-            shell_command().hide(hidden),
+            shell_command(),
             Box::new(|m, ctx| dispatch("shell", m, ctx)),
         ),
+        (logs_command(), Box::new(|m, ctx| dispatch("logs", m, ctx))),
         (
-            logs_command().hide(hidden),
-            Box::new(|m, ctx| dispatch("logs", m, ctx)),
-        ),
-        (
-            attach_command().hide(hidden),
+            attach_command(),
             Box::new(|m, ctx| dispatch("attach", m, ctx)),
         ),
     ]
+}
+
+/// Without the preview, refuses a command line that runs a stream verb,
+/// sending nothing, before the runtime would answer it with an unknown
+/// subcommand. `exec` and `shell` exit 255 under the 255 rule, since their
+/// other codes are the remote command's; `logs` and `attach` exit with the
+/// Rejected request code. `args` is the command line without the program name.
+pub(crate) fn exit_if_unreleased(args: &[String]) {
+    if preview_enabled() {
+        return;
+    }
+    let Some(verb) = stream_verb_in(args) else {
+        return;
+    };
+    let f = Failure::rejected(format!(
+        "The sandbox stream commands ({}) are not released yet.",
+        VERBS.join(", ")
+    ));
+    let code = match verb {
+        "exec" | "shell" => 255,
+        _ => f.class.code(),
+    };
+    f.write_stderr(fern_cli_sdk::formatter::explicit_machine_format(args));
+    std::process::exit(code);
+}
+
+/// The stream verb `args` runs, when its first two positional arguments are
+/// `sandbox` and one of [`VERBS`]. Global flags before them are skipped, with
+/// their values.
+fn stream_verb_in(args: &[String]) -> Option<&'static str> {
+    let mut positionals: Vec<&str> = Vec::new();
+    let mut args = args.iter().map(String::as_str);
+    while positionals.len() < 2 {
+        let arg = args.next()?;
+        if arg == "--" {
+            return None;
+        }
+        if !arg.starts_with('-') || arg == "-" {
+            positionals.push(arg);
+            continue;
+        }
+        let takes_value = super::dotenv::VALUE_FLAGS.contains(&arg)
+            || super::dotenv::SHORT_VALUE_FLAGS.contains(&arg)
+            || arg == "--base-url";
+        if takes_value {
+            let _ = args.next();
+        }
+    }
+    match positionals.as_slice() {
+        [GROUP, verb] => VERBS.iter().copied().find(|v| v == verb),
+        _ => None,
+    }
 }
 
 fn sandbox_arg() -> Arg {
@@ -210,11 +266,6 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
         let _ = std::io::stdout().flush();
         std::process::exit(code);
     };
-    if !preview_enabled() {
-        let f = Failure::rejected("The sandbox stream commands are not released yet.");
-        let code = f.class.code();
-        fail(f, code);
-    }
     if flag("dry-run") {
         if let Err(f) = dry_run(verb, m) {
             let code = f.class.code();
@@ -509,11 +560,38 @@ mod tests {
                 "`sandbox {verb}` is generated too"
             );
         }
-        let grafted: Vec<String> = commands()
+        let grafted: Vec<String> = stream_commands()
             .iter()
             .map(|(c, _)| c.get_name().to_string())
             .collect();
         assert_eq!(grafted, VERBS);
+    }
+
+    #[test]
+    fn a_stream_verb_is_found_after_global_flags_and_their_values() {
+        let args = |line: &str| {
+            line.split_whitespace()
+                .map(String::from)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            stream_verb_in(&args("sandbox exec train -- true")),
+            Some("exec")
+        );
+        assert_eq!(
+            stream_verb_in(&args(
+                "--format json -p work --base-url x sandbox logs train"
+            )),
+            Some("logs")
+        );
+        assert_eq!(
+            stream_verb_in(&args("--debug sandbox attach train")),
+            Some("attach")
+        );
+        assert_eq!(stream_verb_in(&args("sandbox get train")), None);
+        assert_eq!(stream_verb_in(&args("sandbox")), None);
+        assert_eq!(stream_verb_in(&args("--format sandbox exec")), None);
+        assert_eq!(stream_verb_in(&args("-- sandbox exec")), None);
     }
 
     #[test]

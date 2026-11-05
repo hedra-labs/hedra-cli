@@ -119,7 +119,7 @@ pub(crate) async fn run(
     }
 
     let started = Instant::now();
-    let (sandbox, interrupted) = match create(api, &shell, &mut signals).await {
+    let (sandbox, interrupted) = match create(api, &shell, &mut signals, json_errors).await {
         Ok(created) => created,
         Err(code) => return code,
     };
@@ -175,6 +175,7 @@ async fn create(
     api: &Api,
     shell: &GpuShell,
     signals: &mut impl NextSig,
+    json_errors: bool,
 ) -> Result<(Sandbox, Option<Sig>), i32> {
     let timing = Timing::default();
     // The first signal, whose code a finished create exits with, and whether
@@ -189,16 +190,14 @@ async fn create(
         let created = lifecycle::create(api, &body, &key, &timing);
         tokio::pin!(created);
         let abandon = |class| {
-            let f = Failure::new(
+            Failure::new(
                 class,
                 format!(
                     "{name} may still be running; check it with hedra-cli sandbox get --sandbox \
                      {name} before stopping it with {}",
                     render::stop_command(&name)
                 ),
-            );
-            note(f.line());
-            Err(255)
+            )
         };
         let closing = tokio::time::sleep(Duration::MAX);
         tokio::pin!(closing);
@@ -206,11 +205,15 @@ async fn create(
         let outcome = loop {
             tokio::select! {
                 outcome = &mut created => break outcome,
-                _ = &mut closing, if closed => return abandon(Class::Hangup),
+                _ = &mut closing, if closed => {
+                    exec::say(&abandon(Class::Hangup), json_errors).await;
+                    return Err(255);
+                }
                 sig = signals.next_sig() => {
                     if sig == Sig::Int {
                         if ctrl_c {
-                            return abandon(Class::Interrupted);
+                            exec::say(&abandon(Class::Interrupted), json_errors).await;
+                            return Err(255);
                         }
                         ctrl_c = true;
                     }
@@ -219,9 +222,12 @@ async fn create(
                         closing.as_mut().reset(Instant::now() + CLOSE_GRACE);
                     }
                     interrupted.get_or_insert(sig);
-                    note(
+                    // Awaited, not `note`, which blocks the runtime's thread
+                    // while the terminal is slow to take the line.
+                    stream::say_line(
                         "Finishing the create so the sandbox can be stopped; press Ctrl-C again to leave it.",
-                    );
+                    )
+                    .await;
                 }
             }
         };
@@ -234,7 +240,7 @@ async fn create(
                     return Err(sig.class().code());
                 }
                 if attempt_no == 1 {
-                    note(f.then("Rerun it.").line());
+                    exec::say(&f.then("Rerun it."), json_errors).await;
                     return Err(255);
                 }
             }
@@ -242,16 +248,19 @@ async fn create(
                 if let Some(sig) = interrupted {
                     return Err(sig.class().code());
                 }
-                note(f.line());
+                exec::say(&f, json_errors).await;
                 return Err(255);
             }
             Created::Unknown(f) => {
                 // Only an id recovered through this create's own key is ever
                 // stopped; the name alone does not prove the sandbox is ours.
-                note(
-                    f.then("hedra-cli could not tell whether it was created, so it stops nothing.")
-                        .line(),
-                );
+                exec::say(
+                    &f.then(
+                        "hedra-cli could not tell whether it was created, so it stops nothing.",
+                    ),
+                    json_errors,
+                )
+                .await;
                 return Err(255);
             }
         }
@@ -594,7 +603,7 @@ mod tests {
         let started = std::time::Instant::now();
         let created = tokio::time::timeout(
             Duration::from_secs(10),
-            create(&api, &shell, &mut Injected(vec![Sig::Close])),
+            create(&api, &shell, &mut Injected(vec![Sig::Close]), false),
         )
         .await
         .expect("the create was not abandoned");
@@ -626,7 +635,7 @@ mod tests {
         ] {
             let created = tokio::time::timeout(
                 Duration::from_secs(5),
-                create(&api, &shell, &mut Injected(signals)),
+                create(&api, &shell, &mut Injected(signals), false),
             )
             .await
             .expect("the second Ctrl-C did not abandon the create");

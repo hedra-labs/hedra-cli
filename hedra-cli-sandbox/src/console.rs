@@ -119,24 +119,7 @@ impl Drop for Output {
     }
 }
 
-/// The length of `data` up to the end of its last complete UTF-8 sequence.
-pub fn complete_prefix(data: &[u8]) -> usize {
-    let tail = data.len().saturating_sub(3);
-    for i in (tail..data.len()).rev() {
-        let b = data[i];
-        if b & 0xC0 != 0x80 {
-            let need = match b {
-                0x00..=0x7F => 1,
-                0xC0..=0xDF => 2,
-                0xE0..=0xEF => 3,
-                0xF0..=0xF7 => 4,
-                _ => 1,
-            };
-            return if data.len() - i < need { i } else { data.len() };
-        }
-    }
-    data.len()
-}
+pub use crate::console_text::complete_prefix;
 
 fn write_console(handle: HANDLE, text: &[u16]) -> io::Result<()> {
     let mut rest = text;
@@ -268,28 +251,9 @@ impl ConsoleReader {
             let _ = unsafe { GetLastError() };
             return Err(io::Error::last_os_error());
         }
-        let mut all: Vec<u16> = self.carry.take().into_iter().collect();
-        all.extend_from_slice(&units[..read as usize]);
-        if let Some(&last) = all.last() {
-            if (0xD800..0xDC00).contains(&last) {
-                self.carry = all.pop();
-            }
-        }
-        Ok(String::from_utf16_lossy(&all).into_bytes())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn an_incomplete_utf8_sequence_is_held_back() {
-        assert_eq!(complete_prefix(b"abc"), 3);
-        let e_acute = "é".as_bytes();
-        assert_eq!(complete_prefix(&[b'a', e_acute[0]]), 1);
-        assert_eq!(complete_prefix(&[b'a', e_acute[0], e_acute[1]]), 3);
-        let euro = "€".as_bytes();
-        assert_eq!(complete_prefix(&euro[..2]), 0);
+        Ok(crate::console_text::decode_units(
+            &mut self.carry,
+            &units[..read as usize],
+        ))
     }
 }

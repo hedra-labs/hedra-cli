@@ -2,11 +2,11 @@
 //! stream verbs use to reach a sandbox's sessions through the broker's
 //! `SessionService`.
 //!
-//! This crate is listed in `.fernignore`, so regeneration never touches it. It
-//! is a path dependency of the root, outside any workspace like
-//! `hedra-cli-sdk`, through the generator config's `extraDependencies`, and its
-//! own tests run through its manifest:
-//! `cargo test --manifest-path hedra-cli-sandbox/Cargo.toml --features fake-broker`.
+//! `fern generate` never rewrites or deletes this crate, since `.fernignore`
+//! lists it. The root `Cargo.toml` names it as a path dependency and has no
+//! `[workspace]` table, so `cargo test` at the repository root does not run
+//! this crate's tests; run them with
+//! `cargo test --locked -p hedra_cli_sandbox`.
 
 pub use crossterm;
 pub use prost;
@@ -28,6 +28,7 @@ pub mod pb {
 
 #[cfg(windows)]
 pub mod console;
+pub mod console_text;
 #[cfg(feature = "fake-broker")]
 pub mod fake_broker;
 pub mod session;

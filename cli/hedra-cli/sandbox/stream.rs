@@ -70,14 +70,19 @@ pub(crate) fn transport_config(
         .resolve()
         .map_err(|e| Failure::rejected(e.to_string()))?;
     let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
+    // The proxy, and the variable that set it, for a refusal to name.
     let (proxy, no_proxy) = match resolved.proxy {
-        Some(p) => (Some(p.url), p.no_proxy),
+        Some(p) => (Some(("HEDRA_CLI_PROXY", p.url)), p.no_proxy),
         None => (
             ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
                 .into_iter()
-                .find_map(env),
+                .find_map(|k| env(k).map(|v| (k, v))),
             env("NO_PROXY").or_else(|| env("no_proxy")),
         ),
+    };
+    let (proxy_var, proxy) = match proxy {
+        Some((var, url)) => (Some(var), Some(url)),
+        None => (None, None),
     };
     let config = TransportConfig {
         proxy,
@@ -87,8 +92,13 @@ pub(crate) fn transport_config(
         connect_timeout: resolved.connect_timeout,
         user_agent: http.user_agent(),
     };
-    transport::check_proxy(&config)
-        .map_err(|e| Failure::rejected(escape_controls(&e.to_string())))?;
+    transport::check_proxy(&config).map_err(|e| {
+        let line = match proxy_var {
+            Some(var) => format!("{e} (set by {var})"),
+            None => e.to_string(),
+        };
+        Failure::rejected(escape_controls(&line))
+    })?;
     Ok(config)
 }
 
@@ -161,12 +171,7 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
         }
         Some(reason::QUOTA_EXCEEDED) => Class::Limit,
         Some(reason::SANDBOX_DISCONNECTED) if !started => {
-            let mut f = Failure::new(
-                Class::NotReady,
-                format!(
-                    "`{name}`'s supervisor is not connected. Run `hedra-cli sandbox get --sandbox {name}`."
-                ),
-            );
+            let mut f = Failure::new(Class::NotReady, not_connected_line(name, name));
             f.reason = s.reason.clone();
             return f;
         }
@@ -212,6 +217,10 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
     f
 }
 
+fn not_connected_line(name: &str, id: &str) -> String {
+    format!("`{name}`'s supervisor is not connected. Run `hedra-cli sandbox get --sandbox {id}`.")
+}
+
 /// A failure to open a call, classed for its exit code. A mint refused 404
 /// or 400 for a sandbox just resolved reads the sandbox and reports its state.
 pub(crate) async fn open_failure(
@@ -224,7 +233,12 @@ pub(crate) async fn open_failure(
 ) -> Failure {
     match e {
         OpenError::Refused(s) => {
-            let f = broker_failure(&s, name, needs, false);
+            let mut f = broker_failure(&s, name, needs, false);
+            if s.reason.as_deref() == Some(reason::SANDBOX_DISCONNECTED) {
+                // The name as typed may be one of several sandboxes' over
+                // time; the id names the one the session was minted for.
+                f.message = not_connected_line(name, id);
+            }
             let unreachable = hedra_cli_sandbox::stream::status::retry_before_admission(&s)
                 && matches!(waiting_for(&s), Waiting::Broker(_));
             if f.class == Class::Unavailable && unreachable {

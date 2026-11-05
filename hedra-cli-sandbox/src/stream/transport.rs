@@ -342,14 +342,21 @@ fn parse_proxy(raw: &str) -> Result<Proxy, TransportError> {
         Some((auth, hp)) => (Some(auth), hp),
         None => (None, rest),
     };
-    let (host, port) = match hostport.rsplit_once(':') {
-        Some((h, p)) if !h.ends_with(']') || h.starts_with('[') => (
-            h.trim_start_matches('[').trim_end_matches(']'),
-            p.parse::<u16>().map_err(|_| {
-                TransportError::Config(format!("the proxy `{}` has an invalid port", redact(raw)))
-            })?,
+    let invalid_port =
+        || TransportError::Config(format!("the proxy `{}` has an invalid port", redact(raw)));
+    // An IPv6 host is bracketed, and its own colons are not the port's.
+    let (host, port) = match hostport.strip_prefix('[').and_then(|r| r.split_once(']')) {
+        Some((h, "")) => (h, 80),
+        Some((h, p)) => (
+            h,
+            p.strip_prefix(':')
+                .and_then(|p| p.parse::<u16>().ok())
+                .ok_or_else(invalid_port)?,
         ),
-        _ => (hostport, 80),
+        None => match hostport.rsplit_once(':') {
+            Some((h, p)) => (h, p.parse::<u16>().map_err(|_| invalid_port())?),
+            None => (hostport, 80),
+        },
     };
     if host.is_empty() {
         return Err(TransportError::Config(format!(
@@ -646,6 +653,11 @@ mod tests {
         assert_eq!(p.port, 3128);
         assert_eq!(p.authorization.as_deref(), Some("Basic dXNlcjpwQHNz"));
         assert_eq!(Proxy::parse("proxy.local").unwrap().port, 80);
+        let v6 = Proxy::parse("http://[::1]").unwrap();
+        assert_eq!((v6.host.as_str(), v6.port), ("::1", 80));
+        let v6 = Proxy::parse("http://[::1]:3128/").unwrap();
+        assert_eq!((v6.host.as_str(), v6.port), ("::1", 3128));
+        assert!(Proxy::parse("http://[::1]x").is_err());
         for bad in [
             "https://proxy:443",
             "socks5://proxy:1080",

@@ -57,7 +57,7 @@ const BASE_URL_KEY: &str = "HEDRA_CLI_BASE_URL";
 
 /// Global flags that take a value, as the next argument or after `=`, for
 /// [`sends_request_to_default_target`] (`--base-url` is handled on its own).
-const VALUE_FLAGS: [&str; 5] = [
+pub(super) const VALUE_FLAGS: [&str; 5] = [
     "--format",
     "--user-agent-suffix",
     "--query",
@@ -66,7 +66,7 @@ const VALUE_FLAGS: [&str; 5] = [
 ];
 
 /// Short global flags that take a value, also attached (`-pNAME`).
-const SHORT_VALUE_FLAGS: [&str; 1] = ["-p"];
+pub(super) const SHORT_VALUE_FLAGS: [&str; 1] = ["-p"];
 
 /// Global flags that take no value.
 const BOOLEAN_FLAGS: [&str; 5] = ["--dry-run", "--human", "--quiet", "-q", "--debug"];

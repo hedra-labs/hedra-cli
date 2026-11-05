@@ -437,7 +437,9 @@ async fn a_second_ctrl_c_abandons_the_create_and_stops_nothing() {
     let line = class_line(&out.stderr).unwrap_or_default();
     assert!(
         line.starts_with("hedra-cli: Interrupted (130): shell-")
-            && line.contains("may still be running; check it with hedra-cli sandbox get --sandbox shell-")
+            && line.contains(
+                "may still be running; check it with hedra-cli sandbox get --sandbox shell-"
+            )
             && line.contains("before stopping it with hedra-cli sandbox stop --sandbox shell-"),
         "{}",
         out.stderr

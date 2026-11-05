@@ -104,9 +104,11 @@ async fn exec_relays_output_byte_for_byte_and_passes_the_exit_code_through() {
     assert_eq!(start.env.get("A").map(String::as_str), Some("1"));
 }
 
-/// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are hidden from the
-/// `sandbox` group's help and refuse to run, sending nothing; the generated
-/// commands beside them are not gated.
+/// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are named nowhere,
+/// in the `sandbox` group's help, a completion script, a typo suggestion or
+/// `sandbox help <verb>`, and refuse to run, sending nothing: `exec` exits 255
+/// under the 255 rule and `logs` exits 19. The generated commands beside them
+/// are not gated.
 #[tokio::test]
 async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
     let server = MockServer::start().await;
@@ -119,14 +121,54 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
     let help = stdout(&help);
     for verb in ["exec", "shell", "logs", "attach"] {
         assert!(
-            !help.lines().any(|l| l.trim_start().starts_with(&format!("{verb} "))),
+            !help
+                .lines()
+                .any(|l| l.trim_start().starts_with(&format!("{verb} "))),
             "{verb} is listed: {help}"
         );
     }
-    assert!(help.lines().any(|l| l.trim_start().starts_with("get ")), "{help}");
+    assert!(
+        help.lines().any(|l| l.trim_start().starts_with("get ")),
+        "{help}"
+    );
+
+    for shell in ["zsh", "bash"] {
+        let script = run
+            .command(&["completion", shell])
+            .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+            .output()
+            .unwrap();
+        let script = stdout(&script);
+        assert!(
+            script.contains("gpus"),
+            "{shell}: the generated commands are missing"
+        );
+        assert!(!script.contains("relaying its stdin"), "{shell} names exec");
+    }
+    for args in [&["sandbox", "exe"][..], &["sandbox", "help", "exec"][..]] {
+        let out = run
+            .command(args)
+            .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+            .output()
+            .unwrap();
+        let text = format!("{}{}", stdout(&out), stderr(&out));
+        assert!(!text.contains("similar subcommand"), "{args:?}: {text}");
+        assert!(!text.contains("relaying its stdin"), "{args:?}: {text}");
+    }
 
     let out = run
         .command(&["sandbox", "exec", ID, "-n", "--", "true"])
+        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+    assert!(
+        stderr(&out).contains("(exec, shell, logs, attach) are not released yet"),
+        "{}",
+        stderr(&out)
+    );
+    let out = run
+        .command(&["sandbox", "logs", ID])
         .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
         .output()
         .unwrap();
@@ -135,7 +177,9 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
 
     let with_preview = stdout(&run.run(&["sandbox", "--help"]));
     assert!(
-        with_preview.lines().any(|l| l.trim_start().starts_with("exec ")),
+        with_preview
+            .lines()
+            .any(|l| l.trim_start().starts_with("exec ")),
         "{with_preview}"
     );
 }
@@ -738,7 +782,7 @@ async fn a_socks_proxy_is_refused_before_any_request() {
         class_line(&stderr(&out)),
         Some(
             "hedra-cli: Rejected request (19): a SOCKS proxy is not supported for sandbox \
-             sessions; use an http:// proxy"
+             sessions; use an http:// proxy (set by HTTPS_PROXY)"
         )
     );
     assert!(server.received_requests().await.unwrap().is_empty());
