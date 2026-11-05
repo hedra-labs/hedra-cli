@@ -411,6 +411,41 @@ async fn ctrl_c_during_the_reads_before_the_create_creates_nothing() {
     assert_eq!(stops(&server).await, 0);
 }
 
+/// A first Ctrl-C during the create does not abandon it; a second does, and
+/// since no answer named the sandbox's id, hedra-cli stops nothing and says to
+/// check the name before stopping it.
+#[tokio::test]
+async fn a_second_ctrl_c_abandons_the_create_and_stops_nothing() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/sandboxes"))
+        .respond_with(
+            ResponseTemplate::new(201)
+                .set_body_json(sandbox(GPU_ID, "shell-aaaaaa", "active", running()))
+                .set_delay(Duration::from_secs(120)),
+        )
+        .mount(&server)
+        .await;
+    let out = on_pty(&Run::new(&server), |child| {
+        child.pid();
+        std::thread::sleep(Duration::from_millis(1500));
+        child.signal(libc::SIGINT);
+        std::thread::sleep(Duration::from_millis(500));
+        child.signal(libc::SIGINT);
+    });
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    let line = class_line(&out.stderr).unwrap_or_default();
+    assert!(
+        line.starts_with("hedra-cli: Interrupted (130): shell-")
+            && line.contains("may still be running; check it with hedra-cli sandbox get --sandbox shell-")
+            && line.contains("before stopping it with hedra-cli sandbox stop --sandbox shell-"),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(creates(&server).await.len(), 1);
+    assert_eq!(stops(&server).await, 0);
+}
+
 #[tokio::test]
 async fn ctrl_c_while_the_stop_after_sigterm_is_unanswered_exits_255() {
     let broker = FakeBroker::start();

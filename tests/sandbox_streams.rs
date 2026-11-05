@@ -104,6 +104,42 @@ async fn exec_relays_output_byte_for_byte_and_passes_the_exit_code_through() {
     assert_eq!(start.env.get("A").map(String::as_str), Some("1"));
 }
 
+/// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are hidden from the
+/// `sandbox` group's help and refuse to run, sending nothing; the generated
+/// commands beside them are not gated.
+#[tokio::test]
+async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
+    let server = MockServer::start().await;
+    let run = Run::new(&server);
+    let help = run
+        .command(&["sandbox", "--help"])
+        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+        .output()
+        .unwrap();
+    let help = stdout(&help);
+    for verb in ["exec", "shell", "logs", "attach"] {
+        assert!(
+            !help.lines().any(|l| l.trim_start().starts_with(&format!("{verb} "))),
+            "{verb} is listed: {help}"
+        );
+    }
+    assert!(help.lines().any(|l| l.trim_start().starts_with("get ")), "{help}");
+
+    let out = run
+        .command(&["sandbox", "exec", ID, "-n", "--", "true"])
+        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(19), "{}", stderr(&out));
+    assert!(server.received_requests().await.unwrap().is_empty());
+
+    let with_preview = stdout(&run.run(&["sandbox", "--help"]));
+    assert!(
+        with_preview.lines().any(|l| l.trim_start().starts_with("exec ")),
+        "{with_preview}"
+    );
+}
+
 /// A name is resolved once, through `GET /sandboxes/{name}`, and the stream
 /// uses the id it answers.
 #[tokio::test]
