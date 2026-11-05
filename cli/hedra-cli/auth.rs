@@ -287,7 +287,7 @@ fn resolve_auth_endpoints(
 /// authorization code to an unintended token endpoint is the one mistake here
 /// that hands over a credential — so it errors instead.
 ///
-/// Not advertised in `--help` or the README: it exists for operators
+/// Not advertised in `--help`: it exists for operators
 /// recovering from a broken discovery document, and for pointing the flow at
 /// a local or mock authorization server. Both legs must be https (loopback
 /// exempt) — the token leg carries the PKCE exchange. Only the process

@@ -36,6 +36,7 @@ use fern_cli_sdk::error::CliError;
 use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
 use fern_cli_sdk::openapi::{commands, load_openapi_spec};
 use serde_json::Value;
+use std::io::Write;
 
 /// Set up the CLI and run the command, then exit with its code. Never returns.
 ///
@@ -61,6 +62,12 @@ pub fn register(app: CliApp) -> CliApp {
     auth::derive_base_url_from_hedra_env();
     fern_cli_sdk::init_logging("hedra-cli");
     dotenv::report_ignored(&ignored_dotenv_keys);
+    // Not part of `run`'s setup: a `.env` base URL the CLI refuses would send
+    // the command to the default API, so it fails before any request.
+    if let Some(error) = dotenv::base_url_refusal(&ignored_dotenv_keys) {
+        let _ = writeln!(std::io::stderr(), "{error}");
+        std::process::exit(CliError::EXIT_CODE_VALIDATION);
+    }
 
     let code = configure(app).try_run_from(std::env::args_os());
     std::process::exit(code)
