@@ -470,17 +470,21 @@ impl Stopper<'_> {
         let accepted = match accepted {
             Ok(s) => s,
             Err(f) if failed => {
-                stream::say_line(format_args!(
-                    "Could not stop `{name}`: {} {}",
-                    f.message,
-                    idle_ttl_line(id)
-                ))
-                .await;
+                let tail = if f.class == Class::NotFound {
+                    String::new()
+                } else {
+                    format!(" {}", idle_ttl_line(id))
+                };
+                stream::say_line(format_args!("Could not stop `{name}`: {}{tail}", f.message))
+                    .await;
                 return 255;
             }
             Err(mut f) => {
                 f.message = format!("Could not stop `{name}`: {}", f.message);
-                let f = f.then(idle_ttl_line(id));
+                // A sandbox the stop cannot find has nothing left to stop sooner.
+                if f.class != Class::NotFound {
+                    f = f.then(idle_ttl_line(id));
+                }
                 exec::say(&f, json).await;
                 return 255;
             }

@@ -434,11 +434,7 @@ pub(crate) async fn request_stop(
         if Instant::now() + wait >= deadline {
             let mut failure = Failure::new(
                 Class::Unavailable,
-                format!(
-                    "Could not confirm the stop: `{name}` may still be running, or may still \
-                     start. Retry with `{}`.",
-                    super::render::stop_command(id)
-                ),
+                "Could not confirm the stop: it may still be running, or may still start.",
             );
             if let CallError::Http(h) = &e {
                 failure.trace_id = h.envelope.trace_id.clone();
@@ -903,12 +899,6 @@ mod tests {
             assert_eq!(f.class, Class::Unavailable);
             assert!(
                 f.message.contains("Could not confirm the stop"),
-                "{}",
-                f.message
-            );
-            assert!(
-                f.message
-                    .contains("hedra-cli sandbox stop --sandbox sandbox_1"),
                 "{}",
                 f.message
             );
