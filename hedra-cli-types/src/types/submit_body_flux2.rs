@@ -3,28 +3,28 @@ pub use crate::prelude::*;
 use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-pub struct SubmitBodyGrokVideo {
-    pub input: InputGrokVideo,
+pub struct SubmitBodyFlux2 {
+    pub input: InputFlux2,
     /// URL to receive a signed completion webhook.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub webhook: Option<String>,
 }
 
-impl SubmitBodyGrokVideo {
-    pub fn builder() -> SubmitBodyGrokVideoBuilder {
-        <SubmitBodyGrokVideoBuilder as Default>::default()
+impl SubmitBodyFlux2 {
+    pub fn builder() -> SubmitBodyFlux2Builder {
+        <SubmitBodyFlux2Builder as Default>::default()
     }
 }
 
 #[derive(Clone, PartialEq, Default, Debug)]
 #[non_exhaustive]
-pub struct SubmitBodyGrokVideoBuilder {
-    input: Option<InputGrokVideo>,
+pub struct SubmitBodyFlux2Builder {
+    input: Option<InputFlux2>,
     webhook: Option<String>,
 }
 
-impl SubmitBodyGrokVideoBuilder {
-    pub fn input(mut self, value: InputGrokVideo) -> Self {
+impl SubmitBodyFlux2Builder {
+    pub fn input(mut self, value: InputFlux2) -> Self {
         self.input = Some(value);
         self
     }
@@ -34,11 +34,11 @@ impl SubmitBodyGrokVideoBuilder {
         self
     }
 
-    /// Consumes the builder and constructs a [`SubmitBodyGrokVideo`].
+    /// Consumes the builder and constructs a [`SubmitBodyFlux2`].
     /// This method will fail if any of the following fields are not set:
-    /// - [`input`](SubmitBodyGrokVideoBuilder::input)
-    pub fn build(self) -> Result<SubmitBodyGrokVideo, BuildError> {
-        Ok(SubmitBodyGrokVideo {
+    /// - [`input`](SubmitBodyFlux2Builder::input)
+    pub fn build(self) -> Result<SubmitBodyFlux2, BuildError> {
+        Ok(SubmitBodyFlux2 {
             input: self.input.ok_or_else(|| BuildError::missing_field("input"))?,
             webhook: self.webhook,
         })

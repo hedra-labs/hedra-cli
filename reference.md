@@ -32,7 +32,7 @@ Get Usage
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job-creation time. |
+| `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job and sandbox creation time. |
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
 
@@ -48,7 +48,8 @@ already reflect them; `GET /v3/models` shows list prices.
 
 Every movement of the API wallet's balance, newest first: funds added,
 jobs charged, charges refunded, and corrections. Chat requests are summed
-into one `llm_usage` row per model per UTC day. Scoped to the workspace the
+into one `llm_usage` row per model per UTC day. A GPU sandbox's charges
+and refunds are summed into one `sandbox_usage` row. Scoped to the workspace the
 credential bills, the same one `GET /v3/balance` reports, so an
 `llm_usage` row sums every member's requests.
 
@@ -413,7 +414,21 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-flux-kontext-max`
+#### `hedra-cli jobs submit-flux-kontext`
+
+Reference-image support for character, brand, or style consistency.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/flux-kontext`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-flux-kontext-max` `[DEPRECATED]`
+
+Deprecated: run `flux-kontext` with `input.quality` `max` instead.
 
 Highest-fidelity reference-image support for complex, multi-element scenes and perfectly matched branded visuals.
 
@@ -425,7 +440,9 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-flux-kontext-pro`
+#### `hedra-cli jobs submit-flux-kontext-pro` `[DEPRECATED]`
+
+Deprecated: run `flux-kontext` with `input.quality` `pro` instead.
 
 Reference-image support for character, brand, or style consistency.
 
@@ -437,7 +454,21 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-flux2-flex`
+#### `hedra-cli jobs submit-flux2`
+
+The everyday Flux.2 tier — style transfer and sequential edits that hold together across passes.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/flux2`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-flux2-flex` `[DEPRECATED]`
+
+Deprecated: run `flux2` with `input.quality` `flex` instead.
 
 The tunable Flux.2 tier — trade denoising steps against speed per generation.
 
@@ -461,7 +492,9 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-flux2-max`
+#### `hedra-cli jobs submit-flux2-max` `[DEPRECATED]`
+
+Deprecated: run `flux2` with `input.quality` `max` instead.
 
 The top Flux.2 tier, for realism and precision in final deliverables.
 
@@ -473,7 +506,9 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-flux2-pro`
+#### `hedra-cli jobs submit-flux2-pro` `[DEPRECATED]`
+
+Deprecated: run `flux2` with `input.quality` `pro` instead.
 
 The everyday Flux.2 tier — style transfer and sequential edits that hold together across passes.
 
@@ -576,18 +611,6 @@ xAI's current Grok Imagine — the same irreverence at higher fidelity, from a p
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/grok-imagine-20`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-grok-video`
-
-Short, punchy clips from a prompt at 480p or 720p.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/grok-video`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -965,7 +988,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-minimax-h3-ultra`
 
-MiniMax H3 Ultra video generation from text, a start frame, or a first and last frame.
+MiniMax H3 Ultra video generation from text, keyframes, or reference images.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -1227,7 +1250,9 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-seedance-20-mini`
+#### `hedra-cli jobs submit-seedance-20-mini` `[DEPRECATED]`
+
+Deprecated: run `seedance-20` with `input.quality` `mini` instead.
 
 The lightest Seedance tier — short reference-driven clips at 480p and 720p.
 
@@ -1277,7 +1302,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-seedream-50-lite`
 
-Sharp 2K and 4K stills from a prompt, at the light tier's price.
+Sharp 2K and 4K stills from a prompt, or edits and blends of source images, at the light tier's price.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -1289,7 +1314,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-seedream-50-pro`
 
-The top Seedream tier — layer-separable output and strong multilingual in-image text, up to 2K.
+The top Seedream tier — layer-separable output, precise edits to a source image, and strong multilingual in-image text, up to 2K.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
