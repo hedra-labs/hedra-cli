@@ -193,8 +193,8 @@ fn ignored_dotenv_keys_are_warned_about_one_by_one() {
 
 /// The part of the base-URL refusal every rendering of it carries.
 const BASE_URL_REFUSAL: &str =
-    "a .env file sets hedra_cli_base_url, which a .env file cannot set, \
-                                so the command did not run";
+    "a .env file sets hedra_cli_base_url, which a .env file cannot set, so the command did not \
+     run rather than send a request to an API other than the one that file names";
 
 /// A project whose `.env` sets the base URL, in lower case, to `base_url`.
 fn base_url_project(base_url: &str) -> TempDir {
@@ -303,6 +303,8 @@ fn a_dotenv_base_url_does_not_stop_a_command_that_sends_nothing() {
         &["completion", "bash"],
         &["auth", "logout"],
         &["auth", "status"],
+        &["--format", "json", "--schema"],
+        &["errors"],
     ] {
         let out = sandboxed(project.path(), home.path())
             .args(args)

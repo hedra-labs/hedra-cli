@@ -306,20 +306,45 @@ fn settings_in(source: &str) -> std::collections::BTreeSet<String> {
                 }
             }
         }
-        for (index, _) in line.match_indices("scoped(") {
-            let arguments = &line[index + "scoped(".len()..];
-            let arguments = &arguments[..arguments.find(')').unwrap_or(arguments.len())];
-            let Some((_, suffix)) = arguments.split_once(", \"") else {
-                continue;
-            };
-            if let Some(name) = setting_name_at(suffix) {
-                if suffix[1 + name.len()..].starts_with('"') {
-                    settings.insert(name.to_string());
-                }
+    }
+    // `scoped(` calls are read from the code lines joined, so a call that
+    // rustfmt split over lines, or whose prefix argument holds parentheses,
+    // still counts.
+    let joined = code_lines(source).join(" ");
+    for (index, _) in joined.match_indices("scoped(") {
+        let Some(arguments) = balanced_arguments(&joined[index + "scoped(".len()..]) else {
+            continue;
+        };
+        let arguments = arguments.trim().trim_end_matches(',').trim_end();
+        let Some((_, suffix)) = arguments.rsplit_once(", \"") else {
+            continue;
+        };
+        if let Some(name) = setting_name_at(suffix) {
+            if suffix[1 + name.len()..] == *"\"" {
+                settings.insert(name.to_string());
             }
         }
     }
     settings
+}
+
+/// The text of a call's arguments, from just after its opening parenthesis
+/// up to the matching closing one, or `None` when it does not close.
+fn balanced_arguments(text: &str) -> Option<&str> {
+    let mut depth = 1;
+    for (index, c) in text.char_indices() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(&text[..index]);
+                }
+            }
+            _ => {}
+        }
+    }
+    None
 }
 
 /// The settings the runtime builds from the binary's prefix: those
@@ -342,6 +367,10 @@ fn runtime_settings() -> std::collections::BTreeSet<String> {
 fn the_setting_scan_counts_only_names_joined_to_the_prefix() {
     let source = "\
 let proxy = first_env([scoped(prefix, \"_PROXY\")]);\r
+let ca = first_env([scoped(
+    cfg.prefix(),
+    \"_CA_BUNDLE\",
+)]);
 let log = format!(\"{prefix}_LOG\");
 let output = format!(\"{}_OUTPUT\", name);
 let index = std::env::var(\"_CLAP_COMPLETE_INDEX\");
@@ -352,7 +381,7 @@ mod tests {
     const IN_A_TEST: &str = \"{prefix}_IN_A_TEST\";
 }
 ";
-    let expected: std::collections::BTreeSet<String> = ["LOG", "OUTPUT", "PROXY"]
+    let expected: std::collections::BTreeSet<String> = ["CA_BUNDLE", "LOG", "OUTPUT", "PROXY"]
         .into_iter()
         .map(String::from)
         .collect();

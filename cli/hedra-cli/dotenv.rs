@@ -55,9 +55,27 @@ const ALLOWED_CLI_SETTINGS: [&str; 6] = [
 /// that would send a request to the default API (see [`base_url_refusal`]).
 const BASE_URL_KEY: &str = "HEDRA_CLI_BASE_URL";
 
-/// Global flags that take a value as the next argument, for
-/// [`sends_request_to_default_target`].
-const VALUE_FLAGS: [&str; 2] = ["--format", "--user-agent-suffix"];
+/// Global flags that take a value, as the next argument or after `=`, for
+/// [`sends_request_to_default_target`] (`--base-url` is handled on its own).
+const VALUE_FLAGS: [&str; 4] = ["--format", "--user-agent-suffix", "--query", "--profile"];
+
+/// Short global flags that take a value, also attached (`-pNAME`).
+const SHORT_VALUE_FLAGS: [&str; 1] = ["-p"];
+
+/// Global flags that take no value.
+const BOOLEAN_FLAGS: [&str; 5] = ["--dry-run", "--human", "--quiet", "-q", "--debug"];
+
+/// Flags that make any command print something locally instead of sending a
+/// request.
+const LOCAL_ONLY_FLAGS: [&str; 7] = [
+    "--help",
+    "-h",
+    "--version",
+    "-V",
+    "--schema",
+    "--spec",
+    "--spec-raw",
+];
 
 /// Ignored keys outside `HEDRA_` that are named on stderr, compared in any
 /// case: a `.env` that sets a proxy, trust-store or pager variable most likely
@@ -206,17 +224,21 @@ pub(crate) fn base_url_refusal(
     }
     Some(format!(
         "a .env file sets {key}, which a .env file cannot set, so the command did not run \
-         rather than send a request to the default API. To run it, set the base URL you want \
-         in your shell (for example {BASE_URL_KEY}=https://api.hedra.com/v3) or pass \
-         --base-url, or run it from outside the directory that holds the .env file."
+         rather than send a request to an API other than the one that file names. To run it, \
+         set the base URL you want in your shell (for example \
+         {BASE_URL_KEY}=https://api.hedra.com/v3) or pass --base-url, or run it from outside \
+         the directory that holds the .env file."
     ))
 }
 
 /// Whether the command line `args` (without the program name) may send a
 /// request to the base URL the environment chooses: not when it asks only
-/// for help, the version or shell completion, runs `auth logout` or
-/// `auth status`, or passes `--base-url`. Anything this cannot tell apart
-/// counts as sending a request.
+/// for help, the version, a schema or spec, shell completion, a man page or
+/// the exit-code table, runs `auth logout` or `auth status`, or passes
+/// `--base-url`. Anything this cannot tell apart counts as sending a request:
+/// a flag before the command that is not a known global flag, and a bare
+/// command group, which prints help for most groups but sends a request for
+/// `workspaces`, so is refused too.
 fn sends_request_to_default_target(args: &[String]) -> bool {
     let mut positionals: Vec<&str> = Vec::new();
     let mut args = args.iter().map(String::as_str);
@@ -225,23 +247,40 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
             positionals.extend(args.by_ref());
             break;
         }
-        if arg == "--base-url" || arg.starts_with("--base-url=") {
-            return false;
-        }
-        if matches!(arg, "--help" | "-h" | "--version" | "-V") {
-            return false;
-        }
-        if VALUE_FLAGS.contains(&arg) {
-            let _ = args.next();
+        if !arg.starts_with('-') || arg == "-" {
+            positionals.push(arg);
             continue;
         }
-        if !arg.starts_with('-') {
-            positionals.push(arg);
+        let (flag, inline_value) = match arg.split_once('=') {
+            Some((flag, _)) => (flag, true),
+            None => (arg, false),
+        };
+        if flag == "--base-url" || LOCAL_ONLY_FLAGS.contains(&flag) {
+            return false;
+        }
+        // `-pNAME`: a short value flag with its value attached.
+        let attached_short_value = SHORT_VALUE_FLAGS
+            .iter()
+            .any(|short| flag.len() > short.len() && flag.starts_with(short));
+        if VALUE_FLAGS.contains(&flag) || SHORT_VALUE_FLAGS.contains(&flag) {
+            if !inline_value {
+                let _ = args.next();
+            }
+            continue;
+        }
+        if attached_short_value || BOOLEAN_FLAGS.contains(&flag) {
+            continue;
+        }
+        // An unknown flag before the command may take a value that would
+        // then read as the command, so it cannot be classified. After the
+        // command it belongs to that command, and only the command matters.
+        if positionals.is_empty() {
+            return true;
         }
     }
     !matches!(
         positionals.as_slice(),
-        [] | ["help", ..] | ["completion", ..] | ["auth", "logout" | "status", ..]
+        [] | ["help" | "completion" | "man" | "errors", ..] | ["auth", "logout" | "status", ..]
     )
 }
 
@@ -509,6 +548,17 @@ mod tests {
             "auth login",
             "workspaces list",
             "--dry-run models list",
+            "-q --debug models list",
+            "--query data models list",
+            "-p help models list",
+            "--profile help models list",
+            "--profile=work models list",
+            "-p=work models list",
+            "-pwork models list",
+            "--some-new-flag help models list",
+            "--some-new-flag=x auth status",
+            "jobs",
+            "workspaces",
         ] {
             assert!(sends_request_to_default_target(&args(line)), "{line}");
         }
@@ -528,6 +578,18 @@ mod tests {
             "auth status",
             "--base-url https://example.test/v3 models list",
             "models list --base-url=https://example.test/v3",
+            "--profile p auth status",
+            "-p p auth status",
+            "--profile=p auth logout",
+            "-pp auth status",
+            "--format=json --query data help",
+            "--human -q --debug --dry-run completion zsh",
+            "models list --schema",
+            "--spec",
+            "--spec-raw",
+            "man",
+            "errors",
+            "auth status --some-command-flag x",
         ] {
             assert!(!sends_request_to_default_target(&args(line)), "{line}");
         }
