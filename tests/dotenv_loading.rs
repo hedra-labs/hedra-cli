@@ -191,10 +191,28 @@ fn ignored_dotenv_keys_are_warned_about_one_by_one() {
     }
 }
 
-/// A `.env` base URL is refused, and the command fails before any request
-/// instead of running against the default API with the stored credential.
+/// The part of the base-URL refusal every rendering of it carries.
+const BASE_URL_REFUSAL: &str =
+    "a .env file sets hedra_cli_base_url, which a .env file cannot set, \
+                                so the command did not run";
+
+/// A project whose `.env` sets the base URL, in lower case, to `base_url`.
+fn base_url_project(base_url: &str) -> TempDir {
+    let project = TempDir::new().expect("project dir");
+    std::fs::write(
+        project.path().join(".env"),
+        format!("hedra_cli_base_url={base_url}\n"),
+    )
+    .expect("write .env");
+    project
+}
+
+/// A `.env` base URL is refused, and a command that would send a request to
+/// the default API fails before sending it: under `--format json` with the
+/// runtime's validation error envelope on stdout, under a table with one
+/// line on stderr.
 #[test]
-fn a_dotenv_base_url_fails_the_command() {
+fn a_dotenv_base_url_fails_a_command_that_would_send_a_request() {
     let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
     rt.block_on(async {
         let server = MockServer::start().await;
@@ -204,13 +222,9 @@ fn a_dotenv_base_url_fails_the_command() {
             )
             .mount(&server)
             .await;
-        let project = TempDir::new().expect("project dir");
-        std::fs::write(
-            project.path().join(".env"),
-            format!("hedra_cli_base_url={}\n", server.uri()),
-        )
-        .expect("write .env");
+        let project = base_url_project(&server.uri());
         let home = TempDir::new().expect("temp HOME");
+
         let out = sandboxed(project.path(), home.path())
             .args(["--format", "json", "models", "list"])
             .env("HEDRA_API_KEY", "test-key")
@@ -218,35 +232,153 @@ fn a_dotenv_base_url_fails_the_command() {
             .expect("run hedra-cli");
         let stderr = String::from_utf8_lossy(&out.stderr);
         assert_eq!(out.status.code(), Some(3), "stderr:\n{stderr}");
-        assert!(
-            stderr.contains(
-                "hedra-cli: error: a .env file set hedra_cli_base_url, which it cannot set, \
-                 so the command did not run"
-            ),
-            "stderr:\n{stderr}"
-        );
+        let envelope: serde_json::Value =
+            serde_json::from_slice(&out.stdout).unwrap_or_else(|_| {
+                panic!(
+                    "stdout is not JSON:\n{}\nstderr:\n{stderr}",
+                    String::from_utf8_lossy(&out.stdout)
+                )
+            });
+        assert_eq!(envelope["error"]["reason"], "validationError", "{envelope}");
+        let message = envelope["error"]["message"].as_str().unwrap_or_default();
+        assert!(message.contains(BASE_URL_REFUSAL), "{envelope}");
+        assert!(!stderr.contains(BASE_URL_REFUSAL), "stderr:\n{stderr}");
+        assert!(!stderr.contains(IGNORED_LINE), "stderr:\n{stderr}");
+
+        let out = sandboxed(project.path(), home.path())
+            .args(["--format", "table", "models", "list"])
+            .env("HEDRA_API_KEY", "test-key")
+            .output()
+            .expect("run hedra-cli");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(3), "stderr:\n{stderr}");
+        assert!(stderr.contains(BASE_URL_REFUSAL), "stderr:\n{stderr}");
+        assert!(!stderr.contains(IGNORED_LINE), "stderr:\n{stderr}");
         assert!(
             out.stdout.is_empty(),
             "stdout:\n{}",
             String::from_utf8_lossy(&out.stdout)
         );
+
+        // A `HEDRA_ENV` from the same `.env` is not the user's own choice of
+        // target, so it does not lift the refusal.
+        let both = TempDir::new().expect("project dir");
+        std::fs::write(
+            both.path().join(".env"),
+            format!("HEDRA_ENV=staging\nhedra_cli_base_url={}\n", server.uri()),
+        )
+        .expect("write .env");
+        let out = sandboxed(both.path(), home.path())
+            .args(["--format", "json", "models", "list"])
+            .env("HEDRA_API_KEY", "test-key")
+            .output()
+            .expect("run hedra-cli");
+        assert_eq!(
+            out.status.code(),
+            Some(3),
+            "stderr:\n{}",
+            String::from_utf8_lossy(&out.stderr)
+        );
+
         let requests = server
             .received_requests()
             .await
             .expect("mock server recorded requests");
         assert!(requests.is_empty(), "{requests:?}");
-        assert!(!stderr.contains(IGNORED_LINE), "stderr:\n{stderr}");
+    });
+}
 
-        // Passing `--base-url` does not get round it: the `.env` still fails
-        // every command, which the error does not suggest otherwise.
+/// A command that sends no request still runs under a `.env` base URL, and
+/// the ignored-keys line names the key.
+#[test]
+fn a_dotenv_base_url_does_not_stop_a_command_that_sends_nothing() {
+    let project = base_url_project(DEAD_BASE_URL);
+    let home = TempDir::new().expect("temp HOME");
+    for args in [
+        &["--help"][..],
+        &["help"],
+        &["models", "list", "-h"],
+        &["--version"],
+        &["-V"],
+        &["completion", "bash"],
+        &["auth", "logout"],
+        &["auth", "status"],
+    ] {
         let out = sandboxed(project.path(), home.path())
-            .args(["--base-url", &server.uri(), "--version"])
+            .args(args)
             .output()
             .expect("run hedra-cli");
         let stderr = String::from_utf8_lossy(&out.stderr);
-        assert_eq!(out.status.code(), Some(3), "stderr:\n{stderr}");
-        assert!(!stderr.contains("--base-url"), "stderr:\n{stderr}");
+        assert_ne!(out.status.code(), Some(3), "{args:?}; stderr:\n{stderr}");
+        assert!(
+            !stderr.contains(BASE_URL_REFUSAL),
+            "{args:?}; stderr:\n{stderr}"
+        );
+        assert!(
+            stderr.contains(&format!("{IGNORED_LINE} hedra_cli_base_url")),
+            "{args:?}; stderr:\n{stderr}"
+        );
+    }
+}
+
+/// `--base-url` chooses the target itself, so a `.env` base URL does not
+/// stop the command, and the request goes where the flag says.
+#[test]
+fn a_base_url_flag_runs_despite_a_dotenv_base_url() {
+    let rt = tokio::runtime::Runtime::new().expect("tokio runtime");
+    rt.block_on(async {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(
+                ResponseTemplate::new(200).set_body_json(serde_json::json!({ "data": [] })),
+            )
+            .mount(&server)
+            .await;
+        let project = base_url_project(DEAD_BASE_URL);
+        let home = TempDir::new().expect("temp HOME");
+        for base_url_args in [
+            vec!["--base-url".to_string(), server.uri()],
+            vec![format!("--base-url={}", server.uri())],
+        ] {
+            let out = sandboxed(project.path(), home.path())
+                .args(&base_url_args)
+                .args(["--format", "json", "models", "list"])
+                .env("HEDRA_API_KEY", "test-key")
+                .output()
+                .expect("run hedra-cli");
+            let stderr = String::from_utf8_lossy(&out.stderr);
+            assert_eq!(
+                out.status.code(),
+                Some(0),
+                "{base_url_args:?}; stderr:\n{stderr}"
+            );
+        }
+        let requests = server
+            .received_requests()
+            .await
+            .expect("mock server recorded requests");
+        assert_eq!(requests.len(), 2, "{requests:?}");
     });
+}
+
+/// A `HEDRA_ENV` exported from the shell chooses the target, so a `.env`
+/// base URL does not stop the command.
+#[test]
+fn an_exported_hedra_env_runs_despite_a_dotenv_base_url() {
+    let project = base_url_project(DEAD_BASE_URL);
+    let home = TempDir::new().expect("temp HOME");
+    let out = sandboxed(project.path(), home.path())
+        .args(["--format", "json", "--dry-run", "models", "list"])
+        .env("HEDRA_ENV", "staging")
+        .output()
+        .expect("run hedra-cli");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stdout.contains("\"url\": \"https://api.staging.hedra.com/v3/models\""),
+        "stdout:\n{stdout}\nstderr:\n{stderr}",
+    );
+    assert!(!stderr.contains(BASE_URL_REFUSAL), "stderr:\n{stderr}");
 }
 
 /// A base URL exported from the shell applies, and the same key in a `.env`

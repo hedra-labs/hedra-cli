@@ -32,7 +32,7 @@ mod views;
 mod workspaces;
 
 use fern_cli_sdk::app::CliApp;
-use fern_cli_sdk::error::CliError;
+use fern_cli_sdk::error::{write_error_json, CliError, ErrorDisplayContext};
 use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
 use fern_cli_sdk::openapi::{commands, load_openapi_spec};
 use serde_json::Value;
@@ -54,22 +54,42 @@ pub fn register(app: CliApp) -> CliApp {
     // `run`'s setup, in `run`'s order. `.env` loads before anything below
     // reads the environment, and before logging, which reads `HEDRA_CLI_LOG`.
     fern_cli_sdk::reset_sigpipe();
+    // Read before `.env` can set it: only a shell `HEDRA_ENV` is the user's
+    // own choice of target, which a `.env` base URL then does not override.
+    let hedra_env_exported = std::env::var_os("HEDRA_ENV").is_some();
     let ignored_dotenv_keys = dotenv::load();
     // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
     // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise. It writes the
     // environment, so it runs before logging can start a thread.
     auth::derive_base_url_from_hedra_env();
     fern_cli_sdk::init_logging("hedra-cli");
-    dotenv::report_ignored(&ignored_dotenv_keys);
     // Not part of `run`'s setup: a `.env` base URL the CLI refuses would send
-    // the command to the default API, so it fails before any request, with
-    // the error `report_ignored` printed.
-    if dotenv::base_url_refusal(&ignored_dotenv_keys).is_some() {
-        std::process::exit(CliError::EXIT_CODE_VALIDATION);
+    // the command to the default API, so it fails before any request.
+    let args: Vec<String> = std::env::args_os()
+        .skip(1)
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect();
+    let refusal = dotenv::base_url_refusal(&ignored_dotenv_keys, &args, hedra_env_exported);
+    dotenv::report_ignored(&ignored_dotenv_keys, refusal.is_none());
+    if let Some(message) = refusal {
+        exit_with_validation_error(message);
     }
 
     let code = configure(app).try_run_from(std::env::args_os());
     std::process::exit(code)
+}
+
+/// Print `message` as a validation error the way the runtime prints one, the
+/// JSON envelope on stdout for a machine-readable format and a line on stderr
+/// otherwise, and exit with the validation exit code.
+fn exit_with_validation_error(message: String) -> ! {
+    let error = CliError::Validation(message);
+    let context = ErrorDisplayContext {
+        format: resolve_format_from_argv(),
+        ..ErrorDisplayContext::default()
+    };
+    write_error_json(&error, &mut std::io::stdout(), Some(&context));
+    std::process::exit(error.exit_code())
 }
 
 /// Register custom commands and hooks on the CLI app builder.

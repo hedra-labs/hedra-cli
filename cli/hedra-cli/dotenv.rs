@@ -36,8 +36,12 @@ const ALLOWED_KEYS: [&str; 3] = ["HEDRA_API_KEY", "HEDRA_ENV", "NO_COLOR"];
 /// `_OUTPUT` (src/formatter.rs), `_LOG` (src/logging.rs), `_RETRIES`
 /// (src/openapi/binding.rs), `_TIMEOUT_SECS` and `_CONNECT_TIMEOUT_SECS`
 /// (src/http.rs) and `_USER_AGENT_SUFFIX` (src/user_agent.rs).
-/// `tests/startup_contract.rs` fails when the runtime reads a setting that is
-/// neither here nor on its list of settings refused on purpose.
+/// `tests/startup_contract.rs` scans the runtime's non-test source for
+/// setting names it builds from the prefix as `{prefix}_NAME` or `{}_NAME` in
+/// a format string or as a `"_NAME"` argument of `scoped(`, plus the
+/// runtime's own `.env` deny-list, and fails on a name that is neither here
+/// nor on its list of settings refused on purpose. A name built another way
+/// is not seen, and stays refused.
 const ALLOWED_CLI_SETTINGS: [&str; 6] = [
     "OUTPUT",
     "LOG",
@@ -47,10 +51,13 @@ const ALLOWED_CLI_SETTINGS: [&str; 6] = [
     "USER_AGENT_SUFFIX",
 ];
 
-/// The data-plane base URL setting. A `.env` that sets it fails the command
-/// (see [`base_url_refusal`]) rather than letting it run against the default
-/// API.
+/// The data-plane base URL setting. A `.env` that sets it fails a command
+/// that would send a request to the default API (see [`base_url_refusal`]).
 const BASE_URL_KEY: &str = "HEDRA_CLI_BASE_URL";
+
+/// Global flags that take a value as the next argument, for
+/// [`sends_request_to_default_target`].
+const VALUE_FLAGS: [&str; 2] = ["--format", "--user-agent-suffix"];
 
 /// Ignored keys outside `HEDRA_` that are named on stderr, compared in any
 /// case: a `.env` that sets a proxy, trust-store or pager variable most likely
@@ -106,7 +113,15 @@ fn load_from(contents: &[u8]) -> IgnoredKeys {
     let mut ignored = IgnoredKeys::default();
     for (key, value) in dotenvy::from_read_iter(contents).flatten() {
         let upper = key.to_ascii_uppercase();
-        if std::env::var_os(&key).is_some() || std::env::var_os(&upper).is_some() {
+        // This CLI's own keys, allowed or refused, are read under their
+        // upper-case name, so only that counts as exported. Other programs'
+        // keys are left alone in the spelling the shell exports.
+        let exported = if key_is_allowed(&key) || upper.starts_with("HEDRA_") {
+            std::env::var_os(&upper).is_some()
+        } else {
+            std::env::var_os(&key).is_some()
+        };
+        if exported {
             continue;
         }
         if !key_is_allowed(&key) {
@@ -143,11 +158,12 @@ fn nearest_dotenv() -> Option<std::path::PathBuf> {
 }
 
 /// Report the keys [`load`] did not set: each as a warning at
-/// `HEDRA_CLI_LOG=warn`, and on stderr either the [`base_url_refusal`] error
-/// or one line naming the refused keys meant for this CLI.
+/// `HEDRA_CLI_LOG=warn`, and, unless `name_refused_keys` is false (the caller
+/// is about to fail with the [`base_url_refusal`] error instead), one line on
+/// stderr naming the refused keys meant for this CLI.
 ///
 /// Call after logging is initialized, or the warnings are dropped.
-pub(crate) fn report_ignored(ignored: &IgnoredKeys) {
+pub(crate) fn report_ignored(ignored: &IgnoredKeys, name_refused_keys: bool) {
     for key in &ignored.refused {
         tracing::warn!(
             key = %key,
@@ -158,30 +174,75 @@ pub(crate) fn report_ignored(ignored: &IgnoredKeys) {
     for key in &ignored.nul_valued {
         tracing::warn!(key = %key, "ignoring {key} from .env: its value holds a NUL byte");
     }
-    let line = base_url_refusal(ignored).or_else(|| ignored_keys_line(&ignored.refused));
-    if let Some(line) = line {
+    if !name_refused_keys {
+        return;
+    }
+    if let Some(line) = ignored_keys_line(&ignored.refused) {
         // Not `eprintln!`, which panics where writing to a closed stderr
         // fails instead of raising SIGPIPE, as on Windows.
         let _ = writeln!(std::io::stderr(), "{line}");
     }
 }
 
-/// The error to print when the `.env` set the data-plane base URL, or `None`
-/// when it did not.
+/// The error message when the `.env` set the data-plane base URL and the
+/// command would otherwise send a request to the default API, or `None`.
 ///
-/// A refused base URL would otherwise send the command, with the stored
-/// credential, to the default API instead of the host the `.env` named, so
-/// the command fails instead of running there.
-pub(crate) fn base_url_refusal(ignored: &IgnoredKeys) -> Option<String> {
+/// A refused base URL would send such a command, with the stored credential,
+/// to the default API instead of the host the `.env` named, so it fails
+/// instead. A command that sends nothing, or whose target the user chose
+/// (`--base-url`, or `HEDRA_ENV` exported from the shell, which
+/// `hedra_env_exported` says), still runs. `args` excludes the program name.
+pub(crate) fn base_url_refusal(
+    ignored: &IgnoredKeys,
+    args: &[String],
+    hedra_env_exported: bool,
+) -> Option<String> {
     let key = ignored
         .refused
         .iter()
         .find(|key| key.eq_ignore_ascii_case(BASE_URL_KEY))?;
+    if hedra_env_exported || !sends_request_to_default_target(args) {
+        return None;
+    }
     Some(format!(
-        "hedra-cli: error: a .env file set {key}, which it cannot set, so the command did not \
-         run rather than go to the default API. If you set it yourself, set {BASE_URL_KEY} in \
-         your shell; otherwise remove it from the .env file."
+        "a .env file sets {key}, which a .env file cannot set, so the command did not run \
+         rather than send a request to the default API. To run it, set the base URL you want \
+         in your shell (for example {BASE_URL_KEY}=https://api.hedra.com/v3) or pass \
+         --base-url, or run it from outside the directory that holds the .env file."
     ))
+}
+
+/// Whether the command line `args` (without the program name) may send a
+/// request to the base URL the environment chooses: not when it asks only
+/// for help, the version or shell completion, runs `auth logout` or
+/// `auth status`, or passes `--base-url`. Anything this cannot tell apart
+/// counts as sending a request.
+fn sends_request_to_default_target(args: &[String]) -> bool {
+    let mut positionals: Vec<&str> = Vec::new();
+    let mut args = args.iter().map(String::as_str);
+    while let Some(arg) = args.next() {
+        if arg == "--" {
+            positionals.extend(args.by_ref());
+            break;
+        }
+        if arg == "--base-url" || arg.starts_with("--base-url=") {
+            return false;
+        }
+        if matches!(arg, "--help" | "-h" | "--version" | "-V") {
+            return false;
+        }
+        if VALUE_FLAGS.contains(&arg) {
+            let _ = args.next();
+            continue;
+        }
+        if !arg.starts_with('-') {
+            positionals.push(arg);
+        }
+    }
+    !matches!(
+        positionals.as_slice(),
+        [] | ["help", ..] | ["completion", ..] | ["auth", "logout" | "status", ..]
+    )
 }
 
 /// The stderr line naming the ignored keys meant for this CLI, each once, or
@@ -408,17 +469,78 @@ mod tests {
         assert_eq!(ignored_keys_line(&[]), None);
     }
 
+    fn args(line: &str) -> Vec<String> {
+        line.split_whitespace().map(String::from).collect()
+    }
+
     #[test]
     fn a_refused_base_url_in_any_case_is_an_error() {
         let refused = |keys: &[&str]| IgnoredKeys {
             refused: keys.iter().map(|key| key.to_string()).collect(),
             nul_valued: Vec::new(),
         };
-        let error = base_url_refusal(&refused(&["PAGER", "Hedra_Cli_Base_Url"]))
+        let list = args("models list");
+        let error = base_url_refusal(&refused(&["PAGER", "Hedra_Cli_Base_Url"]), &list, false)
             .expect("a refused base URL is an error");
-        assert!(error.contains("set Hedra_Cli_Base_Url,"), "{error}");
-        assert!(!error.contains("--base-url"), "{error}");
-        assert_eq!(base_url_refusal(&refused(&["HEDRA_CLI_PROXY"])), None);
-        assert_eq!(base_url_refusal(&IgnoredKeys::default()), None);
+        assert!(error.contains("sets Hedra_Cli_Base_Url,"), "{error}");
+        assert!(error.contains("outside the directory"), "{error}");
+        assert_eq!(
+            base_url_refusal(&refused(&["HEDRA_CLI_BASE_URL"]), &list, true),
+            None,
+            "an exported HEDRA_ENV chose the target"
+        );
+        assert_eq!(
+            base_url_refusal(&refused(&["HEDRA_CLI_PROXY"]), &list, false),
+            None
+        );
+        assert_eq!(
+            base_url_refusal(&IgnoredKeys::default(), &list, false),
+            None
+        );
+    }
+
+    #[test]
+    fn only_commands_that_may_send_a_request_to_the_default_target_are_refused() {
+        for line in [
+            "models list",
+            "--format json models list",
+            "--format table jobs get --job-id job_x",
+            "jobs get --job-id help",
+            "auth login",
+            "workspaces list",
+            "--dry-run models list",
+        ] {
+            assert!(sends_request_to_default_target(&args(line)), "{line}");
+        }
+        for line in [
+            "",
+            "--help",
+            "-h",
+            "models list --help",
+            "jobs get -h",
+            "--version",
+            "-V",
+            "help",
+            "help models",
+            "completion zsh",
+            "--format json completion bash",
+            "auth logout",
+            "auth status",
+            "--base-url https://example.test/v3 models list",
+            "models list --base-url=https://example.test/v3",
+        ] {
+            assert!(!sends_request_to_default_target(&args(line)), "{line}");
+        }
+    }
+
+    #[test]
+    #[serial_test::serial]
+    fn a_refused_hedra_key_counts_as_exported_only_in_upper_case() {
+        const KEY: &str = "hedra_cli_base_url";
+        let saved = take_env(&[KEY, "HEDRA_CLI_BASE_URL"]);
+        std::env::set_var(KEY, "from-shell");
+        let ignored = load_from(format!("{KEY}=from-dotenv\n").as_bytes());
+        restore_env(saved);
+        assert_eq!(ignored.refused, [KEY]);
     }
 }
