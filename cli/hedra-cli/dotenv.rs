@@ -8,10 +8,12 @@
 //! refuse can cover. The same holds inside this CLI's own `HEDRA_` prefix: a
 //! later runtime can start reading a new `HEDRA_CLI_…` setting. So a `.env`
 //! may set only the exact keys in [`ALLOWED_KEYS`] and the `HEDRA_CLI_…`
-//! settings in [`ALLOWED_CLI_SETTINGS`], compared in any case: credentials,
+//! settings in [`ALLOWED_CLI_SETTINGS`], compared in any case and set under
+//! their upper-case name, which is the one the CLI reads: credentials,
 //! the target environment, output and logging preferences, retries and
 //! timeouts. Every other key is refused. A variable the process environment
-//! already holds is left as it is, as `dotenvy::dotenv()` does.
+//! already holds, as written or in upper case, is left as it is, as
+//! `dotenvy::dotenv()` does.
 //!
 //! The runtime has a `.env` loader of its own, called from `CliApp::run`
 //! (`load_dotenv_filtered`, src/lib.rs). It admits every key outside a short
@@ -84,8 +86,9 @@ pub(crate) fn key_is_allowed(key: &str) -> bool {
             .is_some_and(|setting| ALLOWED_CLI_SETTINGS.contains(&setting))
 }
 
-/// Load the nearest `.env`, setting each key [`key_is_allowed`] admits and
-/// the process environment does not already hold. Returns the keys it did
+/// Load the nearest `.env`, setting each key [`key_is_allowed`] admits, under
+/// its upper-case name, unless the process environment already holds it as
+/// written or in upper case. Returns the keys it did
 /// not set for those reasons. A missing or unreadable `.env` loads nothing.
 pub(crate) fn load() -> IgnoredKeys {
     let Some(contents) = nearest_dotenv().and_then(|path| std::fs::read(path).ok()) else {
@@ -102,7 +105,8 @@ fn load_from(contents: &[u8]) -> IgnoredKeys {
     let contents = contents.strip_prefix(b"\xEF\xBB\xBF").unwrap_or(contents);
     let mut ignored = IgnoredKeys::default();
     for (key, value) in dotenvy::from_read_iter(contents).flatten() {
-        if std::env::var_os(&key).is_some() {
+        let upper = key.to_ascii_uppercase();
+        if std::env::var_os(&key).is_some() || std::env::var_os(&upper).is_some() {
             continue;
         }
         if !key_is_allowed(&key) {
@@ -116,7 +120,7 @@ fn load_from(contents: &[u8]) -> IgnoredKeys {
             continue;
         }
         // Runs first in `custom::register`, before any other thread starts.
-        std::env::set_var(&key, value);
+        std::env::set_var(upper, value);
     }
     ignored
 }
@@ -139,8 +143,8 @@ fn nearest_dotenv() -> Option<std::path::PathBuf> {
 }
 
 /// Report the keys [`load`] did not set: each as a warning at
-/// `HEDRA_CLI_LOG=warn`, and the refused ones meant for this CLI in one line
-/// on stderr.
+/// `HEDRA_CLI_LOG=warn`, and on stderr either the [`base_url_refusal`] error
+/// or one line naming the refused keys meant for this CLI.
 ///
 /// Call after logging is initialized, or the warnings are dropped.
 pub(crate) fn report_ignored(ignored: &IgnoredKeys) {
@@ -154,7 +158,8 @@ pub(crate) fn report_ignored(ignored: &IgnoredKeys) {
     for key in &ignored.nul_valued {
         tracing::warn!(key = %key, "ignoring {key} from .env: its value holds a NUL byte");
     }
-    if let Some(line) = ignored_keys_line(&ignored.refused) {
+    let line = base_url_refusal(ignored).or_else(|| ignored_keys_line(&ignored.refused));
+    if let Some(line) = line {
         // Not `eprintln!`, which panics where writing to a closed stderr
         // fails instead of raising SIGPIPE, as on Windows.
         let _ = writeln!(std::io::stderr(), "{line}");
@@ -175,7 +180,7 @@ pub(crate) fn base_url_refusal(ignored: &IgnoredKeys) -> Option<String> {
     Some(format!(
         "hedra-cli: error: a .env file set {key}, which it cannot set, so the command did not \
          run rather than go to the default API. If you set it yourself, set {BASE_URL_KEY} in \
-         your shell or pass --base-url; otherwise remove it from the .env file."
+         your shell; otherwise remove it from the .env file."
     ))
 }
 
@@ -412,6 +417,7 @@ mod tests {
         let error = base_url_refusal(&refused(&["PAGER", "Hedra_Cli_Base_Url"]))
             .expect("a refused base URL is an error");
         assert!(error.contains("set Hedra_Cli_Base_Url,"), "{error}");
+        assert!(!error.contains("--base-url"), "{error}");
         assert_eq!(base_url_refusal(&refused(&["HEDRA_CLI_PROXY"])), None);
         assert_eq!(base_url_refusal(&IgnoredKeys::default()), None);
     }

@@ -382,11 +382,11 @@ can set only these keys, compared in any letter case: `HEDRA_API_KEY`, `HEDRA_EN
 ignores every other key in a `.env`, including the other `HEDRA_*` settings (the base URL,
 proxy, TLS, pager and log-file settings, and the login endpoint overrides), and names the
 ignored `HEDRA_*`, proxy, trust-store and pager keys in one line on stderr. If you set one of
-those yourself, set it in your shell. A `.env` that sets `HEDRA_CLI_BASE_URL` stops the command with an error
-(exit code 3) before it sends any request, rather than letting it run against the default
-API. Standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` / `SSL_CERT_FILE` are honored when
-exported from the shell. A `.env` that sets `HEDRA_API_KEY` chooses the key the CLI uses in
-that directory, ahead of the one `auth login` stored.
+those yourself, set it in your shell. A `.env` that sets `HEDRA_CLI_BASE_URL` stops the
+command with an error (exit code 3) before it sends any request, rather than letting it run
+against the default API. Standard `HTTPS_PROXY` / `HTTP_PROXY` / `NO_PROXY` / `SSL_CERT_FILE`
+are honored when exported from the shell. A `.env` that sets `HEDRA_API_KEY` chooses the key
+the CLI uses in that directory, ahead of the one `auth login` stored.
 
 Known limitations of `.env` loading:
 

@@ -235,7 +235,58 @@ fn a_dotenv_base_url_fails_the_command() {
             .await
             .expect("mock server recorded requests");
         assert!(requests.is_empty(), "{requests:?}");
+        assert!(!stderr.contains(IGNORED_LINE), "stderr:\n{stderr}");
+
+        // Passing `--base-url` does not get round it: the `.env` still fails
+        // every command, which the error does not suggest otherwise.
+        let out = sandboxed(project.path(), home.path())
+            .args(["--base-url", &server.uri(), "--version"])
+            .output()
+            .expect("run hedra-cli");
+        let stderr = String::from_utf8_lossy(&out.stderr);
+        assert_eq!(out.status.code(), Some(3), "stderr:\n{stderr}");
+        assert!(!stderr.contains("--base-url"), "stderr:\n{stderr}");
     });
+}
+
+/// A base URL exported from the shell applies, and the same key in a `.env`
+/// in another case is left alone rather than failing the command.
+#[test]
+fn an_exported_base_url_wins_over_a_dotenv_one_in_another_case() {
+    let project = TempDir::new().expect("project dir");
+    std::fs::write(
+        project.path().join(".env"),
+        "hedra_cli_base_url=http://127.0.0.1:9/v3\n",
+    )
+    .expect("write .env");
+    let home = TempDir::new().expect("temp HOME");
+    let out = sandboxed(project.path(), home.path())
+        .arg("--version")
+        .env("HEDRA_CLI_BASE_URL", DEAD_BASE_URL)
+        .output()
+        .expect("run hedra-cli");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    let code = out.status.code();
+    assert_eq!(code, Some(0), "stderr:\n{stderr}");
+    assert!(!stderr.contains("hedra-cli:"), "stderr:\n{stderr}");
+}
+
+/// An allowed key written in lower case is set under the name the CLI reads.
+#[test]
+fn a_lower_case_dotenv_key_still_applies() {
+    let project = TempDir::new().expect("project dir");
+    std::fs::write(project.path().join(".env"), "hedra_env=staging\n").expect("write .env");
+    let home = TempDir::new().expect("temp HOME");
+    let out = sandboxed(project.path(), home.path())
+        .args(["--format", "json", "--dry-run", "models", "list"])
+        .output()
+        .expect("run hedra-cli");
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("\"url\": \"https://api.staging.hedra.com/v3/models\""),
+        "stdout:\n{stdout}\nstderr:\n{}",
+        String::from_utf8_lossy(&out.stderr),
+    );
 }
 
 /// `register` restores the default SIGPIPE action, as `run` does, so output

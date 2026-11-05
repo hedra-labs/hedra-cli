@@ -136,6 +136,10 @@ fn main_runs_the_app_right_after_register() {
 
 /// `dotenvy` is used only inside `src/lib.rs`'s `load_dotenv_filtered`, and
 /// that is called only from `run_with_args`, which `register` skips.
+///
+/// If a regeneration changes `load_dotenv_filtered`'s signature line, update
+/// the `pub fn load_dotenv_filtered(` prefix and the full definition line in
+/// `allowed_calls` below to match.
 #[test]
 fn only_run_with_args_loads_dotenv() {
     assert!(
@@ -289,6 +293,7 @@ fn setting_name_at(text: &str) -> Option<&str> {
 fn runtime_settings() -> std::collections::BTreeSet<String> {
     let mut settings = std::collections::BTreeSet::new();
     for (_, source) in runtime_sources() {
+        let source = source.replace("\r\n", "\n");
         let source = source
             .split("#[cfg(test)]\nmod ")
             .next()
