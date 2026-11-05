@@ -1,0 +1,21 @@
+syntax = "proto3";
+
+// Trimmed from the sandbox broker's protos at upstream commit
+// 88fee67766faaeba2334b28aed1653990eebd049.
+package hedra.sandbox.v1;
+
+import "google/protobuf/timestamp.proto";
+
+message BlobRef {
+  string uri = 1;
+  bytes sha256 = 2;
+  uint64 size = 3;
+}
+
+message PresignedUrl {
+  string path = 1;
+  string url = 2;
+  string method = 3;
+  map<string, string> headers = 4;
+  google.protobuf.Timestamp expires_at = 5;
+}
