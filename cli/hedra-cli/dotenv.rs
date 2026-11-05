@@ -627,6 +627,9 @@ mod tests {
         }
     }
 
+    // Unix only: Windows environment variable names are case-insensitive, so
+    // a lower-case export there is the upper-case variable itself.
+    #[cfg(not(windows))]
     #[test]
     #[serial_test::serial]
     fn a_refused_hedra_key_counts_as_exported_only_in_upper_case() {
