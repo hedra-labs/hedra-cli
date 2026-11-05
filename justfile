@@ -143,10 +143,10 @@ check-rustls:
 test:
     cargo test --locked
 
-# The hand-written sandbox crate, through its own manifest (no [workspace]).
+# The hand-written sandbox crate, a path dependency of the root.
 [group('ci')]
 test-sandbox:
-    cargo test --manifest-path hedra-cli-sandbox/Cargo.toml --features fake-broker
+    cargo test --locked -p hedra_cli_sandbox
 
 # ---------------------------------------------------------------- release ---
 
