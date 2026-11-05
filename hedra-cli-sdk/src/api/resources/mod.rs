@@ -10,6 +10,7 @@
 //! - **Billing**
 //! - **Webhooks**
 //! - **Log drains**
+//! - **Sandbox**
 //! - **Run a model**
 
 use crate::{ApiError, ClientConfig};
@@ -21,6 +22,7 @@ pub mod keys;
 pub mod log_drains;
 pub mod models;
 pub mod run_a_model;
+pub mod sandbox;
 pub mod tokens;
 pub mod webhooks;
 pub struct ApiClient {
@@ -33,6 +35,7 @@ pub struct ApiClient {
     pub billing: BillingClient,
     pub webhooks: WebhooksClient,
     pub log_drains: LogDrainsClient,
+    pub sandbox: SandboxClient,
     pub run_a_model: RunAModelClient,
 }
 
@@ -48,6 +51,7 @@ impl ApiClient {
             billing: BillingClient::new(config.clone())?,
             webhooks: WebhooksClient::new(config.clone())?,
             log_drains: LogDrainsClient::new(config.clone())?,
+            sandbox: SandboxClient::new(config.clone())?,
             run_a_model: RunAModelClient::new(config.clone())?,
         })
     }
@@ -60,5 +64,6 @@ pub use keys::KeysClient;
 pub use log_drains::LogDrainsClient;
 pub use models::ModelsClient;
 pub use run_a_model::RunAModelClient;
+pub use sandbox::SandboxClient;
 pub use tokens::TokensClient;
 pub use webhooks::WebhooksClient;
