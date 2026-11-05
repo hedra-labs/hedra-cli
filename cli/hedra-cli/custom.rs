@@ -112,9 +112,14 @@ fn configure(app: CliApp) -> CliApp {
     // MediaRef object. Request-side, so it applies in every output format.
     media_refs::install();
 
+    // `sandbox session` mints a session token, which a developer has no use
+    // for, so it stays out of `--help` in every format. It still runs when
+    // named. `hide` panics on a path the tree lacks, which the command-tree
+    // test in `tests/sandbox_commands.rs` turns into a CI failure.
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
-        .command(workspaces::command(), Box::new(workspaces::dispatch));
+        .command(workspaces::command(), Box::new(workspaces::dispatch))
+        .hide(&["sandbox", "session"]);
 
     if resolve_format_from_argv() != OutputFormat::Table {
         return app;
@@ -129,7 +134,7 @@ fn configure(app: CliApp) -> CliApp {
     // carries `submit-<model>` leaves for every model in the catalog, and
     // `views::jobs` selects the view from the operation path.
     //
-    // The remaining four groups get the generic array de-hijacker. They
+    // The remaining five groups get the generic array de-hijacker. They
     // are named individually rather than globbed across the whole CLI so
     // that adding a resource is a deliberate choice — `views::dehijack`
     // passes list envelopes through untouched, but a hook that silently
@@ -140,6 +145,7 @@ fn configure(app: CliApp) -> CliApp {
         .transform_response(&["webhooks", "*"], views::defuse_arrays)
         .transform_response(&["log-drains", "*"], views::defuse_arrays)
         .transform_response(&["billing", "*"], views::defuse_arrays)
+        .transform_response(&["sandbox", "*"], views::defuse_arrays)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {
