@@ -57,7 +57,13 @@ const BASE_URL_KEY: &str = "HEDRA_CLI_BASE_URL";
 
 /// Global flags that take a value, as the next argument or after `=`, for
 /// [`sends_request_to_default_target`] (`--base-url` is handled on its own).
-const VALUE_FLAGS: [&str; 4] = ["--format", "--user-agent-suffix", "--query", "--profile"];
+const VALUE_FLAGS: [&str; 5] = [
+    "--format",
+    "--user-agent-suffix",
+    "--query",
+    "--profile",
+    "--spec-version",
+];
 
 /// Short global flags that take a value, also attached (`-pNAME`).
 const SHORT_VALUE_FLAGS: [&str; 1] = ["-p"];
@@ -112,9 +118,8 @@ pub(crate) fn key_is_allowed(key: &str) -> bool {
 }
 
 /// Load the nearest `.env`, setting each key [`key_is_allowed`] admits, under
-/// its upper-case name, unless the process environment already holds it as
-/// written or in upper case. Returns the keys it did
-/// not set for those reasons. A missing or unreadable `.env` loads nothing.
+/// its upper-case name, unless the process environment already holds that
+/// upper-case name. Returns the keys it did not set for those reasons. A missing or unreadable `.env` loads nothing.
 pub(crate) fn load() -> IgnoredKeys {
     let Some(contents) = nearest_dotenv().and_then(|path| std::fs::read(path).ok()) else {
         return IgnoredKeys::default();
@@ -226,8 +231,8 @@ pub(crate) fn base_url_refusal(
         "a .env file sets {key}, which a .env file cannot set, so the command did not run \
          rather than send a request to an API other than the one that file names. To run it, \
          set the base URL you want in your shell (for example \
-         {BASE_URL_KEY}=https://api.hedra.com/v3) or pass --base-url, or run it from outside \
-         the directory that holds the .env file."
+         {BASE_URL_KEY}=https://api.hedra.com/v3) or, outside auth and workspaces commands, \
+         pass --base-url, or run it from outside the directory that holds the .env file."
     ))
 }
 
@@ -235,12 +240,15 @@ pub(crate) fn base_url_refusal(
 /// request to the base URL the environment chooses: not when it asks only
 /// for help, the version, a schema or spec, shell completion, a man page or
 /// the exit-code table, runs `auth logout` or `auth status`, or passes
-/// `--base-url`. Anything this cannot tell apart counts as sending a request:
-/// a flag before the command that is not a known global flag, and a bare
-/// command group, which prints help for most groups but sends a request for
-/// `workspaces`, so is refused too.
+/// `--base-url` to a command outside `auth` and `workspaces`, whose login
+/// plane takes its origin from the environment and ignores the flag.
+/// Anything this cannot tell apart counts as sending a request: a flag
+/// before the command, or after the bare group `auth`, that is not a known
+/// global flag, and a bare command group, which prints help for most groups
+/// but sends a request for `workspaces`, so is refused too.
 fn sends_request_to_default_target(args: &[String]) -> bool {
     let mut positionals: Vec<&str> = Vec::new();
+    let mut base_url_given = false;
     let mut args = args.iter().map(String::as_str);
     while let Some(arg) = args.next() {
         if arg == "--" {
@@ -255,8 +263,15 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
             Some((flag, _)) => (flag, true),
             None => (arg, false),
         };
-        if flag == "--base-url" || LOCAL_ONLY_FLAGS.contains(&flag) {
+        if LOCAL_ONLY_FLAGS.contains(&flag) {
             return false;
+        }
+        if flag == "--base-url" {
+            base_url_given = true;
+            if !inline_value {
+                let _ = args.next();
+            }
+            continue;
         }
         // `-pNAME`: a short value flag with its value attached.
         let attached_short_value = SHORT_VALUE_FLAGS
@@ -271,12 +286,16 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
         if attached_short_value || BOOLEAN_FLAGS.contains(&flag) {
             continue;
         }
-        // An unknown flag before the command may take a value that would
-        // then read as the command, so it cannot be classified. After the
-        // command it belongs to that command, and only the command matters.
-        if positionals.is_empty() {
+        // An unknown flag before the command, or after the bare group `auth`
+        // whose leaves differ, may take a value that would then read as the
+        // command, so it cannot be classified. After the command it belongs
+        // to that command, and only the command matters.
+        if matches!(positionals.as_slice(), [] | ["auth"]) {
             return true;
         }
+    }
+    if base_url_given && !matches!(positionals.as_slice(), ["auth", ..] | ["workspaces", ..]) {
+        return false;
     }
     !matches!(
         positionals.as_slice(),
@@ -559,6 +578,12 @@ mod tests {
             "--some-new-flag=x auth status",
             "jobs",
             "workspaces",
+            "auth login --base-url https://example.test/v3",
+            "--base-url https://example.test/v3 auth login",
+            "workspaces list --base-url https://example.test/v3",
+            "--base-url=https://example.test/v3 workspaces list",
+            "auth --spec-version status login",
+            "auth --some-new-flag status login",
         ] {
             assert!(sends_request_to_default_target(&args(line)), "{line}");
         }
@@ -590,6 +615,11 @@ mod tests {
             "man",
             "errors",
             "auth status --some-command-flag x",
+            "auth status --base-url https://example.test/v3",
+            "--base-url https://example.test/v3 --dry-run models list",
+            "--base-url https://example.test/v3",
+            "--spec-version 3.21.14 --help",
+            "--spec-version=3.21.14 models list --help",
         ] {
             assert!(!sends_request_to_default_target(&args(line)), "{line}");
         }

@@ -54,9 +54,10 @@ pub fn register(app: CliApp) -> CliApp {
     // `run`'s setup, in `run`'s order. `.env` loads before anything below
     // reads the environment, and before logging, which reads `HEDRA_CLI_LOG`.
     fern_cli_sdk::reset_sigpipe();
-    // Read before `.env` can set it: only a shell `HEDRA_ENV` is the user's
-    // own choice of target, which a `.env` base URL then does not override.
-    let hedra_env_exported = std::env::var_os("HEDRA_ENV").is_some();
+    // Read before `.env` can set it: only a shell `HEDRA_ENV` naming a known
+    // environment is the user's own choice of target.
+    let hedra_env_exported = std::env::var("HEDRA_ENV")
+        .is_ok_and(|v| v.eq_ignore_ascii_case("staging") || v.eq_ignore_ascii_case("prod"));
     let ignored_dotenv_keys = dotenv::load();
     // One knob: HEDRA_ENV=staging retargets the data plane too, unless an
     // explicit HEDRA_CLI_BASE_URL / --base-url says otherwise. It writes the
@@ -85,7 +86,10 @@ pub fn register(app: CliApp) -> CliApp {
 fn exit_with_validation_error(message: String) -> ! {
     let error = CliError::Validation(message);
     let context = ErrorDisplayContext {
-        format: resolve_format_from_argv(),
+        format: fern_cli_sdk::formatter::resolve_format_from_raw_args(
+            &std::env::args().collect::<Vec<_>>(),
+            "hedra-cli",
+        ),
         ..ErrorDisplayContext::default()
     };
     write_error_json(&error, &mut std::io::stdout(), Some(&context));
