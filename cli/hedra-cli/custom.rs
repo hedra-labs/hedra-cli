@@ -26,6 +26,8 @@ mod dotenv;
 mod keyring_cache;
 #[path = "media_refs.rs"]
 mod media_refs;
+#[path = "sandbox/mod.rs"]
+mod sandbox;
 #[path = "views.rs"]
 mod views;
 #[path = "workspaces.rs"]
@@ -117,10 +119,16 @@ fn configure(app: CliApp) -> CliApp {
     // `--schema`, `generate-skills` and shell completions still list it, and
     // it still runs when named. `hide` panics on a path the tree lacks, which
     // every test in `tests/sandbox_commands.rs` turns into a CI failure.
-    let app = app
+    let mut app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
         .command(workspaces::command(), Box::new(workspaces::dispatch))
         .hide(&["sandbox", "session"]);
+
+    // The sandbox stream verbs, grafted into the generated `sandbox` group.
+    // Registered before the early return below, so a piped run has them too.
+    for (command, handler) in sandbox::commands() {
+        app = app.command_under(&[sandbox::GROUP], command, handler);
+    }
 
     if resolve_format_from_argv() != OutputFormat::Table {
         return app;
