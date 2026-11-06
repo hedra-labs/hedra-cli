@@ -55,6 +55,8 @@ const RATE_LIMITED_HINT: &str = "`port-forward` cannot slow the sandbox's server
 pub(crate) struct Source {
     stream: hedra_cli_sandbox::tonic::Streaming<PortServerFrame>,
     name: String,
+    /// `--debug`: print the broker's status when it ends an admitted call.
+    debug: bool,
 }
 
 impl PortSource for Source {
@@ -63,6 +65,9 @@ impl PortSource for Source {
     async fn recv(&mut self) -> Result<Option<PortServerFrame>, ConnectionFailure> {
         self.stream.message().await.map_err(|status| {
             let s = BrokerStatus::from(&status);
+            if self.debug {
+                stream::note(escape_controls(&format!("< port_forward ended: {s}")));
+            }
             let mut failure = stream::broker_failure(&s, &self.name, Needs::Write, true);
             // The broker gives a forwarded connection no output window, so
             // a server writing faster than the link ends it however promptly
@@ -112,6 +117,7 @@ impl PortOpener for Opener {
                 Source {
                     stream: call.recv,
                     name: self.name.clone(),
+                    debug: self.api.debug,
                 },
             )),
             Err(e) => {

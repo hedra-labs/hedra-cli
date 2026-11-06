@@ -576,6 +576,11 @@ impl Pty {
         // SAFETY: only async-signal-safe calls between fork and exec.
         unsafe {
             sh.pre_exec(move || {
+                // As `Run::command` does, so a runner started with these
+                // ignored does not pass that on; `nohup` asks again below.
+                for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                    libc::signal(sig, libc::SIG_DFL);
+                }
                 if ignore_hup {
                     libc::signal(libc::SIGHUP, libc::SIG_IGN);
                 }

@@ -95,6 +95,7 @@ impl Fake {
 }
 
 /// One raw entry, written without the `tar` crate's path checks.
+#[derive(Clone, Copy)]
 pub(super) struct E<'a> {
     pub(super) name: &'a str,
     pub(super) kind: u8,

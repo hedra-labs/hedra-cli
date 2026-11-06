@@ -8,6 +8,7 @@
 
 mod capped;
 mod extract;
+mod left;
 mod names;
 mod send;
 mod stderr;
@@ -25,6 +26,8 @@ use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
 use tokio::sync::mpsc;
+
+pub use left::Left;
 
 use crate::pb::hedra::sandbox::v1::{
     exec_client_frame, exec_server_frame, ExecClientFrame, ExecServerFrame, ExecStart, Stream,
@@ -294,6 +297,9 @@ pub struct CopyOut {
     argv: Vec<String>,
     /// Directories [`CopyOut::prepare`] created, deepest first.
     created: Vec<PathBuf>,
+    /// Whether the target was there before the first [`CopyOut::prepare`],
+    /// which may create it; unknown before that.
+    existed: Option<bool>,
 }
 
 impl CopyOut {
@@ -311,6 +317,9 @@ impl CopyOut {
     /// it can be written, so a destination that cannot take the copy fails
     /// it before the call opens.
     pub fn prepare(&mut self) -> Result<(), String> {
+        if self.existed.is_none() {
+            self.existed = Some(std::fs::symlink_metadata(self.target()).is_ok());
+        }
         let shown = self.dir.display().to_string();
         let mut missing = Vec::new();
         let mut at = self.dir.as_path();
@@ -346,6 +355,17 @@ impl CopyOut {
             return Err(format!("cannot write to {shown}: {e}"));
         }
         Ok(())
+    }
+
+    /// What a copy out that wrote something and failed left at its target:
+    /// part of the copy in a target that was already there, or a partial
+    /// copy in one this copy made.
+    pub fn left(&self) -> Left {
+        let path = escape_controls(&self.target().display().to_string());
+        match self.existed {
+            Some(true) => Left::Into(path),
+            _ => Left::Partial(path),
+        }
     }
 
     /// Removes the directories [`CopyOut::prepare`] created that are still
@@ -464,6 +484,7 @@ pub fn plan_copy_out(spec: &CopySpec) -> Result<CopyOut, String> {
         name,
         argv,
         created: Vec::new(),
+        existed: None,
     })
 }
 
@@ -524,9 +545,9 @@ pub struct CopyReport<E> {
     pub remote_stderr: Vec<u8>,
     /// The entry the copy began last, escaped, when it stopped part way.
     pub stopped_at: Option<String>,
-    /// Where a failed copy out left what it wrote, escaped; it is not
-    /// removed, as `scp` leaves its own.
-    pub partial: Option<String>,
+    /// Where a failed copy out left what it wrote; it is not removed, as
+    /// `scp` leaves its own.
+    pub partial: Option<Left>,
 }
 
 fn start(argv: &[String]) -> ExecClientFrame {
@@ -801,7 +822,8 @@ impl<T> Drop for AbortOnDrop<T> {
 /// `tar -c` there, and holds it to what GNU tar says it wrote. Sends `start`
 /// first; the call must be admitted. A copy that fails before writing
 /// anything removes the parents it created; one that wrote something leaves
-/// it in place and names it in [`CopyReport::partial`].
+/// it in place and names it in [`CopyReport::partial`], unless every entry
+/// landed and only `tar`'s exit failed the copy.
 pub async fn copy_out<S: ExecSink, R: ExecSource>(
     mut plan: CopyOut,
     sink: S,
@@ -812,26 +834,27 @@ pub async fn copy_out<S: ExecSink, R: ExecSource>(
         let err = stderr::CopyStderr::new();
         return report(Err(CopyError::Rejected(m)), vec![], err, &progress);
     }
-    let mut r = copy_out_prepared(&plan, sink, source, progress.clone()).await;
-    if matches!(r.result, Ok(0)) {
+    let (mut r, whole) = copy_out_prepared(&plan, sink, source, progress.clone()).await;
+    if matches!(r.result, Ok(0)) || whole {
         return r;
     }
-    let target = plan.target();
     // The extractor has ended, so what it wrote is settled.
-    if progress.wrote() && std::fs::symlink_metadata(&target).is_ok() {
-        r.partial = Some(escape_controls(&target.display().to_string()));
+    if progress.wrote() && std::fs::symlink_metadata(plan.target()).is_ok() {
+        r.partial = Some(plan.left());
     } else {
         plan.discard();
     }
     r
 }
 
+/// [`copy_out`] once the destination is prepared, and whether the copy
+/// failed though every entry landed whole.
 async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
     plan: &CopyOut,
     mut sink: S,
     mut source: R,
     progress: Arc<Progress>,
-) -> CopyReport<R::Error> {
+) -> (CopyReport<R::Error>, bool) {
     let mut err = stderr::CopyStderr::new();
     let _ = sink.send(start(&plan.argv)).await;
 
@@ -878,27 +901,40 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
     let warnings = ex.warnings.clone();
     if extractor_stopped {
         let msg = ex.error.unwrap_or_else(|| "the copy stopped early".into());
-        return report(Err(CopyError::Rejected(msg)), warnings, err, &progress);
+        let r = report(Err(CopyError::Rejected(msg)), warnings, err, &progress);
+        return (r, false);
     }
     let code = match ending {
         Ending::Call(e) => {
-            if ex.error.is_some() && !ex.cut {
-                return report(
-                    Err(CopyError::Rejected(ex.error.unwrap_or_default())),
-                    warnings,
-                    err,
-                    &progress,
-                );
-            }
-            return report(Err(CopyError::Call(e)), warnings, err, &progress);
+            let result = match ex.error {
+                Some(m) if !ex.cut => Err(CopyError::Rejected(m)),
+                _ => Err(CopyError::Call(e)),
+            };
+            return (report(result, warnings, err, &progress), false);
         }
-        Ending::Ended => return report(Err(CopyError::Ended), warnings, err, &progress),
+        Ending::Ended => {
+            return (
+                report(Err(CopyError::Ended), warnings, err, &progress),
+                false,
+            );
+        }
         Ending::Exit(c) => c,
     };
+    // Every entry landed and GNU tar's totals match what arrived, so a `tar`
+    // exiting 1 (a file changed as it read it) left the copy whole, though
+    // the copy still fails; said so, it names no partial copy.
+    let whole = ex.error.is_none()
+        && ex.skipped.is_empty()
+        && ex.whole
+        && !err.dropped
+        && err.gnu
+        && err.totals == Some(received);
     let fail = |msg: String| Err(CopyError::Rejected(msg));
     // A copy out whose `tar` failed is hedra-cli's failure, whatever the
     // code: only a copy in exits with the remote `tar`'s.
-    let result = if let Some(m) = unrunnable(code, &err, received > 0 || err.any) {
+    let unrun = unrunnable(code, &err, received > 0 || err.any);
+    let whole = whole && code == 1 && unrun.is_none();
+    let result = if let Some(m) = unrun {
         fail(m)
     } else if code != 0 {
         match ex.error {
@@ -906,6 +942,10 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
             None if !ex.skipped.is_empty() => fail(format!(
                 "the copy left out {}; tar in the sandbox exited {code}",
                 ex.skipped.join(", ")
+            )),
+            None if whole => fail(format!(
+                "tar in the sandbox exited 1; the copy at {} is whole, but tar reported a file that changed as it read it",
+                escape_controls(&plan.target().display().to_string())
             )),
             None => fail(format!("tar in the sandbox exited {code}")),
         }
@@ -928,5 +968,5 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
     } else {
         Ok(0)
     };
-    report(result, warnings, err, &progress)
+    (report(result, warnings, err, &progress), whole)
 }

@@ -21,25 +21,32 @@ async fn request_count(server: &MockServer) -> usize {
     server.received_requests().await.unwrap_or_default().len()
 }
 
-/// A ustar stream of one one-byte file, its name written as given.
-fn one_entry(name: &str) -> Vec<u8> {
+/// A ustar header, its name written as given.
+fn header(name: &str, kind: u8, mode: u32, size: u64) -> Vec<u8> {
     let mut h = [0u8; 512];
     h[..name.len()].copy_from_slice(name.as_bytes());
+    let mode = format!("{mode:07o}\0");
+    let size = format!("{size:011o}\0");
     for (at, field) in [
-        (100, &b"0000644\0"[..]),
+        (100, mode.as_bytes()),
         (108, b"0000000\0"),
         (116, b"0000000\0"),
-        (124, b"00000000001\0"),
+        (124, size.as_bytes()),
         (136, b"00000000000\0"),
     ] {
         h[at..at + field.len()].copy_from_slice(field);
     }
-    h[156] = b'0';
+    h[156] = kind;
     h[257..265].copy_from_slice(b"ustar\x0000");
     h[148..156].fill(b' ');
     let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
     h[148..155].copy_from_slice(format!("{sum:06o}\0").as_bytes());
-    let mut out = h.to_vec();
+    h.to_vec()
+}
+
+/// A ustar stream of one one-byte file, its name written as given.
+fn one_entry(name: &str) -> Vec<u8> {
+    let mut out = header(name, b'0', 0o644, 1);
     out.push(b'x');
     out.resize(10240, 0);
     out
@@ -352,27 +359,36 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
 /// A call that fails for want of a scope after its admission, as when the
 /// key loses `sandboxes:write` mid-session, ends the port-forward with
 /// Missing scope (10) and closes the listener, as a refusal at open does.
+/// With `--debug`, the broker's status is printed as `exec` prints it.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_scope_lost_after_admission_ends_the_port_forward() {
-    let broker = FakeBroker::start();
-    broker.push_port(PortScript::admit([
-        PortStep::AwaitOpen,
-        PortStep::Fail(denied_naming_no_scope()),
-    ]));
-    let server = running_sandbox(&broker).await;
-    let run = Run::new(&server);
-    let fwd = Forward::start(&run);
-    let port = fwd.port();
-    let _conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
-    fwd.wait_for("Missing scope (10)");
-    assert!(
-        TcpStream::connect(("127.0.0.1", port)).is_err(),
-        "still listening"
-    );
-    let (code, err) = fwd.finish();
-    assert_eq!(code, 10, "{err}");
-    let line = class_line(&err).unwrap_or_default();
-    assert!(line.contains("`sandboxes:write`"), "{err}");
+    for debug in [false, true] {
+        let broker = FakeBroker::start();
+        broker.push_port(PortScript::admit([
+            PortStep::AwaitOpen,
+            PortStep::Fail(denied_naming_no_scope()),
+        ]));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let mut args = vec!["sandbox", "port-forward", ID, "0:8888"];
+        if debug {
+            args.push("--debug");
+        }
+        let fwd = Forward::start_with(&run, &args);
+        let port = fwd.port();
+        let _conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        fwd.wait_for("Missing scope (10)");
+        assert!(
+            TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "still listening"
+        );
+        let (code, err) = fwd.finish();
+        assert_eq!(code, 10, "{err}");
+        let line = class_line(&err).unwrap_or_default();
+        assert!(line.contains("`sandboxes:write`"), "{err}");
+        let ended = "< port_forward ended: code PermissionDenied, reason permission_denied";
+        assert_eq!(err.contains(ended), debug, "debug {debug}: {err}");
+    }
 }
 
 /// A forwarded connection the broker ends `rate_limited` says, after the
@@ -656,6 +672,129 @@ async fn cp_takes_a_sandbox_by_name() {
     assert!(calls[0].stdin_eof, "{calls:#?}");
     assert_eq!(&calls[0].stdin[..5], b"a.txt");
     assert_eq!(&calls[0].stdin[512..517], b"hello");
+}
+
+/// A copy out into a directory that was already there names it as the
+/// directory part of the copy was written into, not as a partial copy: on
+/// Ctrl-C, and on a failure part way, where the user's own file stays.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_into_an_existing_directory_says_part_was_written_into_it() {
+    let into = "Part of the copy was written into proj, which already existed.";
+    for ctrl_c in [true, false] {
+        let broker = FakeBroker::start();
+        let last = if ctrl_c { Step::Hold } else { Step::Exit(2) };
+        broker.push_exec(ExecScript::admit([
+            Step::Start,
+            Step::Stdout(first_entry_only("./a.txt")),
+            last,
+        ]));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let proj = run.home.path().join("proj");
+        std::fs::create_dir(&proj).unwrap();
+        std::fs::write(proj.join("notes.txt"), b"mine").unwrap();
+        let src = format!("{ID}:/work/tree/.");
+        let child = run.spawn(&["sandbox", "cp", &src, "proj"]);
+        let written = proj.join("a.txt");
+        let deadline = Instant::now() + WAIT;
+        while ctrl_c && std::fs::read(&written).ok().as_deref() != Some(b"x") {
+            assert!(Instant::now() < deadline, "the entry was never written");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        if ctrl_c {
+            signal(&child, libc::SIGINT);
+        }
+        let out = wait(child, WAIT);
+        let err = stderr(&out);
+        assert!(!err.contains("partial"), "ctrl-c {ctrl_c}: {err}");
+        if ctrl_c {
+            assert_eq!(out.status.code(), Some(130), "{err}");
+            assert!(err.contains(into), "{err}");
+        } else {
+            assert_eq!(out.status.code(), Some(255), "{err}");
+            let line = class_line(&err).unwrap_or_default();
+            assert!(
+                line.contains("tar in the sandbox exited 2")
+                    && line.ends_with(
+                        "; part of the copy was written into proj, which already existed"
+                    ),
+                "{err}"
+            );
+        }
+        assert_eq!(std::fs::read(&written).unwrap(), b"x");
+        assert_eq!(std::fs::read(proj.join("notes.txt")).unwrap(), b"mine");
+    }
+}
+
+/// A copy out that fails after writing into the user's read-only directory
+/// puts its mode back: `cp box:/work/tree .` over an existing `./tree/ro`
+/// at 0555, with an entry refused after `tree/ro/`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_copy_out_puts_back_a_read_only_directory_it_wrote_into() {
+    use std::os::unix::fs::PermissionsExt;
+    let broker = FakeBroker::start();
+    let mut stream = header("tree/", b'5', 0o755, 0);
+    stream.extend(header("tree/ro/", b'5', 0o555, 0));
+    stream.extend(&one_entry("tree/ro/f.txt")[..1024]);
+    stream.extend(one_entry("/etc/evil"));
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(stream),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let ro = run.home.path().join("tree/ro");
+    std::fs::create_dir_all(&ro).unwrap();
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let src = format!("{ID}:/work/tree");
+    let out = run.run(&["sandbox", "cp", &src, "."]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    assert!(
+        class_line(&err).is_some_and(|l| l.contains("absolute")
+            && l.ends_with("; part of the copy was written into ./tree, which already existed")),
+        "{err}"
+    );
+    let mode = std::fs::metadata(&ro).unwrap().permissions().mode() & 0o7777;
+    assert_eq!(mode, 0o555, "{err}");
+    assert_eq!(std::fs::read(ro.join("f.txt")).unwrap(), b"x");
+    let _ = std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755));
+}
+
+/// GNU tar exiting 1 on a whole stream whose totals match what arrived
+/// still fails the copy with 255, but says the copy is whole and why tar
+/// failed, and names no partial copy.
+#[tokio::test(flavor = "multi_thread")]
+async fn tar_exiting_1_on_a_whole_stream_says_the_copy_is_whole() {
+    let broker = FakeBroker::start();
+    let stream = one_entry("a.txt");
+    let tar_err = format!(
+        "tar: a.txt: file changed as we read it\n[hedra-cp] totals\nTotal bytes written: {} (10KiB, 1.0MiB/s)\n",
+        stream.len()
+    );
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(stream),
+        Step::Stderr(tar_err.into_bytes()),
+        Step::Exit(1),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/a.txt");
+    let out = run.run(&["sandbox", "cp", &src, "out"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    let line = class_line(&err).unwrap_or_default();
+    assert!(
+        line.ends_with(
+            "tar in the sandbox exited 1; the copy at ./out is whole, but tar reported a file that changed as it read it"
+        ),
+        "{err}"
+    );
+    assert!(!err.contains("partial"), "{err}");
+    assert!(err.contains("file changed as we read it"), "{err}");
+    assert_eq!(std::fs::read(run.home.path().join("out")).unwrap(), b"x");
 }
 
 /// A copy out to a sandbox that cannot be found removes the parents it
@@ -1251,8 +1390,13 @@ async fn a_stalled_connection_is_reset_while_another_keeps_its_throughput() {
             .is_err_and(|e| e.kind() == std::io::ErrorKind::ConnectionReset),
         "the stalled connection was not reset: {read:?}"
     );
-    let calls = broker.wait_for(WAIT, |c| c[0].reset.is_some() || c[0].client_gone);
-    assert!(calls[1].reset.is_none(), "{:?}", calls[1]);
+    // The live call ran its script to the end before the client let it go:
+    // the client may reset it once it has read the end, which the fake
+    // records as `reset` after `finished`, so `reset` alone says nothing.
+    let calls = broker.wait_for(WAIT, |c| {
+        (c[0].reset.is_some() || c[0].client_gone) && (c[1].finished || c[1].client_gone)
+    });
+    assert!(calls[1].finished && !calls[1].client_gone, "{:?}", calls[1]);
     assert!(
         !calls[0].rate_limited && !calls[1].rate_limited,
         "the broker ended a session rate_limited"
@@ -1483,6 +1627,65 @@ async fn a_copy_in_refused_before_admission_is_retried_and_delivers_every_byte()
     // One header, the body, then padding.
     assert_eq!(&stdin[..8], b"data.bin");
     assert_eq!(&stdin[512..512 + body.len()], &body[..]);
+}
+
+/// A local path that is not UTF-8 reaches `cp` as bytes, past clap and the
+/// verb's own reading of argv: a missing one is refused with 255 (as a line,
+/// or as JSON when asked), and where the filesystem takes such a name, the
+/// file is copied in under its own bytes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_path_that_is_not_utf8_reaches_cp_without_a_panic() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let local = OsStr::from_bytes(b"./caf\xe9");
+    let dst = format!("{ID}:/x");
+    for extra in [&[][..], &["--dry-run"][..], &["--format", "json"][..]] {
+        let out = run
+            .command(&["sandbox", "cp"])
+            .args(extra)
+            .arg(local)
+            .arg(&dst)
+            .output()
+            .unwrap();
+        let err = stderr(&out);
+        assert!(!err.contains("panicked"), "{extra:?}: {err}");
+        assert_eq!(out.status.code(), Some(255), "{extra:?}: {err}");
+        if extra.contains(&"json") {
+            assert_eq!(json_error(&err)["error"]["exit_code"], 19, "{err}");
+        } else {
+            assert!(
+                class_line(&err)
+                    .is_some_and(|l| l.starts_with("hedra-cli: Rejected request (19):")),
+                "{extra:?}: {err}"
+            );
+        }
+    }
+    assert!(broker.calls().is_empty());
+
+    // macOS refuses such a name; Linux takes any bytes.
+    if std::fs::write(run.home.path().join(local), b"body").is_err() {
+        return;
+    }
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(b"dir\n".to_vec()),
+        Step::Count,
+        Step::Exit(0),
+    ]));
+    let out = run
+        .command(&["sandbox", "cp"])
+        .arg(local)
+        .arg(&dst)
+        .output()
+        .unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    let calls = broker.calls();
+    assert_eq!(calls.len(), 1, "{err}");
+    assert_eq!(&calls[0].stdin[..5], b"caf\xe9\0");
 }
 
 /// A copy still refused `sandbox_disconnected` after the minute of retries

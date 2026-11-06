@@ -48,6 +48,30 @@ pub(crate) struct Extracted {
     pub(crate) whole: bool,
     pub(crate) skipped: Vec<String>,
     pub(crate) warnings: Vec<String>,
+    /// Directories already there that were given owner rwx to take this
+    /// copy's entries, with their modes, for a failed copy to put back.
+    loosened: Vec<Loosened>,
+}
+
+/// A directory [`add_owner_rwx`] changed, held open, and its mode before.
+/// None on Windows, where modes are not set.
+#[cfg_attr(not(unix), allow(dead_code))]
+struct Loosened {
+    #[cfg(unix)]
+    fd: rustix::fd::OwnedFd,
+    #[cfg(unix)]
+    mode: u32,
+}
+
+impl Loosened {
+    /// Puts the directory's mode back. Best effort, as loosening it was.
+    fn restore(&self) {
+        #[cfg(unix)]
+        {
+            let mode = rustix::fs::Mode::from_raw_mode(self.mode as _);
+            let _ = rustix::fs::fchmod(&self.fd, mode);
+        }
+    }
 }
 
 /// A `Read` over the chunks the receiving task hands over. A channel closed
@@ -113,7 +137,13 @@ pub(crate) fn extract_probing(
     };
     let mut out = Extracted::default();
     let result = extract_from(&mut r, dir, base, name, progress, probe, &mut out);
+    // A whole copy has set every directory's mode by now; a failed one
+    // leaves the user's directories as they were.
+    let loosened = std::mem::take(&mut out.loosened);
     if let Err(e) = result {
+        for l in loosened.iter().rev() {
+            l.restore();
+        }
         out.error = Some(e);
         out.cut = cut.load(Ordering::SeqCst);
         return out;
@@ -310,8 +340,9 @@ fn extract_from(
                 }
                 if rel != "." {
                     // A directory an earlier copy left read-only takes this
-                    // copy's entries; its mode is set again once they are.
-                    add_owner_rwx(x.dir(root), &rel);
+                    // copy's entries; its mode is set again once they are,
+                    // or put back when the copy fails.
+                    out.loosened.extend(add_owner_rwx(x.dir(root), &rel));
                     dirs.push(Pending {
                         root,
                         depth: local.split('/').count(),
@@ -695,17 +726,14 @@ fn symlink(_: &Dir, _: &Path, _: &str) -> io::Result<()> {
 
 /// Gives the directory at `rel` its owner's read, write and search bits
 /// when it lacks one, so entries can be written into a directory an earlier
-/// copy left read-only. Best effort: a directory that cannot be opened for
-/// reading keeps its mode, and writing beneath it fails naming the entry.
+/// copy left read-only, and returns it with its mode before when it changed
+/// it. Best effort: a directory that cannot be opened for reading keeps its
+/// mode, and writing beneath it fails naming the entry.
 #[cfg(unix)]
-fn add_owner_rwx(d: &Dir, rel: &str) {
+fn add_owner_rwx(d: &Dir, rel: &str) -> Option<Loosened> {
     use rustix::fs::{fchmod, fstat, openat, Mode, OFlags};
-    let Ok((d, leaf)) = parent(d, rel) else {
-        return;
-    };
-    let Ok(dir) = d.open_dir_nofollow(leaf) else {
-        return;
-    };
+    let (d, leaf) = parent(d, rel).ok()?;
+    let dir = d.open_dir_nofollow(leaf).ok()?;
     // As in `set_dir_attrs`: cap-std's directory may be `O_PATH`.
     let Ok(fd) = openat(
         &dir,
@@ -713,20 +741,22 @@ fn add_owner_rwx(d: &Dir, rel: &str) {
         OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
         Mode::empty(),
     ) else {
-        return;
+        return None;
     };
-    let Ok(st) = fstat(&fd) else {
-        return;
-    };
+    let st = fstat(&fd).ok()?;
     #[allow(clippy::useless_conversion)]
     let mode = u32::from(st.st_mode) & 0o7777;
-    if mode & 0o700 != 0o700 {
-        let _ = fchmod(&fd, Mode::from_raw_mode((mode | 0o700) as _));
+    if mode & 0o700 == 0o700 {
+        return None;
     }
+    fchmod(&fd, Mode::from_raw_mode((mode | 0o700) as _)).ok()?;
+    Some(Loosened { fd, mode })
 }
 
 #[cfg(not(unix))]
-fn add_owner_rwx(_: &Dir, _: &str) {}
+fn add_owner_rwx(_: &Dir, _: &str) -> Option<Loosened> {
+    None
+}
 
 /// Sets a directory's mode and mtime, refusing a symlink at `rel`.
 pub(crate) fn set_dir_attrs(d: &Dir, rel: &str, mode: u32, mtime: SystemTime) -> io::Result<()> {

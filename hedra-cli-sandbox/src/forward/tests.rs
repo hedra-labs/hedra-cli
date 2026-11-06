@@ -673,13 +673,17 @@ async fn a_full_budget_resets_the_connection_holding_the_most() {
     for _ in 0..(14 << 20) / chunk.len() {
         cbig.data(&chunk).await;
     }
-    // Wait for the big connection's bytes to settle in the buffer.
+    // Wait for the big connection's bytes to settle in the buffer: every
+    // frame taken off the call, and the count steady once they are, so a
+    // starved forwarder cannot pass for a settled one. Past 10 MiB, it holds
+    // more than the small connection can when the budget overflows.
     let mut last = 0;
     within(async {
         loop {
             tokio::time::sleep(Duration::from_millis(100)).await;
+            let drained = cbig.to_client.capacity() == cbig.to_client.max_capacity();
             let held = h.budget.held(0).unwrap();
-            if held == last {
+            if drained && held == last && held > 10 << 20 {
                 break;
             }
             last = held;

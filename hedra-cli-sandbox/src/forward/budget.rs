@@ -160,21 +160,34 @@ mod tests {
     }
 
     /// On a tie, the connection whose bytes overflowed the budget is the
-    /// one reset, and the other keeps what it holds.
+    /// one reset, and the others keep what they hold. Every one of 32
+    /// connections takes a turn at overflowing, so the tie-break, not the
+    /// map's iteration order, has to pick it.
     #[test]
     fn a_tie_resets_the_connection_that_overflowed() {
-        let b = budget(100, 95);
-        let (a, ra) = b.register();
-        let (c, _) = b.register();
-        assert!(b.take(a, 50));
-        assert!(b.take(c, 40));
-        // c would hold 50, as a does.
-        assert!(!b.take(c, 10));
-        assert_eq!(b.held(a), Some(50));
-        assert_eq!(b.held(c), None);
-        assert_eq!(b.total(), 50);
-        let notified = ra.notified();
-        tokio::pin!(notified);
-        assert!(futures_util::FutureExt::now_or_never(notified).is_none());
+        const N: u64 = 32;
+        for over in 0..N {
+            let b = budget(100, 30 * N as usize - 5);
+            let signals: Vec<_> = (0..N).map(|_| b.register()).collect();
+            for (id, _) in &signals {
+                assert!(b.take(*id, if *id == over { 20 } else { 30 }));
+            }
+            // `over` would hold 30, as every other one does.
+            assert!(!b.take(over, 10), "{over}");
+            assert_eq!(b.held(over), None, "{over}");
+            assert_eq!(b.total(), 30 * (N as usize - 1), "{over}");
+            for (id, reset) in &signals {
+                if *id == over {
+                    continue;
+                }
+                assert_eq!(b.held(*id), Some(30), "{over}: {id}");
+                let notified = reset.notified();
+                tokio::pin!(notified);
+                assert!(
+                    futures_util::FutureExt::now_or_never(notified).is_none(),
+                    "{over}: {id} was signalled"
+                );
+            }
+        }
     }
 }

@@ -107,14 +107,11 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         sig = signals.next() => {
             if let Some(p) = &mut created {
                 // The extractor, still running, writes nothing more once
-                // cancelled, so whether it wrote anything says whether a
-                // partial copy is there. A write it began may still be
+                // cancelled, so whether it wrote anything says whether part
+                // of the copy is there. A write it began may still be
                 // landing, so the parents stay and the line says where.
                 if progress.cancel() {
-                    stream::note(format!(
-                        "A partial copy was left at {}.",
-                        escape_controls(&p.target().display().to_string())
-                    ));
+                    stream::note(p.left().sentence());
                 } else {
                     p.discard();
                 }
@@ -124,10 +121,10 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
     };
     // A failed copy out leaves what it wrote, and says where, also when a
     // signal ends `cp` while it reports the failure.
-    let partial = report.partial.as_deref();
+    let partial = report.partial.as_ref();
     let signalled = |sig: Sig| {
         if let Some(p) = partial {
-            stream::note(format!("A partial copy was left at {p}."));
+            stream::note(p.sentence());
         }
         Ended::Signal(sig)
     };
@@ -144,14 +141,14 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         stream::note(w);
     }
     let with_partial = |f: Failure| match partial {
-        Some(p) => f.then(format!("A partial copy was left at {p}.")),
+        Some(p) => f.then(p.sentence()),
         None => f,
     };
     let status = match report.result {
         Ok(code) => return Ended::Exit(code),
         Err(CopyError::Rejected(m)) => {
             let m = match partial {
-                Some(p) => format!("{m}; a partial copy was left at {p}"),
+                Some(p) => format!("{m}; {}", p.clause()),
                 None => m,
             };
             return Ended::Failed(Failure::rejected(m));

@@ -306,7 +306,11 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
     let ctx = ctx
         .downcast_ref::<AppContext>()
         .ok_or_else(|| CliError::Validation("sandbox: unexpected binding context type".into()))?;
-    let args: Vec<String> = std::env::args().collect();
+    // `std::env::args` panics on an argument that is not valid Unicode, such
+    // as a local `cp` path, which clap passes through as bytes.
+    let args: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let json_errors = fern_cli_sdk::formatter::explicit_machine_format(&args);
     let flag = |name: &str| {
         m.try_get_one::<bool>(name)

@@ -696,9 +696,40 @@ async fn copy_out_judges_the_stream() {
             b"tar: tree/x: file changed as we read it\n"
         );
         assert_eq!(
-            r.partial.as_deref(),
-            Some(dst.path().join("out").to_str().unwrap())
+            r.partial,
+            Some(Left::Partial(dst.path().join("out").display().to_string()))
         );
+    }
+
+    // GNU tar exiting 1 on a whole stream whose totals match still fails
+    // the copy, but says it is whole and names no partial copy; exit 2, or
+    // totals that do not match, leave it partial.
+    for (code, totals, whole) in [(1, a.len(), true), (2, a.len(), false), (1, 512, false)] {
+        let dst = tempfile::tempdir().unwrap();
+        let out = dst.path().join("out");
+        let tar_err = format!(
+            "tar: tree/x: file changed as we read it\n{}",
+            gnu_totals(totals)
+        );
+        let r = copy_out_of("/work/tree", &out, a.clone(), tar_err, code).await;
+        let m = rejected(&r);
+        assert!(
+            m.starts_with(&format!("tar in the sandbox exited {code}")),
+            "{m}"
+        );
+        if whole {
+            assert_eq!(
+                m,
+                format!(
+                    "tar in the sandbox exited 1; the copy at {} is whole, but tar reported a file that changed as it read it",
+                    out.display()
+                )
+            );
+            assert_eq!(r.partial, None);
+        } else {
+            assert!(!m.contains("whole"), "{m}");
+            assert_eq!(r.partial, Some(Left::Partial(out.display().to_string())));
+        }
     }
 }
 
@@ -728,7 +759,7 @@ async fn copy_out_reports_a_call_cut_off_part_way() {
         r.result
     );
     assert_eq!(r.stopped_at.as_deref(), Some("out/big.bin"));
-    assert_eq!(r.partial.as_deref(), Some(out.to_str().unwrap()));
+    assert_eq!(r.partial, Some(Left::Partial(out.display().to_string())));
     assert_eq!(fs::read(out.join("small.txt")).unwrap(), b"small");
     assert!(fs::metadata(out.join("big.bin")).unwrap().len() < big.len() as u64);
 }
@@ -774,7 +805,8 @@ async fn a_copy_out_whose_first_write_fails_names_no_partial_copy() {
 
 /// A copy out that fails having only met directories already in the
 /// destination names no partial copy and leaves them; one that made a
-/// directory names it.
+/// directory names the destination, which was already there, as the one
+/// part of the copy was written into.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_copy_out_that_wrote_nothing_names_no_partial_copy() {
     for (sub, wrote) in [("kept", false), ("new", true)] {
@@ -800,7 +832,7 @@ async fn a_failed_copy_out_that_wrote_nothing_names_no_partial_copy() {
             r.result
         );
         assert_eq!(r.stopped_at.as_deref(), Some(sub));
-        let want = wrote.then(|| dst.path().to_str().unwrap().to_string());
+        let want = wrote.then(|| Left::Into(dst.path().display().to_string()));
         assert_eq!(r.partial, want, "{sub}");
         assert_eq!(progress.wrote(), wrote, "{sub}");
         assert_eq!(fs::read(dst.path().join("kept/mine")).unwrap(), b"mine");
@@ -2057,6 +2089,55 @@ async fn a_rerun_copy_out_writes_into_a_directory_the_first_left_read_only() {
         dst.path().join("tree/ro"),
         fs::Permissions::from_mode(0o755),
     );
+}
+
+/// A copy out that fails after giving the user's read-only directory owner
+/// rwx to write into puts its mode back: on a refused entry, a call cut off,
+/// and a failing tar.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_copy_out_puts_back_the_mode_of_a_directory_it_opened_up() {
+    let entries = [
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/ro/", b'5', 0o555, b"", ""),
+        e("tree/ro/f.txt", b'0', 0o644, b"body", ""),
+    ];
+    let mut refused = entries.to_vec();
+    refused.push(e("/etc/evil", b'0', 0o644, b"x", ""));
+    let refused = archive(&refused);
+    let whole = archive(&entries);
+    for how in ["refused", "cut", "tar exit"] {
+        let dst = tempfile::tempdir().unwrap();
+        let ro = dst.path().join("tree/ro");
+        fs::create_dir_all(&ro).unwrap();
+        fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+        let r = match how {
+            "refused" => {
+                copy_out_of("/work/tree", dst.path(), refused.clone(), String::new(), 0).await
+            }
+            "tar exit" => {
+                copy_out_of("/work/tree", dst.path(), whole.clone(), String::new(), 2).await
+            }
+            _ => {
+                let plan = plan_copy_out(&spec("/work/tree", dst.path(), Direction::Out)).unwrap();
+                let (sink, source, mut fake) = call();
+                let a = whole.clone();
+                tokio::spawn(async move {
+                    fake.argv().await;
+                    fake.data(Stream::Stdout, &a[..4 * 512]).await;
+                    let _ = fake.to_client.send(Err(FakeErr("cut"))).await;
+                });
+                within(copy_out(plan, sink, source, Arc::new(Progress::default()))).await
+            }
+        };
+        assert!(!matches!(r.result, Ok(0)), "{how}: {:?}", r.result);
+        assert_eq!(
+            fs::read(ro.join("f.txt")).ok().as_deref(),
+            Some(&b"body"[..]),
+            "{how}"
+        );
+        assert_eq!(mode(&ro), 0o555, "{how}");
+        let _ = fs::set_permissions(&ro, fs::Permissions::from_mode(0o755));
+    }
 }
 
 /// A symlink's target is written byte for byte, as tar wrote it, whether or

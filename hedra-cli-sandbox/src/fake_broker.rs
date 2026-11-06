@@ -1192,11 +1192,21 @@ impl SessionService for Arc<Broker> {
                         break;
                     }
                     Ok(None) => {
-                        update(&state, idx, |c| c.reset = Some(Code::Cancelled));
+                        update(&state, idx, |c| {
+                            c.reset = Some(Code::Cancelled);
+                            if !c.finished {
+                                c.client_gone = true;
+                            }
+                        });
                         break;
                     }
                     Err(status) => {
-                        update(&state, idx, |c| c.reset = Some(status.code()));
+                        update(&state, idx, |c| {
+                            c.reset = Some(status.code());
+                            if !c.finished {
+                                c.client_gone = true;
+                            }
+                        });
                         break;
                     }
                 }
