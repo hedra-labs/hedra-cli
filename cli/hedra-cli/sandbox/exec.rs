@@ -185,12 +185,6 @@ pub(crate) async fn drive(
             });
         }
     };
-    let output_failed = |e: std::io::Error| {
-        Failure::new(
-            Class::OutputFailed,
-            format!("Could not write the output: {e}."),
-        )
-    };
     let (mut out, mut err_out) = match (Out::dup(1), Out::dup(2)) {
         (Ok(o), Ok(e)) => (o, e),
         (Err(e), _) | (_, Err(e)) => return Driven::before_start(Ended::Failed(output_failed(e))),
@@ -340,6 +334,14 @@ pub(crate) async fn drive(
     drop(recv);
     drop(raw);
     driven
+}
+
+/// Output failed, for a write to stdout or stderr that failed.
+pub(crate) fn output_failed(e: std::io::Error) -> Failure {
+    Failure::new(
+        Class::OutputFailed,
+        format!("Could not write the output: {e}."),
+    )
 }
 
 /// Resizes, as `SIGWINCH` reports them; Windows polls the console instead.

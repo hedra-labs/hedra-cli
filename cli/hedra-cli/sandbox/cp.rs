@@ -12,7 +12,7 @@ use super::api::Api;
 use super::error::{escape_controls, Class, Failure};
 use super::exec::{self, Ended};
 use super::names::{self, Target};
-use super::stream::{self, Minter, Needs, Signals};
+use super::stream::{self, Minter, Needs, Out, Sig, Signals, WriteEnd};
 
 /// Whether `part` names a sandbox: a valid name or a `sandbox_` id.
 fn is_sandbox(part: &str) -> bool {
@@ -128,8 +128,12 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
             return Ended::Signal(sig);
         }
     };
+    // The copy has ended, so a signal or a failed write here leaves what it
+    // wrote in place.
     if !report.remote_stderr.is_empty() {
-        eprint!("{}", escape_lines(&report.remote_stderr));
+        if let Some(ended) = relay_stderr(&report.remote_stderr, &mut signals).await {
+            return ended;
+        }
     }
     for w in &report.warnings {
         stream::note(w);
@@ -153,6 +157,28 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
             exec::lost(api, &id, None).await,
             &report.stopped_at,
         )),
+    }
+}
+
+/// Writes the sandbox's stderr through a duplicate of fd 2, as `exec` writes
+/// a command's, so a failed write ends `cp` as it ends `exec`: Output
+/// failed, a closed pipe by SIGPIPE, a gone terminal as a hangup. A signal
+/// still ends a write that waits on a stderr nobody reads.
+async fn relay_stderr(bytes: &[u8], signals: &mut Signals) -> Option<Ended> {
+    let mut err_out = match Out::dup(2) {
+        Ok(o) => o,
+        Err(e) => return Some(Ended::Failed(exec::output_failed(e))),
+    };
+    let text = escape_lines(bytes);
+    let written = tokio::select! {
+        w = err_out.write(text.as_bytes()) => w,
+        sig = signals.next() => return Some(Ended::Signal(sig)),
+    };
+    match written {
+        Ok(()) => None,
+        Err(WriteEnd::Pipe) => Some(Ended::Pipe),
+        Err(WriteEnd::Hangup) => Some(Ended::Signal(Sig::Hup)),
+        Err(WriteEnd::Failed(e)) => Some(Ended::Failed(exec::output_failed(e))),
     }
 }
 
