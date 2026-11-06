@@ -207,7 +207,7 @@ impl Progress {
     }
 
     /// Whether a write of a copy out left something in the destination.
-    fn wrote(&self) -> bool {
+    pub fn wrote(&self) -> bool {
         self.lock().wrote
     }
 
@@ -235,6 +235,15 @@ impl Progress {
     /// Records that a write of a copy out left something in the destination.
     fn landed(&self) {
         self.lock().wrote = true;
+    }
+}
+
+/// Marks a copy out's extractor ended when dropped.
+struct ExtractionEnded<'a>(&'a Progress);
+
+impl Drop for ExtractionEnded<'_> {
+    fn drop(&mut self) {
+        self.0.extraction_ended();
     }
 }
 
@@ -357,8 +366,11 @@ impl CopyOut {
     /// it before the call opens.
     pub fn prepare(&mut self) -> Result<(), String> {
         if self.existed_dir.is_none() {
+            // A source's contents land in a directory the plan found there,
+            // through a symlink to one too; a named top, only in a real
+            // directory, as the extractor does not follow one.
             let m = std::fs::symlink_metadata(self.target());
-            self.existed_dir = Some(m.is_ok_and(|m| m.is_dir()));
+            self.existed_dir = Some(self.name == "." || m.is_ok_and(|m| m.is_dir()));
         }
         let shown = self.dir.display().to_string();
         let mut missing = Vec::new();
@@ -904,9 +916,10 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
         let (dir, base, name) = (plan.dir.clone(), plan.base.clone(), plan.name.clone());
         progress.extraction_starts();
         tokio::task::spawn_blocking(move || {
-            let x = extract::extract(rx, &dir, &base, &name, &progress);
-            progress.extraction_ended();
-            x
+            // Ended also when the extractor panics, so a signal's wait for
+            // it does not run out its grace.
+            let _ended = ExtractionEnded(&progress);
+            extract::extract(rx, &dir, &base, &name, &progress)
         })
     };
     let mut received: u64 = 0;
@@ -990,7 +1003,12 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
                 ex.skipped.join(", ")
             )),
             None if whole => fail(format!(
-                "tar in the sandbox exited 1 (its message is above); every entry it sent arrived at {}",
+                "tar in the sandbox exited 1{}; every entry it sent arrived at {}",
+                if err.kept.is_empty() {
+                    ""
+                } else {
+                    " (its message is above)"
+                },
                 escape_controls(&plan.target().display().to_string())
             )),
             None => fail(format!("tar in the sandbox exited {code}")),

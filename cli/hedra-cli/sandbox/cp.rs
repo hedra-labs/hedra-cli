@@ -114,15 +114,18 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         Ok(r) => r,
         Err(sig) => {
             if let Some(p) = &mut created {
-                // The extractor, still running, writes nothing more once
-                // cancelled, so whether it wrote anything says whether part
-                // of the copy is there. A write it began may still be
-                // landing, so the parents stay and the line says where.
-                let wrote = progress.cancel();
-                // The copy is dropped, so the extractor's stream has ended:
-                // it stops, and puts back the modes of the user's
-                // directories it opened up, before the exit.
-                let _ = tokio::time::timeout(EXTRACTOR_GRACE, progress.extracted()).await;
+                // The extractor writes nothing more once cancelled. The copy
+                // is dropped, so its stream has ended too: it stops, and
+                // puts back the modes of the user's directories it opened
+                // up, before the exit. Once it has, whether a write landed
+                // says whether part of the copy is there; if it has not, a
+                // write it let through may still be landing, so the parents
+                // stay and the line says where.
+                let let_through = progress.cancel();
+                let ended = tokio::time::timeout(EXTRACTOR_GRACE, progress.extracted())
+                    .await
+                    .is_ok();
+                let wrote = if ended { progress.wrote() } else { let_through };
                 if wrote {
                     stream::note(p.left().sentence());
                 } else {

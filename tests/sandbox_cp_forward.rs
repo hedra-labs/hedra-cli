@@ -676,53 +676,63 @@ async fn cp_takes_a_sandbox_by_name() {
 
 /// A copy out into a directory that was already there names it as the
 /// directory part of the copy was written into, not as a partial copy: on
-/// Ctrl-C, and on a failure part way, where the user's own file stays.
+/// Ctrl-C, and on a failure part way, where the user's own file stays; also
+/// when the destination is a symlink to the user's directory.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_copy_out_into_an_existing_directory_says_part_was_written_into_it() {
-    let into = "Part of the copy was written into proj, which already existed.";
-    for ctrl_c in [true, false] {
-        let broker = FakeBroker::start();
-        let last = if ctrl_c { Step::Hold } else { Step::Exit(2) };
-        broker.push_exec(ExecScript::admit([
-            Step::Start,
-            Step::Stdout(first_entry_only("./a.txt")),
-            last,
-        ]));
-        let server = running_sandbox(&broker).await;
-        let run = Run::new(&server);
-        let proj = run.home.path().join("proj");
-        std::fs::create_dir(&proj).unwrap();
-        std::fs::write(proj.join("notes.txt"), b"mine").unwrap();
-        let src = format!("{ID}:/work/tree/.");
-        let child = run.spawn(&["sandbox", "cp", &src, "proj"]);
-        let written = proj.join("a.txt");
-        let deadline = Instant::now() + WAIT;
-        while ctrl_c && std::fs::read(&written).ok().as_deref() != Some(b"x") {
-            assert!(Instant::now() < deadline, "the entry was never written");
-            std::thread::sleep(Duration::from_millis(20));
+    for via_link in [false, true] {
+        for ctrl_c in [true, false] {
+            let broker = FakeBroker::start();
+            let last = if ctrl_c { Step::Hold } else { Step::Exit(2) };
+            broker.push_exec(ExecScript::admit([
+                Step::Start,
+                Step::Stdout(first_entry_only("./a.txt")),
+                last,
+            ]));
+            let server = running_sandbox(&broker).await;
+            let run = Run::new(&server);
+            let proj = run.home.path().join("proj");
+            std::fs::create_dir(&proj).unwrap();
+            std::fs::write(proj.join("notes.txt"), b"mine").unwrap();
+            let dst = if via_link {
+                std::os::unix::fs::symlink("proj", run.home.path().join("link")).unwrap();
+                "link"
+            } else {
+                "proj"
+            };
+            let src = format!("{ID}:/work/tree/.");
+            let child = run.spawn(&["sandbox", "cp", &src, dst]);
+            let written = proj.join("a.txt");
+            let deadline = Instant::now() + WAIT;
+            while ctrl_c && std::fs::read(&written).ok().as_deref() != Some(b"x") {
+                assert!(Instant::now() < deadline, "the entry was never written");
+                std::thread::sleep(Duration::from_millis(20));
+            }
+            if ctrl_c {
+                signal(&child, libc::SIGINT);
+            }
+            let out = wait(child, WAIT);
+            let err = stderr(&out);
+            let at = format!("link {via_link}, ctrl-c {ctrl_c}: {err}");
+            assert!(!err.contains("partial"), "{at}");
+            if ctrl_c {
+                assert_eq!(out.status.code(), Some(130), "{at}");
+                let into =
+                    format!("Part of the copy was written into {dst}, which already existed.");
+                assert!(err.contains(&into), "{at}");
+            } else {
+                assert_eq!(out.status.code(), Some(255), "{at}");
+                let line = class_line(&err).unwrap_or_default();
+                let into =
+                    format!("; part of the copy was written into {dst}, which already existed");
+                assert!(
+                    line.contains("tar in the sandbox exited 2") && line.ends_with(&into),
+                    "{at}"
+                );
+            }
+            assert_eq!(std::fs::read(&written).unwrap(), b"x");
+            assert_eq!(std::fs::read(proj.join("notes.txt")).unwrap(), b"mine");
         }
-        if ctrl_c {
-            signal(&child, libc::SIGINT);
-        }
-        let out = wait(child, WAIT);
-        let err = stderr(&out);
-        assert!(!err.contains("partial"), "ctrl-c {ctrl_c}: {err}");
-        if ctrl_c {
-            assert_eq!(out.status.code(), Some(130), "{err}");
-            assert!(err.contains(into), "{err}");
-        } else {
-            assert_eq!(out.status.code(), Some(255), "{err}");
-            let line = class_line(&err).unwrap_or_default();
-            assert!(
-                line.contains("tar in the sandbox exited 2")
-                    && line.ends_with(
-                        "; part of the copy was written into proj, which already existed"
-                    ),
-                "{err}"
-            );
-        }
-        assert_eq!(std::fs::read(&written).unwrap(), b"x");
-        assert_eq!(std::fs::read(proj.join("notes.txt")).unwrap(), b"mine");
     }
 }
 
