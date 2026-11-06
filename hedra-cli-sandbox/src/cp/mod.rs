@@ -30,7 +30,7 @@ use crate::pb::hedra::sandbox::v1::{
     exec_client_frame, exec_server_frame, ExecClientFrame, ExecServerFrame, ExecStart, Stream,
 };
 
-pub use names::escape_controls;
+pub(crate) use names::escape_controls;
 
 /// The most stdin one frame carries.
 const CHUNK: usize = 32 << 10;

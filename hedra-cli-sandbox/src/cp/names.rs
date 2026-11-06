@@ -87,11 +87,11 @@ pub(crate) fn join(a: &str, b: &str) -> String {
 pub(crate) fn local_name(entry: &str, base: &str, name: &str) -> Result<String, String> {
     let shown = show(entry);
     if entry.starts_with('/') {
-        return Err(format!("refused {shown:?}: it is an absolute path"));
+        return Err(format!("refused \"{shown}\": it is an absolute path"));
     }
     let clean = clean(entry);
     if clean.split('/').any(|part| part == "..") {
-        return Err(format!("refused {shown:?}: it climbs out of the copy"));
+        return Err(format!("refused \"{shown}\": it climbs out of the copy"));
     }
     if base == "." {
         return Ok(if clean == "." {
@@ -102,7 +102,7 @@ pub(crate) fn local_name(entry: &str, base: &str, name: &str) -> Result<String, 
     }
     match clean.strip_prefix(base) {
         Some(rest) if rest.is_empty() || rest.starts_with('/') => Ok(format!("{name}{rest}")),
-        _ => Err(format!("refused {shown:?}: it is outside {}", show(base))),
+        _ => Err(format!("refused \"{shown}\": it is outside {}", show(base))),
     }
 }
 

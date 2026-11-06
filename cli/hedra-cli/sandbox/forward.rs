@@ -168,15 +168,6 @@ fn listening(bound: &forward::Bound) -> String {
         .join(" and ")
 }
 
-/// The exit class of a refusal that ended the listener.
-fn stopped_class(f: Failure) -> Failure {
-    if f.class == Class::ConnectionLost {
-        Failure::new(Class::NotReady, f.message)
-    } else {
-        f
-    }
-}
-
 /// Runs `port-forward` until Ctrl-C (exit 0) or a refusal no later
 /// connection can get past (its class's code).
 pub(crate) async fn run(
@@ -240,7 +231,7 @@ pub(crate) async fn run(
         while let Some(e) = events.recv().await {
             match e {
                 Event::Stopped(cf) => {
-                    let f = stopped_class(cf.failure);
+                    let f = cf.failure;
                     f.say(json_errors).await;
                     stopped = Some(f.class.code());
                 }

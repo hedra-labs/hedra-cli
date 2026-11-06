@@ -417,10 +417,7 @@ fn a_sparse_header_is_refused_before_its_extension_blocks() {
     for (long, want) in [
         (None, "\"tree/s\""),
         (Some("tree/long-name"), "\"tree/long-name\""),
-        (
-            Some("tree/\x1b]52;c;x\x07"),
-            "\"tree/\\\\x1b]52;c;x\\\\x07\"",
-        ),
+        (Some("tree/\x1b]52;c;x\x07"), "\"tree/\\x1b]52;c;x\\x07\""),
     ] {
         let src = EndlessSparse::new(long, 4 << 20);
         let sent = src.sent.clone();

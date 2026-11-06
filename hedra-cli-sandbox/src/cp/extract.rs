@@ -223,7 +223,7 @@ fn extract_from(
         let raw = entry.path_bytes().into_owned();
         let Ok(entry_name) = String::from_utf8(raw.clone()) else {
             return Err(format!(
-                "refused {:?}: its name is not UTF-8",
+                "refused \"{}\": its name is not UTF-8",
                 show(&String::from_utf8_lossy(&raw))
             ));
         };
@@ -231,12 +231,12 @@ fn extract_from(
         let local = local_name(&entry_name, base, name)?;
         if local == name && !matches!(kind, EntryType::Directory | EntryType::Regular) {
             return Err(format!(
-                "refused {shown:?}: the copy's top is not a file or a directory"
+                "refused \"{shown}\": the copy's top is not a file or a directory"
             ));
         }
         // `Capped` refuses a GNU sparse header before the crate reads it.
         if is_pax_sparse(&mut entry) {
-            return Err(format!("refused {shown:?}: it is a sparse file"));
+            return Err(format!("refused \"{shown}\": it is a sparse file"));
         }
         let local_shown = show(&local);
         #[cfg(windows)]
@@ -309,7 +309,7 @@ fn extract_from(
                 // directory cannot link to a file the user already had.
                 if !written.contains(&target) {
                     return Err(format!(
-                        "refused {shown:?}: a hard link to {:?}, which this copy did not write",
+                        "refused \"{shown}\": a hard link to \"{}\", which this copy did not write",
                         show(&target_raw)
                     ));
                 }
@@ -345,7 +345,7 @@ fn extract_from(
         }
         if let Some(via) = through_link(&l.local, &made) {
             return Err(format!(
-                "refused {local_shown:?}: it is beneath {:?}, a symlink in the same stream",
+                "refused \"{local_shown}\": it is beneath \"{}\", a symlink in the same stream",
                 show(via)
             ));
         }

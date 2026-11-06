@@ -99,7 +99,10 @@ impl<R: Read> Capped<R> {
         if kind.is_gnu_sparse() {
             return Err(io::Error::new(
                 io::ErrorKind::InvalidData,
-                format!("refused {:?}: it is a sparse file", show(&self.name_of(h))),
+                format!(
+                    "refused \"{}\": it is a sparse file",
+                    show(&self.name_of(h))
+                ),
             ));
         }
         let extension = matches!(
