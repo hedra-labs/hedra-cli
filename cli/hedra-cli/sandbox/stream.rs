@@ -583,7 +583,7 @@ impl NextSig for Signals {
 /// How long hedra-cli waits for one of its own stderr lines to be written.
 const LINE_WAIT: Duration = Duration::from_secs(1);
 /// How long an exit waits for the lines still queued, its own last line
-/// among them, unless a signal came. It waits so even when an earlier line
+/// among them, unless a signal came, before or during the wait. It waits so even when an earlier line
 /// outlasted `LINE_WAIT`: a writer starved on a busy machine still gets the
 /// final line out, and a stderr nobody reads costs the exit this much.
 const EXIT_WAIT: Duration = Duration::from_secs(10);
@@ -591,6 +591,31 @@ const EXIT_WAIT: Duration = Duration::from_secs(10);
 /// Whether a signal has arrived, after which every wait is short: the
 /// terminal may be gone, and a Ctrl-C no longer ends the process.
 static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+/// How often the exit flush looks at `SIGNALLED`.
+const FLUSH_SLICE: Duration = Duration::from_millis(50);
+
+/// Sets `SIGNALLED` on each signal `stream` delivers, for as long as the
+/// runtime runs: the verb's own `Signals` stops being polled once it returns,
+/// and a signal during the exit flush must still shorten it.
+fn watch<S, F>(mut stream: S, mut recv: F)
+where
+    S: Send + 'static,
+    F: for<'a> FnMut(
+            &'a mut S,
+        )
+            -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>
+        + Send
+        + 'static,
+{
+    let Ok(rt) = tokio::runtime::Handle::try_current() else {
+        return;
+    };
+    rt.spawn(async move {
+        while recv(&mut stream).await {
+            SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+        }
+    });
+}
 
 /// What a written line reports back on.
 enum Ack {
@@ -649,7 +674,19 @@ impl Lines {
     /// Waits up to `wait` for every line queued so far to be written,
     /// stalled or not.
     fn flush(&self, wait: Duration) {
-        let deadline = std::time::Instant::now() + wait;
+        self.flush_until(wait, &SIGNALLED);
+    }
+
+    /// `flush`, reading `signalled` for a signal that cuts the wait.
+    fn flush_until(&self, wait: Duration, signalled: &std::sync::atomic::AtomicBool) {
+        let mut deadline = std::time::Instant::now() + wait;
+        // A signal that arrives during the wait cuts it to `LINE_WAIT`, so a
+        // Ctrl-C still ends an exit held up by a stderr nobody reads.
+        let cut = |deadline: &mut std::time::Instant| {
+            if signalled.load(std::sync::atomic::Ordering::SeqCst) {
+                *deadline = (*deadline).min(std::time::Instant::now() + LINE_WAIT);
+            }
+        };
         let (ack, done) = std::sync::mpsc::sync_channel(1);
         // An empty line writes nothing, and its ack comes after every
         // earlier one. A full queue is retried until there is room.
@@ -660,12 +697,23 @@ impl Lines {
                 Err(std::sync::mpsc::TrySendError::Full(m)) => marker = m,
                 Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
             }
+            cut(&mut deadline);
             if std::time::Instant::now() >= deadline {
                 return;
             }
             std::thread::sleep(Duration::from_millis(10));
         }
-        let _ = done.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()));
+        loop {
+            cut(&mut deadline);
+            let left = deadline.saturating_duration_since(std::time::Instant::now());
+            if left.is_zero() {
+                return;
+            }
+            match done.recv_timeout(left.min(FLUSH_SLICE)) {
+                Ok(()) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => return,
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            }
+        }
     }
 
     fn mark_stalled(&self) {
@@ -743,6 +791,17 @@ impl Signals {
                 signal(kind).ok()
             }
         };
+        for (sig, kind) in [
+            (libc::SIGINT, SignalKind::interrupt()),
+            (libc::SIGTERM, SignalKind::terminate()),
+            (libc::SIGHUP, SignalKind::hangup()),
+        ] {
+            if let Some(stream) = listen(sig, kind) {
+                watch(stream, |s| {
+                    Box::pin(async move { s.recv().await.is_some() })
+                });
+            }
+        }
         Self {
             int: listen(libc::SIGINT, SignalKind::interrupt()),
             term: listen(libc::SIGTERM, SignalKind::terminate()),
@@ -783,6 +842,12 @@ pub(crate) struct Signals {
 impl Signals {
     pub(crate) fn new() -> Self {
         use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close};
+        if let Ok(s) = ctrl_c() {
+            watch(s, |s| Box::pin(async move { s.recv().await.is_some() }));
+        }
+        if let Ok(s) = ctrl_break() {
+            watch(s, |s| Box::pin(async move { s.recv().await.is_some() }));
+        }
         Self {
             int: ctrl_c().ok(),
             brk: ctrl_break().ok(),
@@ -1070,6 +1135,30 @@ pub(crate) fn remote_term(local: Option<&str>, explicit: Option<&str>) -> String
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    /// A signal during the exit flush cuts its wait to `LINE_WAIT`: a stderr
+    /// nobody reads no longer holds a Ctrl-C'd exit for the full bound.
+    #[test]
+    fn a_signal_during_the_exit_flush_cuts_its_wait() {
+        let lines = super::Lines::spawn(|_| std::thread::sleep(std::time::Duration::from_secs(60)));
+        let (ack, _done) = std::sync::mpsc::sync_channel(1);
+        assert!(lines.queue("stuck\n".into(), super::Ack::Sync(ack)));
+        let signalled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let flag = signalled.clone();
+        std::thread::spawn(move || {
+            std::thread::sleep(std::time::Duration::from_millis(300));
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
+        });
+        let started = std::time::Instant::now();
+        lines.flush_until(super::EXIT_WAIT, &signalled);
+        let took = started.elapsed();
+        assert!(
+            took < super::LINE_WAIT + std::time::Duration::from_secs(1),
+            "{took:?}"
+        );
+    }
+
     /// A writer that has stalled still gets the exit's last line out: the
     /// exit waits for it up to its bound.
     #[test]
@@ -1096,8 +1185,6 @@ mod tests {
             "first\nhedra-cli: Internal (1): last\n"
         );
     }
-
-    use super::*;
 
     #[test]
     fn term_names_without_common_terminfo_become_xterm_256color() {

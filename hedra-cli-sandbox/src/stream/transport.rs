@@ -708,6 +708,15 @@ async fn tunnel(proxy: &Proxy, host: &str, port: u16) -> Result<TcpStream, Trans
     let status_line = String::from_utf8_lossy(&head);
     let status_line = status_line.lines().next().unwrap_or_default();
     let code = status_line.split_whitespace().nth(1).unwrap_or_default();
+    if code.starts_with('5') {
+        // The proxy could not reach the broker just now (a broker deploy, a
+        // DNS blip, an upstream timeout): transient, so it takes the
+        // admission retry, and the final line names the proxy's answer.
+        return Err(TransportError::Connect(format!(
+            "the proxy could not reach the broker: {}",
+            status_line.trim()
+        )));
+    }
     if !code.starts_with('2') {
         return Err(TransportError::Refused(format!(
             "the proxy refused the tunnel to the broker: {}",
@@ -895,6 +904,34 @@ mod tests {
         let e = tunnel(&proxy, "broker.example", 443).await.unwrap_err();
         assert!(matches!(e, TransportError::Refused(_)), "{e:?}");
         assert!(e.to_string().contains("403 Forbidden"), "{e}");
+    }
+
+    /// A proxy that cannot reach the broker just now answers 5xx: transient,
+    /// so the tunnel fails as `Connect` and the call takes the admission retry.
+    #[tokio::test]
+    async fn a_proxy_5xx_is_transient_and_names_the_proxys_answer() {
+        for answer in [
+            "HTTP/1.1 502 Bad Gateway",
+            "HTTP/1.1 503 Service Unavailable",
+            "HTTP/1.1 504 Gateway Timeout",
+        ] {
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let port = listener.local_addr().unwrap().port();
+            tokio::spawn(async move {
+                let (mut s, _) = listener.accept().await.unwrap();
+                let mut buf = vec![0u8; 512];
+                let _ = s.read(&mut buf).await;
+                let _ = s.write_all(format!("{answer}\r\n\r\n").as_bytes()).await;
+            });
+            let proxy = Proxy {
+                host: "127.0.0.1".into(),
+                port,
+                authorization: None,
+            };
+            let e = tunnel(&proxy, "broker.example", 443).await.unwrap_err();
+            assert!(matches!(e, TransportError::Connect(_)), "{answer}: {e:?}");
+            assert!(e.to_string().contains(answer), "{e}");
+        }
     }
 
     #[test]

@@ -408,6 +408,26 @@ async fn an_unusable_proxy_with_a_bypass_list_is_refused_before_the_create() {
     assert!(creates(&server).await.is_empty());
 }
 
+/// A bypass list that covers every host lets an unusable proxy through the
+/// pre-create check, since the session would never use it.
+#[tokio::test]
+async fn a_bypass_list_covering_the_broker_skips_the_pre_create_proxy_check() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+    let server = api(&broker, 0).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let mut args = ARGS.to_vec();
+    args.push("2h");
+    let mut cmd = run.command(&args);
+    cmd.env("HTTPS_PROXY", "socks5://127.0.0.1:1080")
+        .env("NO_PROXY", "*");
+    let child = pty.spawn(&cmd);
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    assert_eq!(creates(&server).await.len(), 1);
+}
+
 #[tokio::test]
 async fn a_taken_name_is_retried_once_under_a_new_name_and_key() {
     let broker = FakeBroker::start();

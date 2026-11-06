@@ -332,6 +332,7 @@ fn unusable_http_settings() -> String {
         "all_proxy",
         "HEDRA_CLI_CA_BUNDLE",
         "HEDRA_CLI_EXTRA_CA_CERTS",
+        "SSL_CERT_FILE",
     ]
     .into_iter()
     .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
@@ -395,11 +396,18 @@ fn gpu_shell_args(
     let transport = stream::transport_config(ctx.http_config())?;
     // With a bypass list the other verbs refuse an unusable proxy once the
     // session names the broker; the create comes first here and is paid
-    // for, so the proxy is checked before it, bypass list or not.
-    hedra_cli_sandbox::stream::transport::check_proxy(&transport)
-        .map_err(|e| Failure::rejected(error::escape_controls(&e.to_string())))?;
+    // for, so the proxy is checked before it. A bypass list that covers the
+    // broker the session names in practice lets it through.
+    if !hedra_cli_sandbox::stream::transport::bypasses(transport.no_proxy.as_deref(), BROKER_HOST) {
+        hedra_cli_sandbox::stream::transport::check_proxy(&transport)
+            .map_err(|e| Failure::rejected(error::escape_controls(&e.to_string())))?;
+    }
     Ok((shell, transport))
 }
+
+/// The broker host the session route names, so `shell --gpu` can tell before
+/// its create whether a bypass list covers it.
+const BROKER_HOST: &str = "broker.sandbox.hedra.com";
 
 /// `exec`'s `--env` pairs.
 fn exec_env(m: &ArgMatches) -> Result<HashMap<String, String>, Failure> {

@@ -871,6 +871,35 @@ async fn a_proxy_refusing_the_tunnel_fails_at_once_with_its_answer() {
     assert_eq!(broker.connections(), 0);
 }
 
+/// A proxy answering the CONNECT 503 cannot reach the broker just now: the
+/// open retries through it, as it does an unreachable broker, and succeeds
+/// once the proxy relays again.
+#[tokio::test]
+async fn a_proxy_answering_503_is_retried_until_it_relays() {
+    let proxy = Proxy::start();
+    proxy.unavailable_for(2);
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(b"through".to_vec()),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let out = Run::new(&server)
+        .command(&exec_args(&["-n", "--", "x"]))
+        .env("HTTPS_PROXY", proxy.url())
+        .output()
+        .unwrap();
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "through");
+    assert_eq!(proxy.requests().len(), 3, "{:?}", proxy.requests());
+    assert!(
+        stderr(&out).contains("Could not reach the sandbox broker through the proxy"),
+        "{}",
+        stderr(&out)
+    );
+}
+
 /// A malformed `HEDRA_CLI_PROXY` fails before any request, naming the
 /// variable and never its value, which may hold a password.
 #[tokio::test]

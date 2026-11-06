@@ -243,6 +243,9 @@ pub struct Proxy {
 struct Control {
     frozen: std::sync::atomic::AtomicBool,
     resetting: std::sync::atomic::AtomicBool,
+    /// The next this many CONNECTs are answered 503, as a proxy that cannot
+    /// reach the broker just now answers them.
+    unavailable: std::sync::atomic::AtomicUsize,
 }
 
 impl Proxy {
@@ -276,6 +279,10 @@ impl Proxy {
                         .unwrap_or_default()
                         .to_string();
                     seen.lock().unwrap().push(line.clone());
+                    if take_one(&ctl.unavailable) {
+                        let _ = client.write_all(b"HTTP/1.1 503 Service Unavailable\r\n\r\n");
+                        return;
+                    }
                     let target = line.split_whitespace().nth(1).unwrap_or_default();
                     let Ok(upstream) = TcpStream::connect(target) else {
                         let _ = client.write_all(b"HTTP/1.1 502 Bad Gateway\r\n\r\n");
@@ -295,6 +302,11 @@ impl Proxy {
             tunnels,
             control,
         }
+    }
+
+    /// Answers the next `n` CONNECTs 503, then relays again.
+    pub fn unavailable_for(&self, n: usize) {
+        self.control.unavailable.store(n, Ordering::SeqCst);
     }
 
     /// Stops relaying either way and stops reading, keeping every
@@ -708,4 +720,16 @@ impl Drop for OnPty {
         let _ = self.sh.kill();
         let _ = self.sh.wait();
     }
+}
+
+/// Takes one from a count above zero; false once it is spent.
+fn take_one(count: &AtomicUsize) -> bool {
+    let mut n = count.load(Ordering::SeqCst);
+    while n > 0 {
+        match count.compare_exchange(n, n - 1, Ordering::SeqCst, Ordering::SeqCst) {
+            Ok(_) => return true,
+            Err(now) => n = now,
+        }
+    }
+    false
 }
