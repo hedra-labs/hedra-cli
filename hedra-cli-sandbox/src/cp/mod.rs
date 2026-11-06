@@ -126,8 +126,8 @@ impl ExecSource for tonic::Streaming<ExecServerFrame> {
     }
 }
 
-/// The entry a copy began last, which a failure names, and whether the copy
-/// was cancelled.
+/// The entry a copy began last, which a failure names, whether the copy was
+/// cancelled, and whether a copy out wrote anything to the destination.
 #[derive(Debug, Default)]
 pub struct Progress {
     entry: Mutex<Begun>,
@@ -137,6 +137,7 @@ pub struct Progress {
 struct Begun {
     name: String,
     cancelled: bool,
+    wrote: bool,
 }
 
 impl Progress {
@@ -149,12 +150,13 @@ impl Progress {
         names::show(&self.lock().name)
     }
 
-    /// Stops a copy out beginning another entry, and says whether it began
-    /// one: when it did not, it has written nothing and never will.
+    /// Stops a copy out beginning another entry or writing anything more,
+    /// and says whether it wrote anything: when it did not, it never will.
+    /// A write it began may still be landing.
     pub fn cancel(&self) -> bool {
         let mut e = self.lock();
         e.cancelled = true;
-        !e.name.is_empty()
+        e.wrote
     }
 
     /// Records that the copy begins `name`; false once it was cancelled.
@@ -164,6 +166,17 @@ impl Progress {
             return false;
         }
         name.clone_into(&mut e.name);
+        true
+    }
+
+    /// Records that a copy out is about to change the destination; false
+    /// once it was cancelled, when it must not.
+    fn writes(&self) -> bool {
+        let mut e = self.lock();
+        if e.cancelled {
+            return false;
+        }
+        e.wrote = true;
         true
     }
 }

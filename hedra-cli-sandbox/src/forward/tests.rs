@@ -65,14 +65,20 @@ impl Call {
         let f = PortServerFrame {
             frame: Some(port_server_frame::Frame::Data(b.to_vec())),
         };
-        let _ = self.to_client.send(Ok(f)).await;
+        self.send(Ok(f)).await;
     }
 
     async fn eof(&self) {
         let f = PortServerFrame {
             frame: Some(port_server_frame::Frame::Eof(true)),
         };
-        let _ = self.to_client.send(Ok(f)).await;
+        self.send(Ok(f)).await;
+    }
+
+    /// Sends `f` unless the call has ended, failing the test when the
+    /// connection stops reading the call for 30 s.
+    async fn send(&self, f: Result<PortServerFrame, FakeErr>) {
+        let _ = within(self.to_client.send(f)).await;
     }
 
     /// Reads data frames to `eof`.
@@ -212,6 +218,14 @@ impl Harness {
 
 /// Whether the connection was reset, not closed. A loaded runner can take
 /// seconds to drain a stalled socket, so the wait is long.
+/// `task` with a limit, so a forward that never takes or ends what a test
+/// waits on fails the test instead of hanging the suite.
+async fn within<T>(task: impl std::future::Future<Output = T>) -> T {
+    timeout(Duration::from_secs(30), task)
+        .await
+        .expect("the task did not end within 30 s")
+}
+
 async fn was_reset(s: &mut TcpStream) -> bool {
     let mut got = Vec::new();
     match timeout(Duration::from_secs(20), s.read_to_end(&mut got)).await {
@@ -415,13 +429,11 @@ async fn a_call_lost_after_open_resets_its_connection() {
     let mut a = h.connect().await;
     let ca = h.call().await;
     ca.data(b"partial").await;
-    let _ = ca
-        .to_client
-        .send(Err(FakeErr {
-            msg: "rate_limited",
-            permanent: false,
-        }))
-        .await;
+    ca.send(Err(FakeErr {
+        msg: "rate_limited",
+        permanent: false,
+    }))
+    .await;
     match h.event().await {
         Event::Lost(e) => assert_eq!(e.msg, "rate_limited"),
         other => panic!("{other:?}"),
@@ -561,7 +573,7 @@ async fn a_connection_whose_reader_keeps_up_is_never_reset() {
         .expect("read timed out")
         .unwrap();
     assert_eq!(got.len(), n);
-    assert!(fed.await.unwrap(), "the call was cancelled");
+    assert!(within(fed).await.unwrap(), "the call was cancelled");
     assert!(h.events.try_recv().is_err(), "{:?}", h.events.try_recv());
     budget_empties(&h).await;
 }
@@ -582,7 +594,10 @@ async fn sequential_connections_past_the_total_budget_are_never_reset() {
             .expect("read timed out")
             .unwrap();
         assert_eq!(got.len(), each, "connection {i}");
-        assert!(fed.await.unwrap(), "connection {i}'s call was cancelled");
+        assert!(
+            within(fed).await.unwrap(),
+            "connection {i}'s call was cancelled"
+        );
         budget_empties(&h).await;
     }
     assert!(h.events.try_recv().is_err(), "{:?}", h.events.try_recv());
@@ -691,7 +706,7 @@ async fn a_full_budget_resets_the_connection_holding_the_most() {
     );
     assert!(h.budget.held(1).unwrap() < last);
     assert!(was_reset(&mut big).await);
-    let csmall = feeder.await.unwrap();
+    let csmall = within(feeder).await.unwrap();
     let mut got = Vec::new();
     timeout(Duration::from_secs(5), small.read_to_end(&mut got))
         .await

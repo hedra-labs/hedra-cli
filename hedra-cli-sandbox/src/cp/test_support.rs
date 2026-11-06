@@ -151,12 +151,12 @@ pub(super) fn spec(remote: &str, local: &Path, direction: Direction) -> CopySpec
     }
 }
 
-/// `copy` with a limit, so a copy that never ends fails its test instead
-/// of hanging the suite.
-pub(super) async fn within<T>(copy: impl Future<Output = T>) -> T {
-    tokio::time::timeout(Duration::from_secs(30), copy)
+/// `task` with a limit, so a copy, or a fake sandbox waiting on one, that
+/// never ends fails its test instead of hanging the suite.
+pub(super) async fn within<T>(task: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(30), task)
         .await
-        .expect("the copy did not end within 30 s")
+        .expect("the copy or the fake sandbox did not end within 30 s")
 }
 
 /// A copy of `qwen:<remote>` to `local` from a sandbox sending `archive`,
@@ -178,7 +178,7 @@ pub(super) async fn copy_out_of(
         fake
     });
     let r = within(copy_out(plan, sink, source, Arc::new(Progress::default()))).await;
-    let _ = sandbox.await;
+    let _ = within(sandbox).await;
     r
 }
 

@@ -106,10 +106,10 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         } => r,
         sig = signals.next() => {
             if let Some(p) = &mut created {
-                // The extractor, still running, begins no other entry, so
-                // whether it began one says whether it wrote anything.
-                // An entry it began may still be landing, so the parents
-                // stay and the line says where.
+                // The extractor, still running, writes nothing more once
+                // cancelled, so whether it wrote anything says whether a
+                // partial copy is there. A write it began may still be
+                // landing, so the parents stay and the line says where.
                 if progress.cancel() {
                     stream::note(format!(
                         "A partial copy was left at {}.",

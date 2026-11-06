@@ -28,6 +28,9 @@ use super::capped::Capped;
 use super::names::{local_name, show};
 use super::Progress;
 
+/// The error of an extraction stopped by a cancel.
+const CANCELLED: &str = "the copy was cancelled";
+
 /// What the receiving task hands the extractor.
 pub(crate) enum Down {
     Data(Bytes),
@@ -228,10 +231,7 @@ fn extract_from(
     };
     let mut dirs: Vec<Pending> = Vec::new();
     let mut links: Vec<Link> = Vec::new();
-    // The files this copy wrote, by a keyed hash of the local name, so a
-    // copy of many small files holds 8 bytes for each.
-    let hasher = RandomState::new();
-    let mut written: HashSet<u64> = HashSet::new();
+    let mut written = Written::new();
 
     let mut archive = tar::Archive::new(Capped::new(r));
     let entries = archive.entries().map_err(|e| show(&e.to_string()))?;
@@ -286,16 +286,18 @@ fn extract_from(
             out.skipped.push(local_shown);
             continue;
         }
-        // Before anything is written for it, so a cancelled copy knows
-        // whether it wrote anything.
         if !progress.began(&local) {
-            return Err("the copy was cancelled".into());
+            return Err(CANCELLED.into());
         }
         let (root, rel) = x.at(&local).map_err(|e| format!("{local_shown}: {e}"))?;
         let mode = entry.header().mode().unwrap_or(0o644) & 0o777 & !mask;
         let mtime = mtime_of(entry.header());
         match kind {
             EntryType::Directory => {
+                // A directory already there is no write of this copy's.
+                if !is_dir(x.dir(root), &rel) {
+                    will_write(progress)?;
+                }
                 mkdir_over(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
                 if rel != "." {
                     // A directory an earlier copy left read-only takes this
@@ -312,9 +314,10 @@ fn extract_from(
                 }
             }
             EntryType::Regular => {
+                will_write(progress)?;
                 write_file(x.dir(root), &rel, mode, mtime, &mut entry)
                     .map_err(|e| failed(&local, &rel, e))?;
-                written.insert(hasher.hash_one(&local));
+                written.insert(&local);
             }
             EntryType::Symlink => {
                 let target = link_target(&entry.link_name_bytes().unwrap_or_default());
@@ -335,12 +338,13 @@ fn extract_from(
                 let target = local_name(&target_raw, base, name)?;
                 // Only a file this copy wrote, so a merge into an existing
                 // directory cannot link to a file the user already had.
-                if !written.contains(&hasher.hash_one(&target)) {
+                if !written.contains(&target) {
                     return Err(format!(
                         "refused \"{shown}\": a hard link to \"{}\", which this copy did not write",
                         show(&target_raw)
                     ));
                 }
+                will_write(progress)?;
                 let (troot, trel) = x.at(&target).map_err(|e| format!("{local_shown}: {e}"))?;
                 let (from, from_leaf) =
                     parent(x.dir(troot), &trel).map_err(|e| failed(&target, &trel, e))?;
@@ -348,7 +352,7 @@ fn extract_from(
                 replace(&to, leaf).map_err(|e| failed(&local, &rel, e))?;
                 from.hard_link(from_leaf, &to, leaf)
                     .map_err(|e| failed(&local, &rel, e))?;
-                written.insert(hasher.hash_one(&local));
+                written.insert(&local);
             }
             _ => {
                 out.warnings.push(format!(
@@ -378,6 +382,7 @@ fn extract_from(
                 show(via)
             ));
         }
+        will_write(progress)?;
         let (d, leaf) = parent(x.dir(l.root), &l.rel).map_err(|e| failed(&l.local, &l.rel, e))?;
         replace(&d, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
         symlink(&d, &l.target, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
@@ -392,6 +397,24 @@ fn extract_from(
             .map_err(|e| failed(&d.local, &d.rel, e))?;
     }
     Ok(())
+}
+
+/// Records that the copy is about to change the destination, so a cancelled
+/// copy knows whether it wrote anything; an error once it was cancelled.
+fn will_write(progress: &Progress) -> Result<(), String> {
+    if progress.writes() {
+        Ok(())
+    } else {
+        Err(CANCELLED.into())
+    }
+}
+
+/// Whether `rel` under `d` is a directory already, read without following a
+/// symlink.
+fn is_dir(d: &Dir, rel: &str) -> bool {
+    parent(d, rel)
+        .and_then(|(p, leaf)| p.symlink_metadata(leaf))
+        .is_ok_and(|m| m.is_dir())
 }
 
 fn is_pax_sparse<R: Read>(entry: &mut tar::Entry<'_, R>) -> bool {
@@ -416,21 +439,70 @@ pub(crate) struct Folding {
     pub(crate) normalization: bool,
 }
 
+/// The files a copy out wrote, by local name, for a hard link to name one.
+/// Each name is held as two independently keyed 64-bit hashes, so a copy of
+/// many small files holds no names: a name the copy did not write reads as
+/// written only when both of its hashes match one name it did.
+pub(crate) struct Written<A = RandomState, B = RandomState> {
+    first: A,
+    second: B,
+    names: HashSet<(u64, u64)>,
+}
+
+impl Written {
+    pub(crate) fn new() -> Self {
+        Self::with_hashers(RandomState::new(), RandomState::new())
+    }
+}
+
+impl<A: BuildHasher, B: BuildHasher> Written<A, B> {
+    pub(crate) fn with_hashers(first: A, second: B) -> Self {
+        Self {
+            first,
+            second,
+            names: HashSet::new(),
+        }
+    }
+
+    fn key(&self, name: &str) -> (u64, u64) {
+        (self.first.hash_one(name), self.second.hash_one(name))
+    }
+
+    pub(crate) fn insert(&mut self, name: &str) {
+        let key = self.key(name);
+        let _ = self.names.insert(key);
+    }
+
+    pub(crate) fn contains(&self, name: &str) -> bool {
+        self.names.contains(&self.key(name))
+    }
+}
+
 /// Entry names that land on the same file in the destination: each folded
 /// name is held as a keyed hash, beside the first name that folded to it,
-/// which a collision's message names.
-pub(crate) struct Collisions {
+/// which a collision's message names. A folded name whose hash an earlier,
+/// different folded name has is held in full, so a hash collision never
+/// reads as two names landing on the same file.
+pub(crate) struct Collisions<S = RandomState> {
     pub(crate) folding: Folding,
-    hasher: RandomState,
+    hasher: S,
     seen: HashMap<u64, Box<str>>,
+    clashes: HashMap<String, Box<str>>,
 }
 
 impl Collisions {
     pub(crate) fn new(folding: Folding) -> Self {
+        Self::with_hasher(folding, RandomState::new())
+    }
+}
+
+impl<S: BuildHasher> Collisions<S> {
+    pub(crate) fn with_hasher(folding: Folding, hasher: S) -> Self {
         Self {
             folding,
-            hasher: RandomState::new(),
+            hasher,
             seen: HashMap::new(),
+            clashes: HashMap::new(),
         }
     }
 
@@ -439,23 +511,30 @@ impl Collisions {
         if !self.folding.case && !self.folding.normalization {
             return None;
         }
-        let mut key = local.to_string();
-        if self.folding.case {
-            key = key.to_lowercase();
-        }
-        if self.folding.normalization {
-            key = key.nfc().collect();
-        }
-        let key = self.hasher.hash_one(&key);
-        match self.seen.get(&key) {
-            Some(prev) if &**prev != local => Some(prev.to_string()),
-            Some(_) => None,
+        let key = fold(self.folding, local);
+        let hash = self.hasher.hash_one(&key);
+        let first: &str = match self.seen.get(&hash) {
             None => {
-                self.seen.insert(key, local.into());
-                None
+                let _ = self.seen.insert(hash, local.into());
+                return None;
             }
-        }
+            Some(first) if fold(self.folding, first) == key => first,
+            Some(_) => self.clashes.entry(key).or_insert_with(|| local.into()),
+        };
+        (first != local).then(|| first.to_string())
     }
+}
+
+/// `name` as a destination that folds as `folding` says sees it.
+fn fold(folding: Folding, name: &str) -> String {
+    let mut key = name.to_string();
+    if folding.case {
+        key = key.to_lowercase();
+    }
+    if folding.normalization {
+        key = key.nfc().collect();
+    }
+    key
 }
 
 /// What the receiving directory's file system folds, probed by creating a

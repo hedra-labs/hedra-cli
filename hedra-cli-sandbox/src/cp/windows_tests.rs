@@ -124,7 +124,7 @@ async fn copy_in_to_work(local: &Path) -> (CopyReport<FakeErr>, Vec<u8>) {
         stdin
     });
     let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
-    (r, sandbox.await.unwrap())
+    (r, within(sandbox).await.unwrap())
 }
 
 /// A tree with a file, an empty directory, a nested file, a junction to a
@@ -218,6 +218,6 @@ async fn a_top_swapped_for_a_junction_after_the_plan_fails_the_copy() {
         "{:?}",
         r.result
     );
-    let (stdin, eof) = sandbox.await.unwrap();
+    let (stdin, eof) = within(sandbox).await.unwrap();
     assert!(!eof && stdin.is_empty());
 }

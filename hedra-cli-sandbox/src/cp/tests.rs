@@ -733,19 +733,61 @@ async fn copy_out_reports_a_call_cut_off_part_way() {
     assert!(fs::metadata(out.join("big.bin")).unwrap().len() < big.len() as u64);
 }
 
-/// A cancelled copy out begins no other entry, and says whether it began
-/// one, so the caller knows whether anything was written.
+/// A cancelled copy out begins no other entry and writes nothing more, and
+/// says whether it wrote anything, which beginning an entry is not.
 #[test]
 fn a_cancelled_copy_begins_no_other_entry() {
     let p = Progress::default();
     assert!(!p.cancel());
     assert!(!p.began("out/a"));
+    assert!(!p.writes());
     assert_eq!(p.entry(), "");
     let p = Progress::default();
     assert!(p.began("out/a"));
-    assert!(p.cancel());
+    assert!(!p.cancel(), "a begun entry wrote nothing");
     assert!(!p.began("out/b"));
+    assert!(!p.writes());
     assert_eq!(p.entry(), "out/a");
+    let p = Progress::default();
+    assert!(p.began("out/a"));
+    assert!(p.writes());
+    assert!(p.cancel());
+    assert!(!p.writes());
+}
+
+/// A copy out that fails having only met directories already in the
+/// destination names no partial copy and leaves them; one that made a
+/// directory names it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_copy_out_that_wrote_nothing_names_no_partial_copy() {
+    for (sub, wrote) in [("kept", false), ("new", true)] {
+        let dst = tempfile::tempdir().unwrap();
+        fs::create_dir(dst.path().join("kept")).unwrap();
+        fs::write(dst.path().join("kept/mine"), b"mine").unwrap();
+        let a = archive(&[
+            e("./", b'5', 0o755, b"", ""),
+            e(&format!("./{sub}/"), b'5', 0o755, b"", ""),
+        ]);
+        let plan = plan_copy_out(&spec("/work/tree/.", dst.path(), Direction::Out)).unwrap();
+        let (sink, source, mut fake) = call();
+        tokio::spawn(async move {
+            fake.argv().await;
+            fake.data(Stream::Stdout, &a[..2 * 512]).await;
+            let _ = fake.to_client.send(Err(FakeErr("cut"))).await;
+        });
+        let progress = Arc::new(Progress::default());
+        let r = within(copy_out(plan, sink, source, progress.clone())).await;
+        assert!(
+            matches!(r.result, Err(CopyError::Call(FakeErr("cut")))),
+            "{sub}: {:?}",
+            r.result
+        );
+        assert_eq!(r.stopped_at.as_deref(), Some(sub));
+        let want = wrote.then(|| dst.path().to_str().unwrap().to_string());
+        assert_eq!(r.partial, want, "{sub}");
+        assert_eq!(progress.cancel(), wrote, "{sub}");
+        assert_eq!(fs::read(dst.path().join("kept/mine")).unwrap(), b"mine");
+    }
 }
 
 /// A sandbox taking a copy in: it answers `answer`, reads stdin, exits 0.
@@ -766,7 +808,7 @@ async fn copy_into(
         (argv, stdin)
     });
     let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
-    let (argv, stdin) = sandbox.await.unwrap();
+    let (argv, stdin) = within(sandbox).await.unwrap();
     (r, argv, stdin)
 }
 
@@ -985,7 +1027,7 @@ async fn a_top_swapped_for_a_symlink_after_the_plan_fails_the_copy() {
         "{:?}",
         r.result
     );
-    let (stdin, eof) = sandbox.await.unwrap();
+    let (stdin, eof) = within(sandbox).await.unwrap();
     assert!(!eof && stdin.is_empty());
 }
 
@@ -1037,7 +1079,7 @@ async fn copy_in_cancels_the_call_on_an_unreadable_file() {
     let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     let msg = rejected(&r).to_string();
     assert!(msg.contains("nested/locked"), "{msg}");
-    assert!(!sandbox.await.unwrap(), "stdin_eof was sent");
+    assert!(!within(sandbox).await.unwrap(), "stdin_eof was sent");
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -1550,7 +1592,7 @@ async fn a_failed_walk_sends_no_end_of_archive() {
     });
     let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     assert!(rejected(&r).contains("tree/b"), "{:?}", r.result);
-    let (got, eof) = sandbox.await.unwrap();
+    let (got, eof) = within(sandbox).await.unwrap();
     assert!(!eof, "stdin_eof was sent");
     assert!(
         got.len() < 1024 || got[got.len() - 1024..].iter().any(|b| *b != 0),
@@ -1587,7 +1629,9 @@ async fn dropping_a_copy_in_resets_its_call() {
         eof
     });
     tokio::select! {
-        _ = copy_in(plan, sink, source, Arc::new(Progress::default())) => panic!("the copy finished"),
+        _ = within(copy_in(plan, sink, source, Arc::new(Progress::default()))) => {
+            panic!("the copy finished")
+        }
         _ = some_rx => {}
     }
     let eof = tokio::time::timeout(std::time::Duration::from_secs(20), sandbox)
@@ -1676,6 +1720,57 @@ fn collisions_fold_as_the_destination_does() {
     });
     assert_eq!(c.check("t/Makefile"), None);
     assert_eq!(c.check("t/makefile"), None);
+}
+
+/// A hasher that gives every name the same hash.
+#[derive(Default)]
+struct SameHash;
+
+impl std::hash::Hasher for SameHash {
+    fn finish(&self) -> u64 {
+        0
+    }
+    fn write(&mut self, _: &[u8]) {}
+}
+
+type SameHashes = std::hash::BuildHasherDefault<SameHash>;
+
+/// Two folded names whose hashes match are told apart by the names, and a
+/// real collision still names the earlier entry.
+#[test]
+fn collisions_tell_names_apart_when_their_hashes_match() {
+    use extract::{Collisions, Folding};
+    let both = Folding {
+        case: true,
+        normalization: true,
+    };
+    let mut c = Collisions::with_hasher(both, SameHashes::default());
+    assert_eq!(c.check("t/a"), None);
+    assert_eq!(c.check("t/b"), None);
+    assert_eq!(c.check("t/c"), None);
+    assert_eq!(
+        c.check("t/b"),
+        None,
+        "the same name again is not a collision"
+    );
+    assert_eq!(c.check("t/A").as_deref(), Some("t/a"));
+    assert_eq!(c.check("t/B").as_deref(), Some("t/b"));
+    assert_eq!(c.check("t/C").as_deref(), Some("t/c"));
+}
+
+/// A name the copy did not write is not taken for one it did when one of
+/// its hashes matches.
+#[test]
+fn written_tells_names_apart_when_one_hash_matches() {
+    use std::hash::RandomState;
+    let mut w = extract::Written::with_hashers(SameHashes::default(), RandomState::new());
+    w.insert("t/a");
+    assert!(w.contains("t/a"));
+    assert!(!w.contains("t/b"));
+    let mut w = extract::Written::with_hashers(RandomState::new(), SameHashes::default());
+    w.insert("t/a");
+    assert!(w.contains("t/a"));
+    assert!(!w.contains("t/b"));
 }
 
 /// A stream cut at a header's boundary, with no end blocks, is not a whole
@@ -2081,8 +2176,8 @@ async fn a_stalled_extractor_stops_the_copy_reading_at_8_mib() {
     assert!(!copy.is_finished());
     release.send(()).unwrap();
     holder.join().unwrap();
-    let r = copy.await.unwrap();
-    sandbox.await.unwrap();
+    let r = within(copy).await.unwrap();
+    within(sandbox).await.unwrap();
     assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
     assert_eq!(
         fs::metadata(dst.path().join("out/big.bin")).unwrap().len(),
