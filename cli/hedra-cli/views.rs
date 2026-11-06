@@ -17,7 +17,7 @@
 //! `serde_json` is compiled without `preserve_order`, its `Map` is a
 //! `BTreeMap`, so "first" means "alphabetically first".
 //!
-//! Seven response schemas are single resources that happen to carry an
+//! Eight response schemas are single resources that happen to carry an
 //! array, and every one of them loses data:
 //!
 //! | operation                     | renders only   | drops                |
@@ -29,6 +29,8 @@
 //! | `billing get-usage`           | `data`         | 6 fields             |
 //! | `webhooks redeliver`          | `redeliveries` | 13 fields            |
 //! | `log-drains create-log-drain` | `header_names` | 15 fields            |
+//! | `sandbox get` / `sandbox      | `command`      | 16 fields            |
+//! | create` / `sandbox stop`      |                |                      |
 //!
 //! `jobs stream` fails differently. It is not hijacked — it really is a
 //! list — but the list is the whole SSE run buffered into one array
@@ -56,11 +58,17 @@
 //!    renders one. `--format json`, `--format raw` and `jobs logs` are
 //!    untouched, so no way of reading the log is taken away.
 //!
-//! ## Known limitation
+//! ## Known limitations
 //!
 //! Field *order* is alphabetical and cannot be changed from here — the
 //! renderer walks a `BTreeMap`. Semantic ordering would require
 //! hand-owning `src/formatter.rs`, which stays generator-owned by choice.
+//!
+//! `--query` runs on the reshaped value, not the documented response: the
+//! hooks run before `emit` applies the query. So with `--format table`,
+//! `sandbox get --query 'command[0]'` prints `null` where `--format json`
+//! prints `"python"`, and the same holds for every group these hooks cover.
+//! Use `--format json` with `--query`.
 
 use fern_cli_sdk::error::CliError;
 use serde_json::{Map, Value};
