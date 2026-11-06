@@ -422,7 +422,10 @@ fn a_sparse_header_is_refused_before_its_extension_blocks() {
     for (long, want) in [
         (None, "\"tree/s\""),
         (Some("tree/long-name"), "\"tree/long-name\""),
-        (Some("tree/\x1b]52;c;x\x07"), "\"tree/\\u{1b}]52;c;x\\u{7}\""),
+        (
+            Some("tree/\x1b]52;c;x\x07"),
+            "\"tree/\\u{1b}]52;c;x\\u{7}\"",
+        ),
     ] {
         let src = EndlessSparse::new(long, 4 << 20);
         let sent = src.sent.clone();
@@ -688,7 +691,10 @@ async fn copy_out_judges_the_stream() {
         )
         .await;
         assert_eq!(rejected(&r), format!("tar in the sandbox exited {code}"));
-        assert_eq!(r.remote_stderr, b"tar: tree/x: file changed as we read it\n");
+        assert_eq!(
+            r.remote_stderr,
+            b"tar: tree/x: file changed as we read it\n"
+        );
         assert_eq!(
             r.partial.as_deref(),
             Some(dst.path().join("out").to_str().unwrap())
@@ -1071,7 +1077,11 @@ async fn copy_in_reports_tar_failures_and_a_missing_tar() {
 
     // An image without `sh`, before and after the supervisor said why.
     let r = run(None, "", 2).await;
-    assert!(rejected(&r).contains("could not start `sh`;"), "{:?}", r.result);
+    assert!(
+        rejected(&r).contains("could not start `sh`;"),
+        "{:?}",
+        r.result
+    );
     let r = run(
         None,
         "[hedra] the command could not start: exec: \"sh\": not found\r\n",
@@ -1291,14 +1301,21 @@ async fn a_local_path_that_is_not_utf8_is_copied_by_its_bytes() {
     let t = tempfile::tempdir().unwrap();
     let local = t.path().join(OsStr::from_bytes(b"caf\xe9"));
     let s = parse_args(local.as_os_str(), "train:/work", valid).unwrap();
-    assert_eq!((s.direction, s.local.as_path()), (Direction::In, local.as_path()));
+    assert_eq!(
+        (s.direction, s.local.as_path()),
+        (Direction::In, local.as_path())
+    );
     let remote = OsStr::from_bytes(b"train:/work/caf\xe9");
     assert!(parse_args(remote, "here", valid)
         .unwrap_err()
         .contains("not UTF-8"));
     // A copy out names a new top in UTF-8.
-    let e = plan_copy_out(&spec("/work/x", &t.path().join(OsStr::from_bytes(b"n\xe9w")), Direction::Out))
-        .unwrap_err();
+    let e = plan_copy_out(&spec(
+        "/work/x",
+        &t.path().join(OsStr::from_bytes(b"n\xe9w")),
+        Direction::Out,
+    ))
+    .unwrap_err();
     assert!(e.contains("not UTF-8"), "{e}");
 
     // macOS refuses such a name; Linux takes any bytes.
@@ -1924,7 +1941,10 @@ async fn a_rerun_copy_out_writes_into_a_directory_the_first_left_read_only() {
         assert_eq!(mode(&dst.path().join("tree/ro")), 0o555 & !umask());
     }
     assert_eq!(fs::read(dst.path().join("tree/ro/f.txt")).unwrap(), b"body");
-    let _ = fs::set_permissions(dst.path().join("tree/ro"), fs::Permissions::from_mode(0o755));
+    let _ = fs::set_permissions(
+        dst.path().join("tree/ro"),
+        fs::Permissions::from_mode(0o755),
+    );
 }
 
 /// A symlink's target is written byte for byte, as tar wrote it, whether or

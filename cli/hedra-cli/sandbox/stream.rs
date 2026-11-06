@@ -220,24 +220,22 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
         // cache, not the key.
         Some(reason::UNAUTHENTICATED) if !started => return temporarily_unavailable(s, &message),
         _ if started => Class::ConnectionLost,
-        _ => {
-            match s.code {
-                hedra_cli_sandbox::tonic::Code::Unavailable
-                | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
-                | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
-                    return temporarily_unavailable(s, &message)
-                }
-                hedra_cli_sandbox::tonic::Code::PermissionDenied => {
-                    return Failure::new(
-                        Class::MissingScope,
-                        super::error::missing_scope_line(needs.scope()),
-                    )
-                }
-                hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
-                hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
-                _ => Class::Internal,
+        _ => match s.code {
+            hedra_cli_sandbox::tonic::Code::Unavailable
+            | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
+            | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
+                return temporarily_unavailable(s, &message)
             }
-        }
+            hedra_cli_sandbox::tonic::Code::PermissionDenied => {
+                return Failure::new(
+                    Class::MissingScope,
+                    super::error::missing_scope_line(needs.scope()),
+                )
+            }
+            hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
+            hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
+            _ => Class::Internal,
+        },
     };
     let mut f = Failure::new(
         class,

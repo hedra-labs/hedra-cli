@@ -12,8 +12,8 @@ use bytes::Bytes;
 use tar::{Builder, EntryType, Header};
 use tokio::sync::mpsc;
 
-use crate::text::escape_controls;
 use super::{Progress, CHUNK, TAR_RECORD};
+use crate::text::escape_controls;
 
 /// What the tar builder hands the sending task.
 pub(crate) enum Up {

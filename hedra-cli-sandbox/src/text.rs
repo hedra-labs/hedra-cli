@@ -22,9 +22,6 @@ mod tests {
 
     #[test]
     fn escape_controls_escapes_osc() {
-        assert_eq!(
-            escape_controls("a\x1b]52;b\x07 é"),
-            "a\\u{1b}]52;b\\u{7} é"
-        );
+        assert_eq!(escape_controls("a\x1b]52;b\x07 é"), "a\\u{1b}]52;b\\u{7} é");
     }
 }

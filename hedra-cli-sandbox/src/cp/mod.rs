@@ -194,7 +194,10 @@ pub struct CopySpec {
 /// `:` passes `is_sandbox`; on Windows a single letter there is a drive.
 /// Anything else is a local path, which need not be UTF-8; a sandbox path
 /// must be, since the command that copies it is.
-fn remote_arg(arg: &OsStr, is_sandbox: &dyn Fn(&str) -> bool) -> Result<Option<(String, String)>, String> {
+fn remote_arg(
+    arg: &OsStr,
+    is_sandbox: &dyn Fn(&str) -> bool,
+) -> Result<Option<(String, String)>, String> {
     let text = arg.to_string_lossy();
     let Some((name, path)) = text.split_once(':') else {
         return Ok(None);
@@ -456,7 +459,9 @@ fn local_target(local: &Path, base: &str) -> Result<(PathBuf, String), String> {
     // The copy's entries are named under it, and are UTF-8.
     let name = name
         .to_str()
-        .ok_or_else(|| format!("{shown} is not UTF-8; copy into a directory, or name the copy in UTF-8"))?
+        .ok_or_else(|| {
+            format!("{shown} is not UTF-8; copy into a directory, or name the copy in UTF-8")
+        })?
         .to_string();
     let parent = match local.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),

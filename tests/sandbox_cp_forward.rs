@@ -1574,7 +1574,9 @@ async fn an_image_without_sh_fails_the_copy_naming_sh() {
         assert_eq!(out.status.code(), Some(255), "{args:?}: {err}");
         assert!(
             class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Rejected request (19):")
-                && l.contains("could not start `sh` (exec: \"sh\": executable file not found in $PATH)")),
+                && l.contains(
+                    "could not start `sh` (exec: \"sh\": executable file not found in $PATH)"
+                )),
             "{args:?}: {err}"
         );
         assert!(!err.contains("[hedra] the command"), "{args:?}: {err}");
@@ -1875,6 +1877,9 @@ async fn debug_on_cp_and_port_forward_shows_the_broker_and_never_the_token() {
         err.contains(&format!("> port_forward https://{}", broker.broker_url())),
         "{err}"
     );
-    assert!(err.contains("< port_forward refused: code Unavailable"), "{err}");
+    assert!(
+        err.contains("< port_forward refused: code Unavailable"),
+        "{err}"
+    );
     assert!(!err.contains(TOKEN), "{err}");
 }
