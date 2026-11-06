@@ -171,7 +171,7 @@ async fn port_forward_bad_ports_and_a_taken_port_exit_19_with_no_request() {
 struct Forward {
     child: Child,
     err: Arc<Mutex<String>>,
-    reader: std::thread::JoinHandle<()>,
+    reader: Option<std::thread::JoinHandle<()>>,
 }
 
 impl Forward {
@@ -195,7 +195,11 @@ impl Forward {
                     .push_str(&String::from_utf8_lossy(&buf[..n]));
             }
         });
-        Self { child, err, reader }
+        Self {
+            child,
+            err,
+            reader: Some(reader),
+        }
     }
 
     fn stderr(&self) -> String {
@@ -243,9 +247,20 @@ impl Forward {
             std::thread::sleep(Duration::from_millis(20));
         };
         // The process has exited, so its stderr reaches its end.
-        let _ = self.reader.join();
+        if let Some(reader) = self.reader.take() {
+            let _ = reader.join();
+        }
         let err = self.err.lock().unwrap().clone();
         (code, err)
+    }
+}
+
+/// Kills a port-forward a failed assertion left running, so a failing test
+/// does not leave it listening after the test binary exits.
+impl Drop for Forward {
+    fn drop(&mut self) {
+        let _ = self.child.kill();
+        let _ = self.child.wait();
     }
 }
 
