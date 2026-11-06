@@ -32,9 +32,9 @@ use tonic_types::{ErrorDetails, StatusExt};
 
 use crate::pb::hedra::sandbox::v1::session_service_server::{SessionService, SessionServiceServer};
 use crate::pb::hedra::sandbox::v1::{
-    exec_client_frame, exec_server_frame, ExecClientFrame, ExecData, ExecServerFrame, ExecStart,
-    InvokeClientFrame, InvokeServerFrame, LogChunk, LogsRequest, PortClientFrame, PortServerFrame,
-    Stream,
+    exec_client_frame, exec_server_frame, port_client_frame, port_server_frame, ExecClientFrame,
+    ExecData, ExecServerFrame, ExecStart, InvokeClientFrame, InvokeServerFrame, LogChunk,
+    LogsRequest, PortClientFrame, PortServerFrame, Stream,
 };
 use crate::stream::calls::ADMITTED_HEADER;
 
@@ -229,20 +229,50 @@ pub enum LogsEnd {
 #[derive(Clone, Debug)]
 pub struct PortScript {
     refuse: Option<Status>,
+    steps: Vec<PortStep>,
 }
 
 impl PortScript {
     /// Admits the call and holds it open until the client goes away.
     pub fn hold() -> Self {
-        Self { refuse: None }
+        Self::admit([])
+    }
+
+    /// Admits the call, runs `steps`, then holds it open until the client
+    /// goes away.
+    pub fn admit(steps: impl IntoIterator<Item = PortStep>) -> Self {
+        Self {
+            refuse: None,
+            steps: steps.into_iter().collect(),
+        }
     }
 
     /// Refuses the call before admission.
     pub fn refuse(status: Status) -> Self {
         Self {
             refuse: Some(status),
+            steps: Vec::new(),
         }
     }
+}
+
+/// One step of an admitted `PortForward` call, as the sandbox's side of
+/// the forwarded connection.
+#[derive(Clone, Debug)]
+pub enum PortStep {
+    /// Waits for the client's `open`.
+    AwaitOpen,
+    /// Waits until the client has sent this many bytes in all.
+    AwaitBytes(usize),
+    /// Waits for the client's `eof`.
+    AwaitEof,
+    /// Sends one `data` frame.
+    Data(Vec<u8>),
+    /// Sends `eof`: the sandbox's server closed its side.
+    Eof,
+    /// Sends this many bytes in 32 KiB frames as fast as the client takes
+    /// them, stopping early once the client goes away.
+    Flood(usize),
 }
 
 /// What one `Logs` call does.
@@ -304,6 +334,12 @@ pub struct Call {
     /// The request stream ended cleanly, which the broker reads as the end
     /// of input.
     pub half_closed: bool,
+    /// A `PortForward`'s `open`, the sandbox port it named.
+    pub port_open: Option<u32>,
+    /// A `PortForward`'s bytes from the client, in order.
+    pub port_data: Vec<u8>,
+    /// A `PortForward`'s client sent `eof`.
+    pub port_eof: bool,
 }
 
 #[derive(Default)]
@@ -666,6 +702,55 @@ fn admitted<T>(
     response
 }
 
+/// A `PortForward`'s steps, then a hold until the client goes away.
+async fn run_port(state: State, idx: usize, out: &Out<PortServerFrame>, steps: Vec<PortStep>) {
+    let seen = |f: &dyn Fn(&Call) -> bool| state.lock().map(|s| f(&s.calls[idx])).unwrap_or(false);
+    let frame = |f| Ok(PortServerFrame { frame: Some(f) });
+    for step in steps {
+        match step {
+            PortStep::AwaitOpen => {
+                while !seen(&|c| c.port_open.is_some()) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::AwaitBytes(n) => {
+                while !seen(&|c| c.port_data.len() >= n) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::AwaitEof => {
+                while !seen(&|c| c.port_eof) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::Data(d) => {
+                update(&state, idx, |c| c.sent += d.len());
+                let _ = out.send(frame(port_server_frame::Frame::Data(d))).await;
+            }
+            PortStep::Eof => {
+                let _ = out.send(frame(port_server_frame::Frame::Eof(true))).await;
+            }
+            PortStep::Flood(total) => {
+                let chunk = vec![0x5a; 32 << 10];
+                let mut left = total;
+                while left > 0 {
+                    let n = left.min(chunk.len());
+                    if out
+                        .send(frame(port_server_frame::Frame::Data(chunk[..n].to_vec())))
+                        .await
+                        .is_err()
+                    {
+                        break;
+                    }
+                    update(&state, idx, |c| c.sent += n);
+                    left -= n;
+                }
+            }
+        }
+    }
+    std::future::pending::<()>().await
+}
+
 /// Runs `script` until it ends or the client goes away, and records which.
 async fn supervise<T>(
     state: State,
@@ -988,21 +1073,43 @@ impl SessionService for Arc<Broker> {
         let script = self.state.lock().unwrap().port.pop_front();
         let script = script
             .unwrap_or_else(|| PortScript::refuse(Status::unimplemented("no PortForward script")));
-        if let Some(status) = script.refuse {
-            return Err(status);
-        }
-        update(&self.state, idx, |c| c.admitted = true);
         let body_end = req
             .extensions()
             .get::<BodyEnd>()
             .cloned()
             .unwrap_or_default();
         let mut inbound = req.into_inner();
+        if let Some(status) = script.refuse {
+            // An `open` sent before admission would arrive in this window.
+            let window = tokio::time::sleep(Duration::from_millis(150));
+            tokio::pin!(window);
+            loop {
+                tokio::select! {
+                    _ = &mut window => break,
+                    m = inbound.message() => match m {
+                        Ok(Some(_)) => update(&self.state, idx, |c| c.frames_before_admission += 1),
+                        _ => break,
+                    },
+                }
+            }
+            return Err(status);
+        }
+        update(&self.state, idx, |c| c.admitted = true);
         let state = self.state.clone();
         tokio::spawn(async move {
             loop {
                 match inbound.message().await {
-                    Ok(Some(_)) => update(&state, idx, |c| c.frames += 1),
+                    Ok(Some(f)) => update(&state, idx, |c| {
+                        c.frames += 1;
+                        match f.frame {
+                            Some(port_client_frame::Frame::Open(p)) => c.port_open = Some(p),
+                            Some(port_client_frame::Frame::Data(d)) => {
+                                c.port_data.extend_from_slice(&d)
+                            }
+                            Some(port_client_frame::Frame::Eof(_)) => c.port_eof = true,
+                            None => {}
+                        }
+                    }),
                     Ok(None) if body_end.get() == Some(true) => {
                         update(&state, idx, |c| c.half_closed = true);
                         break;
@@ -1021,7 +1128,8 @@ impl SessionService for Arc<Broker> {
         let (out, rx) = mpsc::channel(16);
         let state = self.state.clone();
         tokio::spawn(async move {
-            supervise(state, idx, &out, std::future::pending::<()>()).await;
+            let run = run_port(state.clone(), idx, &out, script.steps);
+            supervise(state, idx, &out, run).await;
         });
         Ok(admitted(rx))
     }
