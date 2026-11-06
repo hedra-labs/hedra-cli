@@ -61,7 +61,7 @@ Exit codes:
   18  the connection was lost
   19  the request was refused
  129  hangup
- 130  interrupted
+ 130  interrupted (logs -f, attach and port-forward end on Ctrl-C and exit 0)
  141  the output was closed
  143  terminated
  255  the output failed, or hedra-cli panicked; exec, shell, cp: any failure of hedra-cli's own, not the command's";
