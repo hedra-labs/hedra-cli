@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::fake_broker::{
-    broker_status, ca_pem, ExecScript, FakeBroker, LogsEnd, LogsScript, Step,
+    broker_status, ca_pem, ExecScript, FakeBroker, LogsEnd, LogsScript, PortScript, Step,
 };
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::tonic::{Code, Status};

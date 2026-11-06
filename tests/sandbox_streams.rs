@@ -119,7 +119,7 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
         .output()
         .unwrap();
     let help = stdout(&help);
-    for verb in ["exec", "shell", "logs", "attach"] {
+    for verb in ["exec", "shell", "logs", "attach", "cp", "port-forward"] {
         assert!(
             !help
                 .lines()
@@ -163,7 +163,7 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
         .unwrap();
     assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
     assert!(
-        stderr(&out).contains("(exec, shell, logs, attach) are not released yet"),
+        stderr(&out).contains("(exec, shell, logs, attach, cp, port-forward) are not released yet"),
         "{}",
         stderr(&out)
     );

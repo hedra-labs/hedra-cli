@@ -36,6 +36,21 @@ impl SessionMinter for Minter<'_> {
     }
 }
 
+/// A minter that owns its client, for a session that outlives a borrow, such
+/// as `port-forward`'s.
+pub(crate) struct OwnedMinter {
+    pub(crate) api: std::sync::Arc<Api>,
+    pub(crate) id: String,
+}
+
+impl SessionMinter for OwnedMinter {
+    type Error = CallError;
+
+    fn mint(&self) -> MintFuture<'_, CallError> {
+        Box::pin(mint(&self.api, &self.id))
+    }
+}
+
 /// `POST /sandboxes/{id}/session`, retried on 408, 429, 5xx and transport
 /// errors for up to a minute; a second mint is harmless.
 async fn mint(api: &Api, id: &str) -> Result<Minted, CallError> {
@@ -146,6 +161,7 @@ fn unreached(proxy: Option<&str>) -> String {
 pub(crate) enum Needs {
     Exec,
     Read,
+    Write,
 }
 
 impl Needs {
@@ -153,6 +169,7 @@ impl Needs {
         match self {
             Needs::Exec => "sandboxes:exec",
             Needs::Read => "sandboxes:read",
+            Needs::Write => "sandboxes:write",
         }
     }
 }
