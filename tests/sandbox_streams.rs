@@ -687,18 +687,42 @@ async fn a_mint_answered_503_is_retried() {
     assert_eq!(broker.calls().len(), 1);
 }
 
-/// A mint refused FAILED_PRECONDITION already says why, so its message is
-/// the line and the sandbox is not read; a 404 says only that no replica
-/// answered, so the sandbox's own state is the line.
+/// A mint refusal reads the sandbox once. A 404 says only that no replica
+/// answered, and a 400 FAILED_PRECONDITION "The sandbox is not active." only
+/// that it is no longer active, so the sandbox's own state is the line; an
+/// instance stopped under a still-active sandbox keeps the route's message.
 #[tokio::test]
-async fn a_mint_refusal_names_its_cause_and_only_a_404_reads_the_sandbox() {
-    let stopped = sandbox(
+async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_active() {
+    let mut ended = sandbox(
+        ID,
+        "box",
+        "ended",
+        json!([{"replica": 0, "status": "ended"}]),
+    );
+    ended["end_reason"] = json!("ttl_expired");
+    let failed_instance = sandbox(
         ID,
         "box",
         "ended",
         json!([{"replica": 0, "status": "ended", "failure_reason": "oom"}]),
     );
-    for (answer, line, reads) in [
+    let still_active = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([{"replica": 0, "status": "stopped", "failure_reason": "oom"}]),
+    );
+    for (answer, read, line) in [
+        (
+            envelope(
+                400,
+                "FAILED_PRECONDITION",
+                "The sandbox is not active.",
+                None,
+            ),
+            ended,
+            format!("hedra-cli: Not ready or stopped (13): `{ID}` is ended (ttl_expired)."),
+        ),
         (
             envelope(
                 400,
@@ -706,14 +730,14 @@ async fn a_mint_refusal_names_its_cause_and_only_a_404_reads_the_sandbox() {
                 "The instance at this replica has stopped.",
                 None,
             ),
+            still_active,
             "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped."
                 .to_string(),
-            0,
         ),
         (
             envelope(404, "NOT_FOUND", "No replica is serving sessions.", None),
+            failed_instance,
             format!("hedra-cli: Not ready or stopped (13): `{ID}`'s instance stopped (oom)."),
-            1,
         ),
     ] {
         let server = MockServer::start().await;
@@ -722,7 +746,7 @@ async fn a_mint_refusal_names_its_cause_and_only_a_404_reads_the_sandbox() {
             .respond_with(answer)
             .mount(&server)
             .await;
-        mount_sandbox(&server, ID, stopped.clone()).await;
+        mount_sandbox(&server, ID, read).await;
         // `exec` exits 255 for any failure of hedra-cli's own; the line names
         // the class.
         let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));
@@ -737,9 +761,45 @@ async fn a_mint_refusal_names_its_cause_and_only_a_404_reads_the_sandbox() {
             requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
                 .await
                 .len(),
-            reads
+            1
         );
     }
+}
+
+/// A mint refused FAILED_PRECONDITION whose sandbox read fails keeps the
+/// route's message.
+#[tokio::test]
+async fn a_precondition_refusal_whose_read_fails_keeps_the_routes_message() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The sandbox is not active.",
+            None,
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(envelope(503, "UNAVAILABLE", "busy", Some(0)))
+        .mount(&server)
+        .await;
+    let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));
+    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+    assert_eq!(
+        class_line(&stderr(&out)),
+        Some("hedra-cli: Not ready or stopped (13): The sandbox is not active."),
+        "{}",
+        stderr(&out)
+    );
+    assert_eq!(
+        requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+            .await
+            .len(),
+        1
+    );
 }
 
 /// The verbs' client runs with the executor's retries off: a lookup, which

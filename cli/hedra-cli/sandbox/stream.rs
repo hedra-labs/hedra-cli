@@ -248,8 +248,9 @@ fn not_connected_line(name: &str, id: &str) -> String {
     )
 }
 
-/// A failure to open a call, classed for its exit code. A mint refused 404
-/// or 400 for a sandbox just resolved reads the sandbox and reports its state.
+/// A failure to open a call, classed for its exit code. A mint refused 404,
+/// or 400 FAILED_PRECONDITION, for a sandbox just resolved reads the sandbox
+/// and reports its state, unless a 400's sandbox still reads active.
 pub(crate) async fn open_failure(
     api: &Api,
     id: &str,
@@ -293,15 +294,25 @@ pub(crate) async fn open_failure(
         ),
         OpenError::Session(SessionError::Mint(e)) => {
             // A 404 says only that the session route found no live replica, so
-            // the sandbox's own state names why. A 400 FAILED_PRECONDITION
-            // already says it ("The instance at this replica has stopped."),
-            // and its message is the line, as Not ready or stopped (13).
-            if e.http().is_some_and(|h| h.status == 404) {
-                if let Ok(s) = attempt(ATTEMPT, api.client.get(id, None)).await {
-                    return Failure::new(Class::NotReady, state_line(&s, name));
-                }
+            // the sandbox's own state names why. A 400 FAILED_PRECONDITION says
+            // either that the sandbox is not active, where its state and end
+            // reason name why, or that the replica's instance has stopped while
+            // the sandbox is still active, where the route's message is the
+            // line. Either way the line is Not ready or stopped (13), and a
+            // failed read keeps the route's message.
+            let Some(h) = e.http() else {
+                return e.failure(Some(name));
+            };
+            let precondition = h.is(400, "FAILED_PRECONDITION");
+            if h.status != 404 && !precondition {
+                return e.failure(Some(name));
             }
-            e.failure(Some(name))
+            match attempt(ATTEMPT, api.client.get(id, None)).await {
+                Ok(s) if !precondition || s.status != SandboxStatus::Active => {
+                    Failure::new(Class::NotReady, state_line(&s, name))
+                }
+                _ => e.failure(Some(name)),
+            }
         }
     }
 }
