@@ -512,15 +512,27 @@ fn symlink(_: &Dir, _: &str, _: &str) -> io::Result<()> {
 
 /// Sets a directory's mode and mtime, refusing a symlink at `rel`.
 pub(crate) fn set_dir_attrs(d: &Dir, rel: &str, mode: u32, mtime: SystemTime) -> io::Result<()> {
-    let f = d.open_dir_nofollow(rel)?.into_std_file();
+    let dir = d.open_dir_nofollow(rel)?;
     #[cfg(unix)]
     {
+        use rustix::fs::{openat, Mode, OFlags};
         use std::os::unix::fs::PermissionsExt;
+        // cap-std opens a directory `O_PATH` on Linux, and `fchmod` and
+        // `futimens` refuse an `O_PATH` descriptor with EBADF, so open the
+        // same directory through it again for reading.
+        let fd = openat(
+            &dir,
+            ".",
+            OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+            Mode::empty(),
+        )?;
+        let f = std::fs::File::from(fd);
         f.set_permissions(std::fs::Permissions::from_mode(mode))?;
         f.set_modified(mtime)
     }
     #[cfg(not(unix))]
     {
+        let f = dir.into_std_file();
         let _ = mode;
         let _ = f.set_modified(mtime);
         Ok(())
