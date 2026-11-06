@@ -834,6 +834,8 @@ async fn a_connection_closed_before_any_byte_says_nothing_is_listening() {
 /// A connection whose local reader stalls is reset once its 8 MiB buffer
 /// fills, over the real transport with its adaptive window, while another
 /// connection on the same broker connection keeps receiving at full speed.
+/// Neither leaves 256 frames unread at the broker, which would end its
+/// session `rate_limited`: port-forward never stops reading a stream.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stalled_connection_is_reset_while_another_keeps_its_throughput() {
     const LIVE: usize = 48 << 20;
@@ -868,6 +870,10 @@ async fn a_stalled_connection_is_reset_while_another_keeps_its_throughput() {
     );
     let calls = broker.wait_for(WAIT, |c| c[0].reset.is_some() || c[0].client_gone);
     assert!(calls[1].reset.is_none(), "{:?}", calls[1]);
+    assert!(
+        !calls[0].rate_limited && !calls[1].rate_limited,
+        "the broker ended a session rate_limited"
+    );
     assert_eq!(broker.connections(), 1);
     // The stalled connection did not hold the live one back.
     assert!(took < Duration::from_secs(10), "{took:?}");
@@ -1181,5 +1187,229 @@ async fn a_refused_entry_name_is_printed_escaped() {
     assert!(
         !err.contains('\x1b') && err.contains("]52;c;evil"),
         "{err:?}"
+    );
+}
+
+/// The stderr line holding a JSON error object, parsed.
+fn json_error(err: &str) -> serde_json::Value {
+    err.lines()
+        .find_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .unwrap_or_else(|| panic!("no JSON error in: {err}"))
+}
+
+fn denied_naming_no_scope() -> Status {
+    broker_status(
+        Code::PermissionDenied,
+        "permission_denied",
+        "permission denied",
+        &[],
+    )
+}
+
+/// A broker `permission_denied` naming no scope names the one each verb
+/// needs: `sandboxes:exec` for `cp`, which runs tar through `Exec`, and
+/// `sandboxes:write` for `port-forward`. With a machine format asked for,
+/// the error is a JSON object on stderr, and stdout stays empty.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_missing_scope_names_the_scope_each_verb_needs_as_a_line_and_as_json() {
+    let cp_src = format!("{ID}:/work/tree");
+    for json in [false, true] {
+        let format: &[&str] = if json { &["--format", "json"] } else { &[] };
+
+        let broker = FakeBroker::start();
+        broker.push_exec(ExecScript::refuse(denied_naming_no_scope()));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let mut args = vec!["sandbox", "cp", cp_src.as_str(), "out"];
+        args.extend_from_slice(format);
+        let out = run.run(&args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(255), "cp, json {json}: {err}");
+        assert!(stdout(&out).is_empty(), "{}", stdout(&out));
+        check_missing_scope(&err, json, "sandboxes:exec");
+
+        let broker = FakeBroker::start();
+        broker.push_port(PortScript::refuse(denied_naming_no_scope()));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let mut args = vec!["sandbox", "port-forward", ID, "0:8888"];
+        args.extend_from_slice(format);
+        let fwd = Forward::start_with(&run, &args);
+        let port = fwd.port();
+        let _ = TcpStream::connect(("127.0.0.1", port));
+        let (code, err) = fwd.finish();
+        assert_eq!(code, 10, "port-forward, json {json}: {err}");
+        check_missing_scope(&err, json, "sandboxes:write");
+    }
+}
+
+fn check_missing_scope(err: &str, json: bool, scope: &str) {
+    let lacks = format!("This key lacks `{scope}`.");
+    if !json {
+        assert!(
+            class_line(err).is_some_and(
+                |l| l.starts_with("hedra-cli: Missing scope (10): ") && l.contains(&lacks)
+            ),
+            "{err}"
+        );
+        return;
+    }
+    assert!(class_line(err).is_none(), "{err}");
+    let e = &json_error(err)["error"];
+    assert_eq!(e["class"], "Missing scope", "{err}");
+    assert_eq!(e["exit_code"], 10, "{err}");
+    assert_eq!(e["reason"], "permission_denied", "{err}");
+    assert!(
+        e["message"].as_str().is_some_and(|m| m.contains(&lacks)),
+        "{err}"
+    );
+}
+
+/// The sandbox's tar stderr goes through cp's own stderr handle, as a
+/// command's stderr goes through exec's: a closed stderr pipe ends cp by
+/// SIGPIPE, not with a panic, and the copy itself has landed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_closed_stderr_ends_cp_by_sigpipe_when_it_relays_tar_stderr() {
+    use std::os::unix::process::ExitStatusExt;
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(one_entry("tree")),
+        Step::Stderr(b"tar: a note from the sandbox\n".to_vec()),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let cp_src = format!("{ID}:/work/tree");
+    let mut child = run.spawn(&["sandbox", "cp", &cp_src, "out"]);
+    drop(child.stderr.take());
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.signal(), Some(libc::SIGPIPE), "{:?}", out.status);
+    assert_eq!(std::fs::read(run.home.path().join("out")).unwrap(), b"x");
+}
+
+/// The listener survives a dropped broker connection: the connection
+/// forwarded over it ends, and the next one reconnects the channel and is
+/// served.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_listener_survives_a_dropped_broker_connection_and_the_next_reconnects() {
+    first_call_lost_then_served(
+        PortScript::admit([PortStep::AwaitOpen, PortStep::Close]),
+        true,
+    )
+    .await;
+}
+
+/// A call that loses the race with the close of a channel left idle is
+/// dropped mid-open, before any header, and is retried before admission:
+/// the same forwarded connection is served on a new broker connection.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_forwarded_connection_dropped_mid_open_is_retried() {
+    first_call_lost_then_served(PortScript::drop_connection(), false).await;
+}
+
+/// A port-forward whose first `PortForward` call follows `first`, losing
+/// its broker connection, and whose next is admitted and answers "pong" to
+/// "ping". With `after_open`, the first local connection had its call and
+/// ends with it, so a second one is made; otherwise the first is retried.
+async fn first_call_lost_then_served(first: PortScript, after_open: bool) {
+    use std::io::Write;
+    let broker = FakeBroker::start();
+    broker.push_port(first);
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitBytes(4),
+        PortStep::Data(b"pong".to_vec()),
+        PortStep::Eof,
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let port = fwd.port();
+    let mut conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    conn.set_read_timeout(Some(WAIT)).unwrap();
+    if after_open {
+        broker.wait_for(WAIT, |c| {
+            c.len() == 1 && (c[0].client_gone || c[0].reset.is_some())
+        });
+        let _ = read_all(&mut conn);
+        conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+        conn.set_read_timeout(Some(WAIT)).unwrap();
+    }
+    conn.write_all(b"ping").unwrap();
+    assert_eq!(read_all(&mut conn).unwrap(), b"pong");
+    let calls = broker.wait_for(WAIT, |c| c.len() == 2 && c[1].port_data == b"ping");
+    assert_eq!(calls[0].admitted, after_open, "{:?}", calls[0]);
+    assert_eq!(calls[1].port_open, Some(8888));
+    assert_eq!(broker.connections(), 2);
+    assert!(class_line(&fwd.stderr()).is_none(), "{}", fwd.stderr());
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// `sandbox stop` under a running port-forward, as on staging: the
+/// connection open across the stop is reset when its call ends
+/// `sandbox_disconnected`, and the listener carries on; the next connection
+/// is refused `sandbox_disconnected`, says the supervisor is not connected,
+/// mints again, and the mint's 400 `FAILED_PRECONDITION` refuses it, closes
+/// the listener and ends the port-forward with Not ready or stopped (13),
+/// naming the sandbox's state.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stop_under_a_port_forward_resets_its_connection_then_exits_13() {
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitOpen,
+        PortStep::Fail(disconnected()),
+    ]));
+    broker.push_port(PortScript::refuse(disconnected()));
+    let server = MockServer::start().await;
+    let session = || Mock::given(method("POST")).and(path(format!("/v3/sandboxes/{ID}/session")));
+    session()
+        .respond_with(session_answer(&broker))
+        .up_to_n_times(1)
+        .mount(&server)
+        .await;
+    session()
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The sandbox is not active.",
+            None,
+        ))
+        .mount(&server)
+        .await;
+    // An id needs no lookup, so the one read is the refusal's.
+    let mut ended = sandbox(ID, "box", "ended", serde_json::json!([]));
+    ended["end_reason"] = "caller_stopped".into();
+    mount_sandbox(&server, ID, ended).await;
+
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let port = fwd.port();
+    let mut open = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    open.set_read_timeout(Some(WAIT)).unwrap();
+    fwd.wait_for("a forwarded connection was reset: ");
+    let _ = read_all(&mut open);
+    assert!(class_line(&fwd.stderr()).is_none(), "{}", fwd.stderr());
+
+    let _next = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 13, "{err}");
+    assert!(
+        err.contains(&format!(
+            "`{ID}`'s supervisor is not connected yet; retrying."
+        )),
+        "{err}"
+    );
+    assert!(
+        class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Not ready or stopped (13): ")
+            && l.contains("is ended (caller_stopped).")),
+        "{err}"
+    );
+    assert_eq!(err.matches("hedra-cli: ").count(), 1, "{err}");
+    assert_eq!(mints(&server, ID).await, 2);
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "still listening"
     );
 }

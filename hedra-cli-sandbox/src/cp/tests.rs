@@ -1678,3 +1678,90 @@ async fn a_left_out_entry_fails_the_copy_when_tar_fails_too() {
         "{msg}"
     );
 }
+
+/// A copy out holds at most 8 MiB of 32 KiB frames for an extractor that has
+/// stalled, as on a slow disk, then stops reading the call, so its flow
+/// control slows tar in the sandbox instead of the copy buffering the
+/// stream or cancelling it; once the extractor moves again, the copy lands.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stalled_extractor_stops_the_copy_reading_at_8_mib() {
+    use std::sync::atomic::AtomicUsize;
+    const FRAME: usize = 32 << 10;
+    let dst = tempfile::tempdir().unwrap();
+    let big = vec![b'x'; 32 << 20];
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/big.bin", b'0', 0o644, &big, ""),
+    ]);
+    let plan = plan_copy_out(&spec("/work/tree", &dst.path().join("out"), Direction::Out)).unwrap();
+    let (sink, source, mut fake) = call();
+    let progress = Arc::new(Progress::default());
+    // The extractor takes this lock as each entry begins, so holding it on
+    // a thread of its own stalls the extractor at its first entry.
+    let (release, released) = std::sync::mpsc::channel::<()>();
+    let (locked_tx, locked) = std::sync::mpsc::channel::<()>();
+    let holder = {
+        let progress = progress.clone();
+        std::thread::spawn(move || {
+            let _held = progress.entry.lock().unwrap();
+            locked_tx.send(()).unwrap();
+            let _ = released.recv();
+        })
+    };
+    locked.recv().unwrap();
+    let copy = tokio::spawn(copy_out(plan, sink, source, progress.clone()));
+    let sent = Arc::new(AtomicUsize::new(0));
+    let sandbox = {
+        let sent = sent.clone();
+        tokio::spawn(async move {
+            fake.argv().await;
+            for chunk in a.chunks(FRAME) {
+                let f = ExecServerFrame {
+                    frame: Some(exec_server_frame::Frame::Data(
+                        crate::pb::hedra::sandbox::v1::ExecData {
+                            stream: Stream::Stdout as i32,
+                            chunk: chunk.to_vec(),
+                        },
+                    )),
+                };
+                if fake.to_client.send(Ok(f)).await.is_err() {
+                    return;
+                }
+                sent.fetch_add(chunk.len(), Ordering::SeqCst);
+            }
+            fake.exit(0).await;
+        })
+    };
+    // Wait for the sandbox's sends to stop.
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut last = usize::MAX;
+    loop {
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        let now = sent.load(Ordering::SeqCst);
+        if now == last {
+            break;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the sends never stopped"
+        );
+        last = now;
+    }
+    // 256 frames queued for the extractor, plus the one each of the
+    // extractor, the copy's reader and the fake call's 4-frame channel hold.
+    let held = sent.load(Ordering::SeqCst);
+    assert!(
+        (256 * FRAME..=(256 + 8) * FRAME).contains(&held),
+        "{held} bytes were taken from the call"
+    );
+    assert!(!copy.is_finished());
+    release.send(()).unwrap();
+    holder.join().unwrap();
+    let r = copy.await.unwrap();
+    sandbox.await.unwrap();
+    assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+    assert_eq!(
+        fs::metadata(dst.path().join("out/big.bin")).unwrap().len(),
+        32 << 20
+    );
+}

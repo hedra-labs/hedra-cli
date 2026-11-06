@@ -104,6 +104,12 @@ async fn exec_relays_output_byte_for_byte_and_passes_the_exit_code_through() {
     assert_eq!(start.env.get("A").map(String::as_str), Some("1"));
 }
 
+/// Text from the `about` of the stream verbs whose names are common words.
+const ABOUTS: [(&str, &str); 2] = [
+    ("exec", "relaying its stdin"),
+    ("cp", "in or out of a sandbox"),
+];
+
 /// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are named nowhere,
 /// in the `sandbox` group's help, a completion script, a typo suggestion or
 /// `sandbox help <verb>`, and refuse to run, sending nothing: `exec` exits 255
@@ -143,17 +149,40 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
             script.contains("gpus"),
             "{shell}: the generated commands are missing"
         );
-        assert!(!script.contains("relaying its stdin"), "{shell} names exec");
+        for (verb, about) in ABOUTS {
+            assert!(!script.contains(about), "{shell} names {verb}");
+        }
+        assert!(
+            !script.contains("port-forward"),
+            "{shell} names port-forward"
+        );
     }
-    for args in [&["sandbox", "exe"][..], &["sandbox", "help", "exec"][..]] {
-        let out = run
-            .command(args)
-            .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-            .output()
-            .unwrap();
-        let text = format!("{}{}", stdout(&out), stderr(&out));
-        assert!(!text.contains("similar subcommand"), "{args:?}: {text}");
-        assert!(!text.contains("relaying its stdin"), "{args:?}: {text}");
+    // Each typo is one the preview answers with its verb, so its absence
+    // here is the gate's doing.
+    for (typo, verb) in [
+        ("exe", "exec"),
+        ("cpp", "cp"),
+        ("port-forwar", "port-forward"),
+    ] {
+        let suggestion = format!("a similar subcommand exists: '{verb}'");
+        let with = run.run(&["sandbox", typo]);
+        let text = format!("{}{}", stdout(&with), stderr(&with));
+        assert!(
+            text.contains(&suggestion),
+            "{typo} with the preview: {text}"
+        );
+        for args in [&["sandbox", typo][..], &["sandbox", "help", verb][..]] {
+            let out = run
+                .command(args)
+                .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
+                .output()
+                .unwrap();
+            let text = format!("{}{}", stdout(&out), stderr(&out));
+            assert!(!text.contains("similar subcommand"), "{args:?}: {text}");
+            for (verb, about) in ABOUTS {
+                assert!(!text.contains(about), "{args:?} names {verb}: {text}");
+            }
+        }
     }
 
     let out = run
@@ -182,6 +211,30 @@ async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
             .any(|l| l.trim_start().starts_with("exec ")),
         "{with_preview}"
     );
+}
+
+/// Each stream verb's `--help` lists the exit codes, and says Ctrl-C ends
+/// `logs -f`, `attach` and `port-forward` with 0, not 130.
+#[tokio::test]
+async fn each_stream_verbs_help_lists_the_exit_codes_and_ctrl_c_ending_with_0() {
+    let server = MockServer::start().await;
+    let run = Run::new(&server);
+    for verb in ["exec", "shell", "logs", "attach", "cp", "port-forward"] {
+        let out = run.run(&["sandbox", verb, "--help"]);
+        let help = stdout(&out);
+        assert!(help.contains("Exit codes:"), "{verb}: {help}");
+        let interrupted = help
+            .lines()
+            .find(|l| l.trim_start().starts_with("130 "))
+            .unwrap_or_default();
+        for zero in ["logs -f", "attach", "port-forward"] {
+            assert!(
+                interrupted.contains(zero) && interrupted.contains("exit 0"),
+                "{verb}: {interrupted}"
+            );
+        }
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
 }
 
 /// A name is resolved once, through `GET /sandboxes/{name}`, and the stream
