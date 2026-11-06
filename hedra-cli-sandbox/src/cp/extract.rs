@@ -53,13 +53,21 @@ pub(crate) struct Extracted {
     loosened: Vec<Loosened>,
 }
 
-/// A directory [`add_owner_rwx`] changed, by its root and name there, and
-/// its mode before. By name, not held open, so a copy over many read-only
-/// directories holds no descriptor for each. None on Windows, where modes
-/// are not set.
+/// A directory [`add_owner_rwx`] changed, by its root and name there, its
+/// identity, and its mode before. By name, not held open, so a copy over
+/// many read-only directories holds no descriptor for each. None on
+/// Windows, where modes are not set.
 struct Loosened {
     root: Root,
     rel: String,
+    was: Was,
+}
+
+/// A directory's identity and mode, as [`add_owner_rwx`] found it.
+#[derive(Clone, Copy)]
+struct Was {
+    dev: u64,
+    ino: u64,
     mode: u32,
 }
 
@@ -84,8 +92,12 @@ fn restore_modes(dir: &Path, name: &str, loosened: &[Loosened]) {
                 None => continue,
             },
         };
+        // Only the directory that was loosened: one moved there since
+        // keeps its own mode.
         if let Some(fd) = open_dir_fd(d, &l.rel) {
-            let _ = set_mode(&fd, l.mode);
+            if identity(&fd) == Some((l.was.dev, l.was.ino)) {
+                let _ = set_mode(&fd, l.was.mode);
+            }
         }
     }
 }
@@ -362,11 +374,11 @@ fn extract_from(
                     // A directory an earlier copy left read-only takes this
                     // copy's entries; its mode is set again once they are,
                     // or put back when the copy fails.
-                    if let Some(mode) = add_owner_rwx(x.dir(root), &rel) {
+                    if let Some(was) = add_owner_rwx(x.dir(root), &rel) {
                         out.loosened.push(Loosened {
                             root,
                             rel: rel.clone(),
-                            mode,
+                            was,
                         });
                     }
                     dirs.push(Pending {
@@ -752,11 +764,11 @@ fn symlink(_: &Dir, _: &Path, _: &str) -> io::Result<()> {
 
 /// Gives the directory at `rel` its owner's read, write and search bits
 /// when it lacks one, so entries can be written into a directory an earlier
-/// copy left read-only, and returns its mode before when it changed it.
-/// Best effort: a directory that cannot be opened for reading keeps its
+/// copy left read-only, and returns its identity and mode before when it
+/// changed it. Best effort: a directory its owner cannot read keeps its
 /// mode, and writing beneath it fails naming the entry.
 #[cfg(unix)]
-fn add_owner_rwx(d: &Dir, rel: &str) -> Option<u32> {
+fn add_owner_rwx(d: &Dir, rel: &str) -> Option<Was> {
     let fd = open_dir_fd(d, rel)?;
     let st = rustix::fs::fstat(&fd).ok()?;
     #[allow(clippy::useless_conversion)]
@@ -764,26 +776,27 @@ fn add_owner_rwx(d: &Dir, rel: &str) -> Option<u32> {
     if mode & 0o700 == 0o700 {
         return None;
     }
-    set_mode(&fd, mode | 0o700).then_some(mode)
+    let (dev, ino) = dev_ino(&st);
+    let was = Was { dev, ino, mode };
+    set_mode(&fd, mode | 0o700).then_some(was)
 }
 
 #[cfg(not(unix))]
-fn add_owner_rwx(_: &Dir, _: &str) -> Option<u32> {
+fn add_owner_rwx(_: &Dir, _: &str) -> Option<Was> {
     None
 }
 
 /// The directory at `rel` beneath `d`, opened for reading without following
-/// a symlink.
+/// a symlink. Opened from its parent, so one its owner cannot search, such
+/// as 0444, opens too.
 #[cfg(unix)]
 fn open_dir_fd(d: &Dir, rel: &str) -> Option<rustix::fd::OwnedFd> {
     use rustix::fs::{openat, Mode, OFlags};
     let (d, leaf) = parent(d, rel).ok()?;
-    let dir = d.open_dir_nofollow(leaf).ok()?;
-    // As in `set_dir_attrs`: cap-std's directory may be `O_PATH`.
     openat(
-        &dir,
-        ".",
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        &d,
+        leaf,
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::NOFOLLOW | OFlags::CLOEXEC,
         Mode::empty(),
     )
     .ok()
@@ -791,6 +804,24 @@ fn open_dir_fd(d: &Dir, rel: &str) -> Option<rustix::fd::OwnedFd> {
 
 #[cfg(not(unix))]
 fn open_dir_fd(_: &Dir, _: &str) -> Option<()> {
+    None
+}
+
+/// The device and inode of the directory open at `fd`.
+#[cfg(unix)]
+fn identity(fd: &rustix::fd::OwnedFd) -> Option<(u64, u64)> {
+    rustix::fs::fstat(fd).ok().map(|st| dev_ino(&st))
+}
+
+/// A stat's device and inode, whose types differ by platform.
+#[cfg(unix)]
+#[allow(clippy::unnecessary_cast)]
+fn dev_ino(st: &rustix::fs::Stat) -> (u64, u64) {
+    (st.st_dev as u64, st.st_ino as u64)
+}
+
+#[cfg(not(unix))]
+fn identity(_: &()) -> Option<(u64, u64)> {
     None
 }
 

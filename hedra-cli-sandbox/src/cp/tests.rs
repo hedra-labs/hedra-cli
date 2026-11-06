@@ -2282,3 +2282,105 @@ async fn a_stalled_extractor_stops_the_copy_reading_at_8_mib() {
         32 << 20
     );
 }
+
+/// A cancelled copy out stops writing the file it is in at its next read,
+/// though the stream keeps chunks queued and open: it does not drain them.
+#[test]
+fn a_cancelled_extraction_stops_mid_file_with_chunks_still_queued() {
+    const CHUNK: usize = 64 << 10;
+    let dst = tempfile::tempdir().unwrap();
+    let big = vec![b'x'; 300 * CHUNK];
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/big", b'0', 0o644, &big, ""),
+    ]);
+    let (tx, rx) = mpsc::channel(a.len() / CHUNK + 2);
+    for c in a.chunks(CHUNK) {
+        tx.try_send(extract::Down::Data(bytes::Bytes::copy_from_slice(c)))
+            .unwrap();
+    }
+    let progress = Arc::new(Progress::default());
+    let (done_tx, done) = std::sync::mpsc::channel();
+    let dir = dst.path().to_path_buf();
+    let p = progress.clone();
+    std::thread::spawn(move || {
+        let x = extract::extract(rx, &dir, "tree", "out", &p);
+        let _ = done_tx.send(x.error);
+    });
+    let file = dst.path().join("out/big");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    while fs::metadata(&file).map_or(0, |m| m.len()) == 0 {
+        assert!(std::time::Instant::now() < deadline, "never began the file");
+        std::thread::yield_now();
+    }
+    assert!(progress.cancel());
+    // `tx` stays open, so only the cancel can end the extraction.
+    let error = done
+        .recv_timeout(std::time::Duration::from_secs(5))
+        .expect("the extraction did not stop");
+    assert!(error.is_some_and(|e| e.contains("cancelled")));
+    assert!(fs::metadata(&file).unwrap().len() < big.len() as u64);
+    drop(tx);
+}
+
+/// A failed copy out leaves alone a directory moved in where one it opened
+/// up was: only the directory it loosened, by identity, gets a mode back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failed_copy_out_restores_no_directory_moved_in_since() {
+    let dst = tempfile::tempdir().unwrap();
+    let ro = dst.path().join("tree/ro");
+    fs::create_dir_all(&ro).unwrap();
+    fs::set_permissions(&ro, fs::Permissions::from_mode(0o555)).unwrap();
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/ro/", b'5', 0o555, b"", ""),
+    ]);
+    let plan = plan_copy_out(&spec("/work/tree", dst.path(), Direction::Out)).unwrap();
+    let (sink, source, mut fake) = call();
+    let (go_tx, go) = tokio::sync::oneshot::channel::<()>();
+    tokio::spawn(async move {
+        fake.argv().await;
+        fake.data(Stream::Stdout, &a[..2 * 512]).await;
+        let _ = go.await;
+        let _ = fake.to_client.send(Err(FakeErr("cut"))).await;
+    });
+    let copy = tokio::spawn(copy_out(plan, sink, source, Arc::new(Progress::default())));
+    within(async {
+        while mode(&ro) != 0o755 {
+            tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        }
+    })
+    .await;
+    let moved = dst.path().join("tree/moved");
+    fs::rename(&ro, &moved).unwrap();
+    fs::create_dir(&ro).unwrap();
+    fs::set_permissions(&ro, fs::Permissions::from_mode(0o751)).unwrap();
+    go_tx.send(()).unwrap();
+    let r = within(copy).await.unwrap();
+    assert!(
+        matches!(r.result, Err(CopyError::Call(_))),
+        "{:?}",
+        r.result
+    );
+    assert_eq!(mode(&ro), 0o751);
+    let _ = fs::set_permissions(&moved, fs::Permissions::from_mode(0o755));
+}
+
+/// A directory of the user's that its owner can read but not search, 0444,
+/// is opened up for the copy too, and given the archive's mode after.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_writes_into_a_directory_its_owner_cannot_search() {
+    let dst = tempfile::tempdir().unwrap();
+    let ns = dst.path().join("tree/a");
+    fs::create_dir_all(&ns).unwrap();
+    fs::set_permissions(&ns, fs::Permissions::from_mode(0o444)).unwrap();
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/a/", b'5', 0o755, b"", ""),
+        e("tree/a/b", b'0', 0o644, b"body", ""),
+    ]);
+    let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+    assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+    assert_eq!(fs::read(ns.join("b")).unwrap(), b"body");
+    assert_eq!(mode(&ns), 0o755 & !umask());
+}

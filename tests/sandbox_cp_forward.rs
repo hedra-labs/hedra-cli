@@ -883,16 +883,83 @@ async fn ctrl_c_mid_file_puts_back_a_read_only_directory_before_exiting() {
         std::thread::sleep(Duration::from_millis(5));
     }
     signal(&child, libc::SIGINT);
+    let signalled = Instant::now();
     let out = wait(child, WAIT);
+    // Well inside the 5 s the exit waits for the extractor at most: it
+    // stops at once and says so.
+    let took = signalled.elapsed();
     let err = stderr(&out);
     let mode = std::fs::metadata(&ro).unwrap().permissions().mode() & 0o7777;
     let _ = std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755));
     assert_eq!(out.status.code(), Some(130), "{err}");
     assert_eq!(mode, 0o555, "{err}");
+    assert!(took < Duration::from_secs(2), "{took:?}: {err}");
     assert!(
         err.contains("Part of the copy was written into ./tree, which already existed."),
         "{err}"
     );
+}
+
+/// Ctrl-C after a copy out let a write through that never landed, here a
+/// top directory refused over a file of the user's, says nothing was left:
+/// the file is the user's, untouched.
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_c_after_a_write_that_never_landed_names_nothing() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(header("tree/", b'5', 0o755, 0)),
+        Step::Hold,
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    std::fs::write(run.home.path().join("tree"), b"mine").unwrap();
+    let src = format!("{ID}:/work/tree");
+    let child = run.spawn(&["sandbox", "cp", &src, "."]);
+    broker.wait_for(WAIT, |c| c.len() == 1 && c[0].start.is_some());
+    // Time for the extractor to meet the header and refuse it.
+    std::thread::sleep(Duration::from_millis(500));
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(130), "{err}");
+    assert!(
+        !err.contains("partial") && !err.contains("Part of"),
+        "{err}"
+    );
+    assert_eq!(
+        std::fs::read(run.home.path().join("tree")).unwrap(),
+        b"mine"
+    );
+}
+
+/// A copy out over a directory of the user's that its owner can read but
+/// not search, 0444, writes into it and gives it the archive's mode.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_writes_into_a_directory_its_owner_cannot_search() {
+    use std::os::unix::fs::PermissionsExt;
+    let broker = FakeBroker::start();
+    let mut stream = header("tree/", b'5', 0o755, 0);
+    stream.extend(header("tree/a/", b'5', 0o755, 0));
+    stream.extend(one_entry("tree/a/b"));
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(stream),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let a = run.home.path().join("tree/a");
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o444)).unwrap();
+    let src = format!("{ID}:/work/tree");
+    let out = run.run(&["sandbox", "cp", &src, "."]);
+    let err = stderr(&out);
+    let mode = std::fs::metadata(&a).unwrap().permissions().mode() & 0o7777;
+    let _ = std::fs::set_permissions(&a, std::fs::Permissions::from_mode(0o755));
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert_eq!(mode, 0o755, "{err}");
+    assert_eq!(std::fs::read(a.join("b")).unwrap(), b"x");
 }
 
 /// GNU tar exiting 1 on a whole stream whose totals match what arrived
@@ -900,34 +967,43 @@ async fn ctrl_c_mid_file_puts_back_a_read_only_directory_before_exiting() {
 /// failed, and names no partial copy.
 #[tokio::test(flavor = "multi_thread")]
 async fn tar_exiting_1_on_a_whole_stream_says_every_entry_arrived() {
-    let broker = FakeBroker::start();
-    let stream = one_entry("a.txt");
-    let tar_err = format!(
-        "tar: a.txt: file changed as we read it\n[hedra-cp] totals\nTotal bytes written: {} (10KiB, 1.0MiB/s)\n",
-        stream.len()
-    );
-    broker.push_exec(ExecScript::admit([
-        Step::Start,
-        Step::Stdout(stream),
-        Step::Stderr(tar_err.into_bytes()),
-        Step::Exit(1),
-    ]));
-    let server = running_sandbox(&broker).await;
-    let run = Run::new(&server);
-    let src = format!("{ID}:/work/a.txt");
-    let out = run.run(&["sandbox", "cp", &src, "out"]);
-    let err = stderr(&out);
-    assert_eq!(out.status.code(), Some(255), "{err}");
-    let line = class_line(&err).unwrap_or_default();
-    assert!(
-        line.ends_with(
-            "tar in the sandbox exited 1 (its message is above); every entry it sent arrived at ./out"
-        ),
-        "{err}"
-    );
-    assert!(!err.contains("partial"), "{err}");
-    assert!(err.contains("file changed as we read it"), "{err}");
-    assert_eq!(std::fs::read(run.home.path().join("out")).unwrap(), b"x");
+    // With tar's message relayed above the line, and with none to point at.
+    for said in [true, false] {
+        let broker = FakeBroker::start();
+        let stream = one_entry("a.txt");
+        let message = if said {
+            "tar: a.txt: file changed as we read it\n"
+        } else {
+            ""
+        };
+        let tar_err = format!(
+            "{message}[hedra-cp] totals\nTotal bytes written: {} (10KiB, 1.0MiB/s)\n",
+            stream.len()
+        );
+        broker.push_exec(ExecScript::admit([
+            Step::Start,
+            Step::Stdout(stream),
+            Step::Stderr(tar_err.into_bytes()),
+            Step::Exit(1),
+        ]));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let src = format!("{ID}:/work/a.txt");
+        let out = run.run(&["sandbox", "cp", &src, "out"]);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(255), "{err}");
+        let line = class_line(&err).unwrap_or_default();
+        let above = if said { " (its message is above)" } else { "" };
+        assert!(
+            line.ends_with(&format!(
+                "tar in the sandbox exited 1{above}; every entry it sent arrived at ./out"
+            )),
+            "{err}"
+        );
+        assert!(!err.contains("partial"), "{err}");
+        assert_eq!(err.contains("file changed as we read it"), said, "{err}");
+        assert_eq!(std::fs::read(run.home.path().join("out")).unwrap(), b"x");
+    }
 }
 
 /// A copy out to a sandbox that cannot be found removes the parents it
