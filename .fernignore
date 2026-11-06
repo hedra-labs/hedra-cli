@@ -18,6 +18,7 @@ cli/hedra-cli/keyring_cache.rs
 cli/hedra-cli/media_refs.rs
 cli/hedra-cli/views.rs
 cli/hedra-cli/workspaces.rs
+cli/hedra-cli/sandbox/
 README.md
 
 # The Apache-2.0 notice for the vendored CLI runtime (ENG-10756). Unlike the

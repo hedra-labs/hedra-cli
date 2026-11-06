@@ -1,0 +1,127 @@
+syntax = "proto3";
+
+// Trimmed from the sandbox broker's protos at upstream commit
+// 88fee67766faaeba2334b28aed1653990eebd049.
+package hedra.sandbox.v1;
+
+import "google/protobuf/timestamp.proto";
+import "hedra/sandbox/v1/agent.proto";
+import "hedra/sandbox/v1/blob.proto";
+import "hedra/sandbox/v1/errors.proto";
+
+service SessionService {
+  rpc Exec(stream ExecClientFrame) returns (stream ExecServerFrame);
+  rpc Logs(LogsRequest) returns (stream LogChunk);
+  rpc PortForward(stream PortClientFrame) returns (stream PortServerFrame);
+  rpc Invoke(stream InvokeClientFrame) returns (stream InvokeServerFrame);
+}
+
+message ExecClientFrame {
+  oneof frame {
+    ExecStart start = 1;
+    bytes stdin = 2;
+    ExecResize resize = 3;
+    bool stdin_eof = 4;
+  }
+}
+
+message ExecStart {
+  repeated string argv = 1;
+  bool tty = 2;
+  map<string, string> env = 3;
+  uint32 rows = 4;
+  uint32 cols = 5;
+}
+
+message ExecResize {
+  uint32 rows = 1;
+  uint32 cols = 2;
+}
+
+message ExecServerFrame {
+  oneof frame {
+    ExecData data = 1;
+    int32 exit_code = 2;
+  }
+}
+
+message ExecData {
+  Stream stream = 1;
+  bytes chunk = 2;
+}
+
+message LogsRequest {
+  google.protobuf.Timestamp since = 1;
+  bool follow = 2;
+}
+
+message PortClientFrame {
+  oneof frame {
+    uint32 open = 1;
+    bytes data = 2;
+    bool eof = 3;
+  }
+}
+
+message PortServerFrame {
+  oneof frame {
+    bytes data = 1;
+    bool eof = 2;
+  }
+}
+
+message InvokeClientFrame {
+  oneof frame {
+    InvokeStart start = 1;
+    InvokeCancel cancel = 2;
+    InvokeUpload upload = 3;
+  }
+}
+
+message InvokeCancel {}
+
+message InvokeUpload {
+  bytes sha256 = 1;
+  uint64 size = 2;
+}
+
+message InvokeUploadUrl {
+  PresignedUrl url = 1;
+  BlobRef args_ref = 2;
+}
+
+message InvokeStart {
+  string function_ref = 1;
+  oneof payload {
+    bytes args = 2;
+    BlobRef args_ref = 3;
+  }
+  string bundle_ref = 4;
+  uint32 timeout_seconds = 5;
+}
+
+message InvokeServerFrame {
+  oneof frame {
+    InvokeChunk output = 1;
+    InvokeDone result = 2;
+    InvokeUploadUrl upload = 3;
+    InvokeRunning started = 4;
+  }
+}
+
+message InvokeRunning {}
+
+message InvokeChunk {
+  Stream stream = 1;
+  bytes chunk = 2;
+}
+
+message InvokeDone {
+  oneof payload {
+    bytes result = 1;
+    BlobRef result_ref = 2;
+  }
+  InvokeError error = 3;
+  ErrorCode code = 4;
+  PresignedUrl result_url = 5;
+}

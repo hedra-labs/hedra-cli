@@ -1,0 +1,27 @@
+syntax = "proto3";
+
+// Trimmed from the sandbox broker's protos at upstream commit
+// 88fee67766faaeba2334b28aed1653990eebd049.
+package hedra.sandbox.v1;
+
+import "google/protobuf/timestamp.proto";
+
+enum Stream {
+  STREAM_UNSPECIFIED = 0;
+  STREAM_STDOUT = 1;
+  STREAM_STDERR = 2;
+}
+
+message LogChunk {
+  bytes data = 1;
+  google.protobuf.Timestamp at = 2;
+  string session_id = 3;
+  bool eof = 4;
+  Stream stream = 5;
+}
+
+message InvokeError {
+  string type = 1;
+  string message = 2;
+  string traceback = 3;
+}

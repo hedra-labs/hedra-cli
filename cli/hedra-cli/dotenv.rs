@@ -55,8 +55,9 @@ const ALLOWED_CLI_SETTINGS: [&str; 6] = [
 /// that would send a request to the default API (see [`base_url_refusal`]).
 const BASE_URL_KEY: &str = "HEDRA_CLI_BASE_URL";
 
-/// Global flags that take a value, as the next argument or after `=`, for
-/// [`sends_request_to_default_target`] (`--base-url` is handled on its own).
+/// Global flags that take a value, as the next argument or after `=`
+/// (`--base-url`, which [`sends_request_to_default_target`] also notes, is
+/// named on its own in [`takes_separate_value`]).
 const VALUE_FLAGS: [&str; 5] = [
     "--format",
     "--user-agent-suffix",
@@ -261,31 +262,26 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
             positionals.push(arg);
             continue;
         }
-        let (flag, inline_value) = match arg.split_once('=') {
-            Some((flag, _)) => (flag, true),
-            None => (arg, false),
-        };
+        let flag = arg.split_once('=').map_or(arg, |(flag, _)| flag);
         if LOCAL_ONLY_FLAGS.contains(&flag) {
             return false;
         }
+        if takes_separate_value(arg) {
+            let _ = args.next();
+        }
         if flag == "--base-url" {
             base_url_given = true;
-            if !inline_value {
-                let _ = args.next();
-            }
             continue;
         }
         // `-pNAME`: a short value flag with its value attached.
         let attached_short_value = SHORT_VALUE_FLAGS
             .iter()
             .any(|short| flag.len() > short.len() && flag.starts_with(short));
-        if VALUE_FLAGS.contains(&flag) || SHORT_VALUE_FLAGS.contains(&flag) {
-            if !inline_value {
-                let _ = args.next();
-            }
-            continue;
-        }
-        if attached_short_value || BOOLEAN_FLAGS.contains(&flag) {
+        if VALUE_FLAGS.contains(&flag)
+            || SHORT_VALUE_FLAGS.contains(&flag)
+            || attached_short_value
+            || BOOLEAN_FLAGS.contains(&flag)
+        {
             continue;
         }
         // An unknown flag before the command, or after the bare group `auth`
@@ -303,6 +299,15 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
         positionals.as_slice(),
         [] | ["help" | "completion" | "man" | "errors", ..] | ["auth", "logout" | "status", ..]
     )
+}
+
+/// Whether `arg`, a global flag as written, takes the next argument as its
+/// value: `--base-url` or a value flag, without an attached `=value`. The
+/// argv walkers, [`sends_request_to_default_target`] and the sandbox verbs',
+/// skip global flags' values through this one rule.
+pub(super) fn takes_separate_value(arg: &str) -> bool {
+    !arg.contains('=')
+        && (arg == "--base-url" || VALUE_FLAGS.contains(&arg) || SHORT_VALUE_FLAGS.contains(&arg))
 }
 
 /// The stderr line naming the ignored keys meant for this CLI, each once, or
@@ -627,6 +632,9 @@ mod tests {
         }
     }
 
+    // Unix only: Windows environment variable names are case-insensitive, so
+    // a lower-case export there is the upper-case variable itself.
+    #[cfg(not(windows))]
     #[test]
     #[serial_test::serial]
     fn a_refused_hedra_key_counts_as_exported_only_in_upper_case() {

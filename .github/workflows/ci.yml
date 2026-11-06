@@ -116,11 +116,6 @@ jobs:
 
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
-        with:
-          # The sandbox crate builds into its own target/ (no [workspace]).
-          cache-workspaces: |
-            . -> target
-            hedra-cli-sandbox -> target
 
       - name: Check default features
         run: cargo check --locked --all-targets
@@ -131,13 +126,50 @@ jobs:
       - name: Test
         run: cargo test --locked
 
-      # The hand-written sandbox crate. The root has no [workspace] table, so
-      # the step above runs only the root package's tests; the crate is tested
-      # through its own manifest, resolving its own Cargo.lock fresh (the
-      # crate's .gitignore ignores it). A step in the required `rust` job, so
-      # it needs no branch-protection change.
+      # The root's `cargo test` runs only the root package's tests; the
+      # sandbox crate, a path dependency of the root, runs its own here,
+      # against the root's Cargo.lock. The root's dev-dependency on it turns on
+      # `fake-broker`, so its fake broker's tests run too. A step in the
+      # required `rust` job, so it needs no branch-protection change.
       - name: Test the sandbox crate
-        run: cargo test --manifest-path hedra-cli-sandbox/Cargo.toml --features fake-broker
+        run: cargo test --locked -p hedra_cli_sandbox
+
+  # The sandbox stream commands handle terminals, consoles and signals per
+  # platform, so they are built and tested on Windows and macOS too.
+  #
+  # Advisory for now: branch protection does not require it, and the
+  # justfile's `required_checks` leaves it out. Its runners are slower and
+  # new to this repo, so it becomes required once it has run green on more
+  # pull requests. Until then, read a red run before merging.
+  platforms:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: actions-rust-lang/setup-rust-toolchain@v2
+
+      - name: Check release TLS feature set
+        run: cargo check --locked --all-targets --no-default-features --features rustls
+
+      # macOS runs every test, the pseudo-terminal and signal tests among
+      # them; those are Unix-only, so Windows runs the binary's unit tests and
+      # the console and closed-pipe tests in tests/sandbox_windows.rs.
+      - name: Test
+        if: runner.os == 'macOS'
+        run: cargo test --locked
+
+      - name: Test
+        if: runner.os == 'Windows'
+        run: cargo test --locked --bins --test sandbox_windows
+
+      - name: Test the sandbox crate
+        run: cargo test --locked -p hedra_cli_sandbox
 
   # Contract for what a fern-api[bot] regeneration may change. Required status
   # check; autoland-regen.yml will not merge a PR without it. Always runs and
