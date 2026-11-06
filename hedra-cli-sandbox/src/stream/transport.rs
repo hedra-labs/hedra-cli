@@ -25,6 +25,8 @@ pub struct TransportConfig {
     /// An `http://` proxy to tunnel through with `CONNECT`, with optional
     /// `user:password@` credentials.
     pub proxy: Option<String>,
+    /// The variable `proxy` came from, named in a refusal of it.
+    pub proxy_var: Option<String>,
     /// Hosts that bypass `proxy`: comma-separated names or `*`, matching the
     /// host itself or any subdomain.
     pub no_proxy: Option<String>,
@@ -42,14 +44,21 @@ pub enum TransportError {
     /// The configuration cannot work: a proxy scheme the tunnel does not
     /// speak, an unparseable URL, an unusable root bundle.
     Config(String),
-    /// The connection failed.
+    /// The connection failed, and may work on a later attempt.
     Connect(String),
+    /// The connection reached something that refuses it, and every later
+    /// attempt would be refused the same way: a proxy answering `CONNECT`
+    /// with a non-2xx status, a broker certificate this client does not
+    /// trust, or a TLS peer that does not offer HTTP/2.
+    Refused(String),
 }
 
 impl std::fmt::Display for TransportError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            TransportError::Config(m) | TransportError::Connect(m) => f.write_str(m),
+            TransportError::Config(m) | TransportError::Connect(m) | TransportError::Refused(m) => {
+                f.write_str(m)
+            }
         }
     }
 }
@@ -71,7 +80,7 @@ pub fn channel_with_breaker(
 ) -> Result<(Channel, Breaker), TransportError> {
     let (host, port) = split_host_port(broker_url)?;
     let proxy = match proxy_for(config, broker_url) {
-        Some(url) => Some(Proxy::parse(url)?),
+        Some(url) => Some(parse_configured(url, config)?),
         None => None,
     };
     let tls = Arc::new(tls_config(config)?);
@@ -214,9 +223,19 @@ impl<T: AsyncWrite + Unpin> AsyncWrite for Breakable<T> {
 /// Refuses a proxy the tunnel cannot speak, before any request is sent.
 pub fn check_proxy(config: &TransportConfig) -> Result<(), TransportError> {
     match &config.proxy {
-        Some(url) => Proxy::parse(url).map(|_| ()),
+        Some(url) => parse_configured(url, config).map(|_| ()),
         None => Ok(()),
     }
+}
+
+/// `Proxy::parse`, its refusal naming the variable the proxy came from.
+fn parse_configured(url: &str, config: &TransportConfig) -> Result<Proxy, TransportError> {
+    Proxy::parse(url).map_err(|e| match (e, &config.proxy_var) {
+        (TransportError::Config(m), Some(var)) => {
+            TransportError::Config(format!("{m} (set by {var})"))
+        }
+        (e, _) => e,
+    })
 }
 
 fn split_host_port(broker_url: &str) -> Result<(String, u16), TransportError> {
@@ -325,7 +344,7 @@ fn parse_proxy(raw: &str) -> Result<Proxy, TransportError> {
         return Err(TransportError::Config(
             "an https:// proxy is not supported for sandbox sessions; use an http:// proxy".into(),
         ));
-    } else if lower.starts_with("socks") {
+    } else if lower.starts_with("socks") && lower.contains("://") {
         return Err(TransportError::Config(
             "a SOCKS proxy is not supported for sandbox sessions; use an http:// proxy".into(),
         ));
@@ -364,7 +383,16 @@ fn parse_proxy(raw: &str) -> Result<Proxy, TransportError> {
             redact(raw)
         )));
     }
-    let authorization = auth.map(|a| format!("Basic {}", base64(&percent_decode(a))));
+    // RFC 7617's user-pass always holds a colon, as curl sends for a user
+    // with no password.
+    let authorization = auth.map(|a| {
+        let userinfo = if a.contains(':') {
+            a.to_string()
+        } else {
+            format!("{a}:")
+        };
+        format!("Basic {}", base64(&percent_decode(&userinfo)))
+    });
     Ok(Proxy {
         host: host.to_string(),
         port,
@@ -437,32 +465,68 @@ fn tls_config(config: &TransportConfig) -> Result<rustls::ClientConfig, Transpor
             .with_custom_certificate_verifier(Arc::new(insecure::AcceptAny(provider)))
             .with_no_client_auth()
     } else {
-        let mut roots = rustls::RootCertStore::empty();
-        let native = rustls_native_certs::load_native_certs();
-        for cert in native.certs {
-            let _ = roots.add(cert);
-        }
-        for pem in &config.extra_roots_pem {
-            for cert in rustls_pemfile::certs(&mut &pem[..]) {
-                let cert = cert.map_err(|e| {
-                    TransportError::Config(format!("a CA bundle could not be read: {e}"))
-                })?;
-                roots.add(cert).map_err(|e| {
-                    TransportError::Config(format!(
-                        "a CA bundle holds an unusable certificate: {e}"
-                    ))
-                })?;
-            }
-        }
-        if roots.is_empty() {
-            return Err(TransportError::Config(
-                "no trusted root certificates were found".into(),
-            ));
-        }
-        builder.with_root_certificates(roots).with_no_client_auth()
+        let extra = extra_roots(&config.extra_roots_pem)?;
+        verified(builder, extra)?
     };
     tls.alpn_protocols = vec![b"h2".to_vec()];
     Ok(tls)
+}
+
+/// The extra roots from `HEDRA_CLI_CA_BUNDLE` and its siblings.
+fn extra_roots(
+    pems: &[Vec<u8>],
+) -> Result<Vec<rustls::pki_types::CertificateDer<'static>>, TransportError> {
+    let mut out = Vec::new();
+    for pem in pems {
+        for cert in rustls_pemfile::certs(&mut &pem[..]) {
+            out.push(cert.map_err(|e| {
+                TransportError::Config(format!("a CA bundle could not be read: {e}"))
+            })?);
+        }
+    }
+    Ok(out)
+}
+
+/// On macOS and Windows the OS verifies the broker's certificate, plus the
+/// extra roots, as it does for the REST calls' native-tls. `SSL_CERT_FILE`
+/// and `SSL_CERT_DIR` then add nothing and replace nothing, as for REST.
+#[cfg(any(target_os = "macos", windows))]
+fn verified(
+    builder: rustls::ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+    extra: Vec<rustls::pki_types::CertificateDer<'static>>,
+) -> Result<rustls::ClientConfig, TransportError> {
+    let provider = Arc::new(rustls::crypto::ring::default_provider());
+    let verifier = rustls_platform_verifier::Verifier::new_with_extra_roots(extra, provider)
+        .map_err(|e| TransportError::Config(format!("a CA bundle is unusable: {e}")))?;
+    Ok(builder
+        .dangerous()
+        .with_custom_certificate_verifier(Arc::new(verifier))
+        .with_no_client_auth())
+}
+
+/// Elsewhere the native roots, which honour `SSL_CERT_FILE` and
+/// `SSL_CERT_DIR` as the REST calls do on these targets, plus the extra
+/// roots.
+#[cfg(not(any(target_os = "macos", windows)))]
+fn verified(
+    builder: rustls::ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,
+    extra: Vec<rustls::pki_types::CertificateDer<'static>>,
+) -> Result<rustls::ClientConfig, TransportError> {
+    let mut roots = rustls::RootCertStore::empty();
+    for cert in rustls_native_certs::load_native_certs().certs {
+        let _ = roots.add(cert);
+    }
+    for cert in extra {
+        roots.add(cert).map_err(|e| {
+            TransportError::Config(format!("a CA bundle holds an unusable certificate: {e}"))
+        })?;
+    }
+    if roots.is_empty() {
+        return Err(TransportError::Config(
+            "no trusted root certificates were found".into(),
+        ));
+    }
+    Ok(builder.with_root_certificates(roots).with_no_client_auth())
 }
 
 mod insecure {
@@ -565,15 +629,40 @@ impl Connector {
         let _ = tcp.set_nodelay(true);
         let name = ServerName::try_from(self.host.clone())
             .map_err(|e| TransportError::Config(format!("invalid broker host name: {e}")))?;
-        let tls = self
-            .tls
-            .connect(name, tcp)
-            .await
-            .map_err(|e| TransportError::Connect(format!("TLS with the broker failed: {e}")))?;
+        let tls = self.tls.connect(name, tcp).await.map_err(tls_failure)?;
+        if tls.get_ref().1.alpn_protocol() != Some(b"h2") {
+            return Err(TransportError::Refused(
+                "the broker's TLS peer does not speak HTTP/2 (no h2 in ALPN); \
+                 a TLS-inspecting proxy or firewall may be in the way"
+                    .into(),
+            ));
+        }
         Ok(TokioIo::new(Breakable {
             inner: tls,
             kill: self.breaker.track(),
         }))
+    }
+}
+
+/// A TLS handshake failure: a certificate this client cannot trust is
+/// permanent; anything else may pass on another attempt.
+fn tls_failure(e: std::io::Error) -> TransportError {
+    let untrusted = e
+        .get_ref()
+        .and_then(|inner| inner.downcast_ref::<rustls::Error>())
+        .is_some_and(|r| {
+            matches!(
+                r,
+                rustls::Error::InvalidCertificate(_) | rustls::Error::NoCertificatesPresented
+            )
+        });
+    if untrusted {
+        TransportError::Refused(format!(
+            "the broker's TLS certificate is not trusted ({e}); if a proxy or firewall \
+             inspects TLS, add its CA with HEDRA_CLI_CA_BUNDLE or HEDRA_CLI_EXTRA_CA_CERTS"
+        ))
+    } else {
+        TransportError::Connect(format!("TLS with the broker failed: {e}"))
     }
 }
 
@@ -618,7 +707,7 @@ async fn tunnel(proxy: &Proxy, host: &str, port: u16) -> Result<TcpStream, Trans
     let status_line = status_line.lines().next().unwrap_or_default();
     let code = status_line.split_whitespace().nth(1).unwrap_or_default();
     if !code.starts_with('2') {
-        return Err(TransportError::Connect(format!(
+        return Err(TransportError::Refused(format!(
             "the proxy refused the tunnel to the broker: {}",
             status_line.trim()
         )));
@@ -802,6 +891,23 @@ mod tests {
             authorization: None,
         };
         let e = tunnel(&proxy, "broker.example", 443).await.unwrap_err();
+        assert!(matches!(e, TransportError::Refused(_)), "{e:?}");
         assert!(e.to_string().contains("403 Forbidden"), "{e}");
+    }
+
+    #[test]
+    fn a_proxy_user_without_a_password_sends_a_colon() {
+        let p = Proxy::parse("http://alice@proxy.local:3128").unwrap();
+        assert_eq!(
+            p.authorization.as_deref(),
+            Some(format!("Basic {}", base64(b"alice:")).as_str())
+        );
+    }
+
+    #[test]
+    fn a_scheme_less_proxy_host_named_socks_is_http() {
+        let p = Proxy::parse("socks-gw.corp:3128").unwrap();
+        assert_eq!((p.host.as_str(), p.port), ("socks-gw.corp", 3128));
+        assert!(Proxy::parse("socks5://gw:1080").is_err());
     }
 }

@@ -36,6 +36,28 @@ pub(crate) fn stop_command(sandbox: &str) -> String {
     format!("hedra-cli sandbox stop --sandbox {sandbox}")
 }
 
+/// The generated command that reads `sandbox`, a name or an id.
+/// The generated command that lists the GPU models and what is free.
+pub(crate) const GPUS_COMMAND: &str = "hedra-cli sandbox gpus";
+/// The generated command that lists the workspace's sandboxes.
+pub(crate) const LS_COMMAND: &str = "hedra-cli sandbox ls";
+
+pub(crate) fn get_command(sandbox: &str) -> String {
+    format!("hedra-cli sandbox get --sandbox {sandbox}")
+}
+
+/// The generated commands a recovery hint names, for the test that runs each
+/// through the generated command tree.
+#[cfg(test)]
+pub(crate) fn hinted_commands() -> Vec<String> {
+    vec![
+        stop_command("train"),
+        get_command("train"),
+        GPUS_COMMAND.to_string(),
+        LS_COMMAND.to_string(),
+    ]
+}
+
 /// Parses `--max-duration`: whole seconds, or a number with `s`, `m`, `h`
 /// or `d`.
 pub(crate) fn parse_duration(raw: &str) -> Result<i64, String> {

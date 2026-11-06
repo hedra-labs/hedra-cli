@@ -217,7 +217,9 @@ impl Logs<'_> {
                         };
                         return match phase(&s) {
                             // Still starting: the budget ran out.
-                            Phase::Starting | Phase::Running => Ended::Failed(f),
+                            Phase::Starting => Ended::Failed(f),
+                            // Replica 0 runs, whatever another replica did.
+                            Phase::Running => continue,
                             _ => {
                                 stream::note(format_args!("{}", escape_controls(&f.message)));
                                 continue;

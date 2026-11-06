@@ -69,36 +69,41 @@ pub(crate) fn transport_config(
     let resolved = http
         .resolve()
         .map_err(|e| Failure::rejected(e.to_string()))?;
-    let env = |k: &str| std::env::var(k).ok().filter(|v| !v.is_empty());
-    // The proxy, and the variable that set it, for a refusal to name.
+    // The first variable that is set decides, even when it is empty, as
+    // the REST client's proxy matcher reads them.
+    let first_set = |keys: &[&'static str]| {
+        keys.iter()
+            .find_map(|&k| std::env::var(k).ok().map(|v| (k, v)))
+            .filter(|(_, v)| !v.is_empty())
+    };
     let (proxy, no_proxy) = match resolved.proxy {
         Some(p) => (Some(("HEDRA_CLI_PROXY", p.url)), p.no_proxy),
         None => (
-            ["HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"]
-                .into_iter()
-                .find_map(|k| env(k).map(|v| (k, v))),
-            env("NO_PROXY").or_else(|| env("no_proxy")),
+            first_set(&["HTTPS_PROXY", "https_proxy"])
+                .or_else(|| first_set(&["ALL_PROXY", "all_proxy"])),
+            first_set(&["NO_PROXY", "no_proxy"]).map(|(_, v)| v),
         ),
     };
     let (proxy_var, proxy) = match proxy {
-        Some((var, url)) => (Some(var), Some(url)),
+        Some((var, url)) => (Some(var.to_string()), Some(url)),
         None => (None, None),
     };
     let config = TransportConfig {
         proxy,
+        proxy_var,
         no_proxy,
         extra_roots_pem: resolved.extra_root_certs_pem,
         insecure: resolved.insecure_skip_verify,
         connect_timeout: resolved.connect_timeout,
         user_agent: http.user_agent(),
     };
-    transport::check_proxy(&config).map_err(|e| {
-        let line = match proxy_var {
-            Some(var) => format!("{e} (set by {var})"),
-            None => e.to_string(),
-        };
-        Failure::rejected(escape_controls(&line))
-    })?;
+    // With a bypass list the broker may not use the proxy at all, which is
+    // known only once the session names the broker, so a proxy it would use
+    // is refused when the channel is built instead.
+    if config.no_proxy.is_none() {
+        transport::check_proxy(&config)
+            .map_err(|e| Failure::rejected(escape_controls(&e.to_string())))?;
+    }
     Ok(config)
 }
 
@@ -193,29 +198,33 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
         Some(reason::RATE_LIMITED) if !started => Class::Limit,
         Some(reason::UNAUTHENTICATED) if !started => Class::Unavailable,
         _ if started => Class::ConnectionLost,
-        _ => match s.code {
-            // A second refusal of a just-minted token is the broker's key
-            // cache, not the key.
-            hedra_cli_sandbox::tonic::Code::Unavailable
-            | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
-            | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
-                let mut f = Failure::new(
-                    Class::Unavailable,
-                    "Sandbox sessions are temporarily unavailable; retry shortly.",
-                );
-                f.reason = s.reason.clone();
-                return f;
+        _ => {
+            match s.code {
+                // A second refusal of a just-minted token is the broker's key
+                // cache, not the key.
+                hedra_cli_sandbox::tonic::Code::Unavailable
+                | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
+                | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
+                    let line = if message.is_empty() {
+                        "Sandbox sessions are temporarily unavailable; retry shortly.".to_string()
+                    } else {
+                        format!("Sandbox sessions are temporarily unavailable; retry shortly. ({message})")
+                    };
+                    let mut f = Failure::new(Class::Unavailable, line);
+                    f.reason = s.reason.clone();
+                    return f;
+                }
+                hedra_cli_sandbox::tonic::Code::PermissionDenied => {
+                    return Failure::new(
+                        Class::MissingScope,
+                        super::error::missing_scope_line(needs.scope()),
+                    )
+                }
+                hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
+                hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
+                _ => Class::Internal,
             }
-            hedra_cli_sandbox::tonic::Code::PermissionDenied => {
-                return Failure::new(
-                    Class::MissingScope,
-                    super::error::missing_scope_line(needs.scope()),
-                )
-            }
-            hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
-            hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
-            _ => Class::Internal,
-        },
+        }
     };
     let mut f = Failure::new(
         class,
@@ -230,7 +239,10 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
 }
 
 fn not_connected_line(name: &str, id: &str) -> String {
-    format!("`{name}`'s supervisor is not connected. Run `hedra-cli sandbox get --sandbox {id}`.")
+    format!(
+        "`{name}`'s supervisor is not connected. Run `{}`.",
+        render::get_command(id)
+    )
 }
 
 /// A failure to open a call, classed for its exit code. A mint refused 404
@@ -261,6 +273,12 @@ pub(crate) async fn open_failure(
         }
         OpenError::Session(SessionError::Transport(TransportError::Config(m))) => {
             Failure::rejected(escape_controls(&m))
+        }
+        OpenError::Session(SessionError::Transport(TransportError::Refused(m))) => {
+            Failure::rejected(format!(
+                "Could not connect to the sandbox broker: {}.",
+                escape_controls(&m)
+            ))
         }
         OpenError::Session(SessionError::Transport(TransportError::Connect(m))) => Failure::new(
             Class::Unavailable,
@@ -561,6 +579,13 @@ impl NextSig for Signals {
 
 /// How long hedra-cli waits for one of its own stderr lines to be written.
 const LINE_WAIT: Duration = Duration::from_secs(1);
+/// How long an exit waits for the lines still queued, its own last line
+/// among them, unless a signal came or the writer has stalled.
+const EXIT_WAIT: Duration = Duration::from_secs(10);
+
+/// Whether a signal has arrived, after which every wait is short: the
+/// terminal may be gone, and a Ctrl-C no longer ends the process.
+static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 /// What a written line reports back on.
 enum Ack {
@@ -626,6 +651,31 @@ fn queue(line: String, ack: Ack) -> bool {
         && !lines.stalled.load(std::sync::atomic::Ordering::SeqCst)
 }
 
+/// Starts the stderr writer, so the first line does not wait on a thread
+/// being spawned.
+pub(crate) fn start_lines() {
+    let _ = lines();
+}
+
+/// Waits for every queued stderr line to be written before an exit: up to
+/// `EXIT_WAIT`, or `LINE_WAIT` once a signal has arrived; not at all when a
+/// write has stalled, since nobody is reading stderr.
+pub(crate) fn flush_lines() {
+    if lines().stalled.load(std::sync::atomic::Ordering::SeqCst) {
+        return;
+    }
+    let wait = if SIGNALLED.load(std::sync::atomic::Ordering::SeqCst) {
+        LINE_WAIT
+    } else {
+        EXIT_WAIT
+    };
+    let (ack, done) = std::sync::mpsc::sync_channel(1);
+    // An empty line writes nothing, and its ack comes after every earlier one.
+    if lines().tx.try_send((String::new(), Ack::Sync(ack))).is_ok() {
+        let _ = done.recv_timeout(wait);
+    }
+}
+
 fn stalled() {
     lines()
         .stalled
@@ -687,11 +737,13 @@ impl Signals {
                 None => std::future::pending().await,
             }
         }
-        tokio::select! {
+        let sig = tokio::select! {
             _ = on(&mut self.int) => Sig::Int,
             _ = on(&mut self.term) => Sig::Term,
             _ = on(&mut self.hup) => Sig::Hup,
-        }
+        };
+        SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+        sig
     }
 }
 
@@ -717,11 +769,13 @@ impl Signals {
     }
 
     pub(crate) async fn next(&mut self) -> Sig {
-        tokio::select! {
+        let sig = tokio::select! {
             _ = async { match &mut self.int { Some(s) => { s.recv().await; } None => std::future::pending().await } } => Sig::Int,
             _ = async { match &mut self.brk { Some(s) => { s.recv().await; } None => std::future::pending().await } } => Sig::Term,
             _ = async { match &mut self.close { Some(s) => { s.recv().await; } None => std::future::pending().await } } => Sig::Close,
-        }
+        };
+        SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+        sig
     }
 }
 

@@ -62,7 +62,7 @@ Exit codes:
  130  interrupted
  141  the output was closed
  143  terminated
- 255  exec, shell: hedra-cli failed, not the command";
+ 255  the output failed, or hedra-cli panicked; exec, shell: any failure of hedra-cli's own, not the command's";
 
 /// The stream verbs' commands, each grafted under `sandbox` with its handler,
 /// or none without the preview. A hidden clap command still appears in the
@@ -106,11 +106,9 @@ pub(crate) fn exit_if_unreleased(args: &[String]) {
         "The sandbox stream commands ({}) are not released yet.",
         VERBS.join(", ")
     ));
-    let code = match verb {
-        "exec" | "shell" => 255,
-        _ => f.class.code(),
-    };
+    let code = refusal_code(verb, &f);
     f.write_stderr(fern_cli_sdk::formatter::explicit_machine_format(args));
+    stream::flush_lines();
     std::process::exit(code);
 }
 
@@ -261,17 +259,27 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
             .copied()
             .unwrap_or(false)
     };
+    stream::start_lines();
     let fail = |f: Failure, code: i32| -> ! {
         f.write_stderr(json_errors);
         let _ = std::io::stdout().flush();
+        stream::flush_lines();
         std::process::exit(code);
     };
     if flag("dry-run") {
         if let Err(f) = dry_run(verb, m) {
-            let code = f.class.code();
+            let code = refusal_code(verb, &f);
             fail(f, code);
         }
+        stream::flush_lines();
         std::process::exit(0);
+    }
+    // The runtime's client panics on settings it cannot build, printing a
+    // proxy URL with its credentials; refuse them first, naming no value.
+    if ctx.http_config().build_client().is_err() {
+        let f = Failure::rejected(unusable_http_settings());
+        let code = refusal_code(verb, &f);
+        fail(f, code);
     }
     let api = Api::new(ctx, flag("debug"));
     let code = match verb {
@@ -303,7 +311,42 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
         },
     };
     let _ = std::io::stdout().flush();
+    stream::flush_lines();
     std::process::exit(code);
+}
+
+/// The exit code for a refusal before anything is sent: 255 on `exec` and
+/// `shell`, whose other codes are the remote command's, else the class's.
+fn refusal_code(verb: &str, f: &Failure) -> i32 {
+    match verb {
+        "exec" | "shell" => 255,
+        _ => f.class.code(),
+    }
+}
+
+/// The refusal for HTTP settings the client cannot be built from. It names
+/// the variables, never their values, which can hold credentials.
+fn unusable_http_settings() -> String {
+    let set: Vec<&str> = [
+        "HEDRA_CLI_PROXY",
+        "HTTPS_PROXY",
+        "https_proxy",
+        "ALL_PROXY",
+        "all_proxy",
+        "HEDRA_CLI_CA_BUNDLE",
+        "HEDRA_CLI_EXTRA_CA_CERTS",
+    ]
+    .into_iter()
+    .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+    .collect();
+    if set.is_empty() {
+        "hedra-cli's HTTP settings cannot be used.".to_string()
+    } else {
+        format!(
+            "hedra-cli's HTTP settings cannot be used; check {}.",
+            set.join(", ")
+        )
+    }
 }
 
 /// `--dry-run`: checks the arguments and sends nothing.
@@ -484,7 +527,8 @@ fn check_gpu(gpu: &str) -> Result<(), Failure> {
         return Ok(());
     }
     Err(Failure::rejected(format!(
-        "`{gpu}` is not a GPU model and count such as h100:1. Run `hedra-cli sandbox gpus`."
+        "`{gpu}` is not a GPU model and count such as h100:1. Run `{}`.",
+        render::GPUS_COMMAND
     )))
 }
 
@@ -533,30 +577,28 @@ async fn warnings_before_create(api: &Api, gpu: &str, read: std::time::Duration)
 mod tests {
     use super::*;
 
-    /// A graft replaces a generated leaf of the same name without a
-    /// warning, so a regeneration that adds a `sandbox` operation named like a
-    /// stream verb fails here instead of losing the generated command.
+    /// The generated command tree, built from the embedded spec as the
+    /// runtime builds it.
+    fn generated_tree() -> Command {
+        let doc =
+            fern_cli_sdk::openapi::load_openapi_spec(include_str!("../openapi0.json"), "hedra-cli")
+                .expect("the embedded spec");
+        fern_cli_sdk::openapi::commands::build_cli(&doc)
+    }
+
+    /// A graft replaces a generated subcommand of the same name, a group as
+    /// well as a leaf, without a warning, so a regeneration that adds one
+    /// named like a stream verb fails here instead of losing it.
     #[test]
     fn no_generated_sandbox_command_shares_a_stream_verbs_name() {
-        let spec: serde_json::Value =
-            serde_json::from_str(include_str!("../openapi0.json")).expect("the embedded spec");
-        let mut generated = Vec::new();
-        for item in spec["paths"].as_object().expect("paths").values() {
-            for op in item.as_object().into_iter().flat_map(|o| o.values()) {
-                let group = op.get("x-fern-sdk-group-name").and_then(|g| g.as_array());
-                let in_sandbox = group.is_some_and(|g| g.len() == 1 && g[0] == GROUP);
-                if let (true, Some(name)) = (
-                    in_sandbox,
-                    op.get("x-fern-sdk-method-name").and_then(|n| n.as_str()),
-                ) {
-                    generated.push(name.to_string());
-                }
-            }
-        }
-        assert!(generated.iter().any(|n| n == "get"), "{generated:?}");
+        let cli = generated_tree();
+        let group = cli
+            .find_subcommand(GROUP)
+            .expect("the generated sandbox group");
+        assert!(group.find_subcommand("get").is_some());
         for verb in VERBS {
             assert!(
-                !generated.iter().any(|n| n == verb),
+                group.find_subcommand(verb).is_none(),
                 "`sandbox {verb}` is generated too"
             );
         }
@@ -565,6 +607,57 @@ mod tests {
             .map(|(c, _)| c.get_name().to_string())
             .collect();
         assert_eq!(grafted, VERBS);
+    }
+
+    /// Each generated command a recovery hint names parses in the generated
+    /// tree, so a regeneration that renames it or its flag fails here.
+    #[test]
+    fn every_hinted_command_parses_in_the_generated_tree() {
+        let cli = generated_tree();
+        for hint in render::hinted_commands() {
+            let args: Vec<&str> = hint.split_whitespace().collect();
+            assert!(
+                cli.clone().try_get_matches_from(&args).is_ok(),
+                "`{hint}` does not parse"
+            );
+        }
+    }
+
+    /// Every class's code, the public contract each verb's `--help` prints,
+    /// and that the help table lists each one.
+    #[test]
+    fn each_class_exits_with_its_code_and_the_help_table_lists_it() {
+        let expected = [
+            (Class::Internal, 1),
+            (Class::NotSignedIn, 2),
+            (Class::Interrupted, 130),
+            (Class::MissingScope, 10),
+            (Class::NotFound, 11),
+            (Class::NotEnabled, 12),
+            (Class::NotReady, 13),
+            (Class::NoCapacity, 14),
+            (Class::Payment, 15),
+            (Class::Limit, 16),
+            (Class::Unavailable, 17),
+            (Class::ConnectionLost, 18),
+            (Class::Rejected, 19),
+            (Class::OutputFailed, 255),
+            (Class::Panic, 255),
+            (Class::Hangup, 129),
+            (Class::Terminated, 143),
+        ];
+        assert_eq!(expected.len(), Class::ALL.len());
+        for (class, code) in expected {
+            assert!(Class::ALL.contains(&class));
+            assert_eq!(class.code(), code, "{class:?}");
+            let listed = EXIT_CODES
+                .lines()
+                .any(|l| l.split_whitespace().next() == Some(&code.to_string()));
+            assert!(
+                listed,
+                "exit code {code} ({class:?}) is not in the help table"
+            );
+        }
     }
 
     #[test]

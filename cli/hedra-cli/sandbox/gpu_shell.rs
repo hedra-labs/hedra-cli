@@ -100,7 +100,7 @@ pub(crate) async fn run(
     json_errors: bool,
 ) -> i32 {
     let out = |f: Failure| async move {
-        exec::say(&f, json_errors).await;
+        f.say(json_errors).await;
         255
     };
     // Everything that can be checked without a sandbox, before paying for one.
@@ -194,8 +194,8 @@ async fn create(
             Failure::new(
                 class,
                 format!(
-                    "{name} may still be running; check it with hedra-cli sandbox get --sandbox \
-                     {name} before stopping it with {}",
+                    "{name} may still be running; check it with {} before stopping it with {}",
+                    render::get_command(&name),
                     render::stop_command(&name)
                 ),
             )
@@ -207,13 +207,13 @@ async fn create(
             tokio::select! {
                 outcome = &mut created => break outcome,
                 _ = &mut closing, if closed => {
-                    exec::say(&abandon(Class::Hangup), json_errors).await;
+                    abandon(Class::Hangup).say(json_errors).await;
                     return Err(255);
                 }
                 sig = signals.next_sig() => {
                     if sig == Sig::Int {
                         if ctrl_c {
-                            exec::say(&abandon(Class::Interrupted), json_errors).await;
+                            abandon(Class::Interrupted).say(json_errors).await;
                             return Err(255);
                         }
                         ctrl_c = true;
@@ -241,7 +241,7 @@ async fn create(
                     return Err(sig.class().code());
                 }
                 if attempt_no == 1 {
-                    exec::say(&f.then("Rerun it."), json_errors).await;
+                    f.then("Rerun it.").say(json_errors).await;
                     return Err(255);
                 }
             }
@@ -251,7 +251,7 @@ async fn create(
                 if let Some(sig) = interrupted {
                     return Err(sig.class().code());
                 }
-                exec::say(&f, json_errors).await;
+                f.say(json_errors).await;
                 return Err(255);
             }
             Created::Unknown(f) => {
@@ -260,7 +260,7 @@ async fn create(
                 // own key is ever stopped; the name alone does not prove the
                 // sandbox is ours.
                 let note = unknown_note(&f.message);
-                exec::say(&f.then(note), json_errors).await;
+                f.then(note).say(json_errors).await;
                 return Err(255);
             }
         }
@@ -339,16 +339,16 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
                     format!(
                         "Lost the connection to the sandbox{}. {}",
                         exec::broker_note(driven.status.as_ref()),
-                        kept(api, id, name).await
+                        kept(api, id, name, signals).await
                     ),
                 );
                 f.reason = driven.status.as_ref().and_then(|s| s.reason.clone());
-                exec::say(&f, json).await;
+                f.say(json).await;
                 255
             }
             AfterFailure::Kept => {
-                let f = f.clone().then(kept(api, id, name).await);
-                exec::say(&f, json).await;
+                let f = f.clone().then(kept(api, id, name, signals).await);
+                f.say(json).await;
                 255
             }
         },
@@ -356,7 +356,8 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
 }
 
 /// What to do about a sandbox kept after a dropped stream, from a fresh read.
-async fn kept(api: &Api, id: &str, name: &str) -> String {
+/// A signal during the read takes the still-running text at once.
+async fn kept(api: &Api, id: &str, name: &str, signals: &mut impl NextSig) -> String {
     let running = || {
         format!(
             "`{name}` is still running: reopen it within about 15 minutes with `hedra-cli sandbox \
@@ -367,7 +368,11 @@ async fn kept(api: &Api, id: &str, name: &str) -> String {
             render::stop_command(id)
         )
     };
-    let Ok(s) = super::api::attempt(super::api::ATTEMPT, api.client.get(id, None)).await else {
+    let read = tokio::select! {
+        r = super::api::attempt(super::api::ATTEMPT, api.client.get(id, None)) => r,
+        _ = signals.next_sig() => return running(),
+    };
+    let Ok(s) = read else {
         return running();
     };
     let reason = render::stop_reason(&s)
@@ -421,7 +426,7 @@ impl Stopper<'_> {
     /// and exits 255. A stop that gives up adds the stop command and the
     /// idle TTL without a second class line.
     async fn stop_after(&self, f: &Failure, signals: &mut impl NextSig) -> i32 {
-        exec::say(f, self.json).await;
+        f.say(self.json).await;
         self.stop_with(255, false, true, signals).await
     }
 
@@ -462,7 +467,7 @@ impl Stopper<'_> {
                             render::stop_command(id)
                         ),
                     );
-                    exec::say(&f, json).await;
+                    f.say(json).await;
                     return 255;
                 }
             }
@@ -475,8 +480,11 @@ impl Stopper<'_> {
                 } else {
                     format!(" {}", idle_ttl_line(id))
                 };
-                stream::say_line(format_args!("Could not stop `{name}`: {}{tail}", f.message))
-                    .await;
+                stream::say_line(format_args!(
+                    "Could not stop `{name}`: {}{tail}",
+                    escape_controls(&f.message)
+                ))
+                .await;
                 return 255;
             }
             Err(mut f) => {
@@ -485,7 +493,7 @@ impl Stopper<'_> {
                 if f.class != Class::NotFound {
                     f = f.then(idle_ttl_line(id));
                 }
-                exec::say(&f, json).await;
+                f.say(json).await;
                 return 255;
             }
         };

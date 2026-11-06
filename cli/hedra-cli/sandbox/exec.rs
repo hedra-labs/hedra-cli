@@ -93,16 +93,10 @@ pub(crate) async fn finish(ended: Ended, json_errors: bool) -> i32 {
         Ended::Pipe => stream::die_by_sigpipe(),
         Ended::Signal(sig) => sig.class().code(),
         Ended::Failed(f) => {
-            say(&f, json_errors).await;
+            f.say(json_errors).await;
             255
         }
     }
-}
-
-/// Writes a failure line to stderr, waiting at most a second for it.
-pub(crate) async fn say(f: &Failure, json: bool) {
-    let line = if json { f.json().to_string() } else { f.line() };
-    stream::say_line(line).await;
 }
 
 async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec: Exec) -> Ended {
@@ -129,9 +123,11 @@ async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec:
     );
     let driven = drive(api, &session, &id, &name, &exec, &mut signals).await;
     match driven.ended {
-        Ended::Failed(f) if f.class == Class::ConnectionLost => {
-            Ended::Failed(lost(api, &id, driven.status.as_ref()).await)
-        }
+        // The read that explains the drop still answers a signal.
+        Ended::Failed(f) if f.class == Class::ConnectionLost => tokio::select! {
+            f = lost(api, &id, driven.status.as_ref()) => Ended::Failed(f),
+            sig = signals.next() => Ended::Signal(sig),
+        },
         ended => ended,
     }
 }
@@ -160,14 +156,22 @@ pub(crate) async fn drive(
         on_debug: api.debug.then_some(&debug as _),
         ..Default::default()
     };
-    let call = tokio::select! {
-        r = calls::open_exec(session, &open) => match r {
-            Ok(call) => call,
-            Err(e) => return Driven::before_start(Ended::Failed(
-                stream::open_failure(api, id, name, Needs::Exec, proxy().as_deref(), e).await,
-            )),
-        },
+    let opened = tokio::select! {
+        r = calls::open_exec(session, &open) => r,
         sig = signals.next() => return Driven::before_start(Ended::Signal(sig)),
+    };
+    let call = match opened {
+        Ok(call) => call,
+        // The read that explains a refusal still answers a signal.
+        Err(e) => {
+            let proxy = proxy();
+            return Driven::before_start(tokio::select! {
+                f = stream::open_failure(api, id, name, Needs::Exec, proxy.as_deref(), e) => {
+                    Ended::Failed(f)
+                }
+                sig = signals.next() => Ended::Signal(sig),
+            });
+        }
     };
     let output_failed = |e: std::io::Error| {
         Failure::new(

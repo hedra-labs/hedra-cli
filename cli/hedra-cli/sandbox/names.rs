@@ -97,6 +97,25 @@ pub(crate) async fn resolve_name(api: &Api, name: &str) -> Result<Sandbox, Failu
 mod tests {
     use super::*;
 
+    /// The reserved names are exactly the spec's static segments under
+    /// `/sandboxes`, so a regeneration that adds a route adds its name here.
+    #[test]
+    fn the_reserved_names_are_the_specs_static_segments() {
+        let spec: serde_json::Value =
+            serde_json::from_str(include_str!("../openapi0.json")).unwrap();
+        let mut segments: Vec<&str> = spec["paths"]
+            .as_object()
+            .expect("the spec's paths")
+            .keys()
+            .filter_map(|p| p.strip_prefix("/sandboxes/"))
+            .map(|rest| rest.split('/').next().unwrap_or_default())
+            .filter(|s| !s.starts_with('{'))
+            .collect();
+        segments.sort_unstable();
+        segments.dedup();
+        assert_eq!(segments, RESERVED_NAMES);
+    }
+
     #[test]
     fn names_follow_the_create_routes_pattern() {
         for ok in ["a", "train", "my-run-2", "0", &"a".repeat(32)] {

@@ -6,6 +6,10 @@ use std::collections::VecDeque;
 use std::fs::File;
 use std::io::{self, Read, Seek, SeekFrom, Write};
 
+/// Read bytes the file may keep before its unread tail is copied to a fresh
+/// file, so a reader that stays a little behind does not grow it forever.
+const COMPACT_AFTER: u64 = 16 * 1024 * 1024;
+
 pub struct Spool {
     memory_limit: usize,
     total_limit: u64,
@@ -77,10 +81,6 @@ impl Spool {
             return Ok(None);
         };
         if self.read == self.written {
-            // Drained: start the file over.
-            self.read = 0;
-            self.written = 0;
-            file.set_len(0)?;
             return Ok(None);
         }
         file.seek(SeekFrom::Start(self.read))?;
@@ -90,7 +90,45 @@ impl Spool {
         file.read_exact(&mut chunk)?;
         self.read += 4 + chunk.len() as u64;
         self.in_file -= chunk.len() as u64;
+        if self.read == self.written {
+            // Drained: start the file over, so it holds only unread output. A
+            // failed truncate is harmless: the next write starts at offset 0.
+            self.read = 0;
+            self.written = 0;
+            let _ = file.set_len(0);
+        } else if self.read >= COMPACT_AFTER.max(self.written - self.read) {
+            // Never drained: copy the unread tail to a fresh file once the
+            // read part is at least as large, which keeps the file under
+            // twice what it holds and each byte copied a bounded number of
+            // times. A failed copy keeps the old file, which is still whole.
+            let _ = self.compact();
+        }
         Ok(Some(chunk))
+    }
+
+    /// Moves the unread part of the file to a fresh one.
+    fn compact(&mut self) -> io::Result<()> {
+        let Some(file) = &mut self.file else {
+            return Ok(());
+        };
+        let mut fresh = tempfile::tempfile()?;
+        file.seek(SeekFrom::Start(self.read))?;
+        let copied = io::copy(&mut file.take(self.written - self.read), &mut fresh)?;
+        if copied != self.written - self.read {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "short copy"));
+        }
+        self.file = Some(fresh);
+        self.written -= self.read;
+        self.read = 0;
+        Ok(())
+    }
+
+    /// The temporary file's length, for tests.
+    #[cfg(test)]
+    fn file_len(&self) -> u64 {
+        self.file
+            .as_ref()
+            .map_or(0, |f| f.metadata().map_or(0, |m| m.len()))
     }
 }
 
@@ -121,6 +159,42 @@ mod tests {
         s.push(b"g").unwrap(); // memory has room, but must follow the file
         assert_eq!(s.pop().unwrap().unwrap(), b"cdef");
         assert_eq!(s.pop().unwrap().unwrap(), b"g");
+    }
+
+    /// The way `pump` drives it: pop only while something is held.
+    #[test]
+    fn a_drained_file_is_truncated_when_popped_only_while_not_empty() {
+        let mut s = Spool::new(4, 1_000_000);
+        for _ in 0..1000 {
+            for _ in 0..10 {
+                s.push(b"abcd").unwrap();
+            }
+            while !s.is_empty() {
+                s.pop().unwrap();
+            }
+        }
+        assert_eq!(s.file_len(), 0);
+    }
+
+    #[test]
+    fn a_reader_that_never_drains_keeps_the_file_bounded() {
+        let mut s = Spool::new(0, u64::MAX);
+        let chunk = vec![7u8; 64 * 1024];
+        // Keep about 1 MiB unread while 64 MiB pass through.
+        for _ in 0..16 {
+            s.push(&chunk).unwrap();
+        }
+        for _ in 0..1024 {
+            s.push(&chunk).unwrap();
+            assert_eq!(s.pop().unwrap().unwrap(), chunk);
+        }
+        assert!(s.file_len() < 2 * COMPACT_AFTER, "{}", s.file_len());
+        let held = s.len();
+        let mut drained = 0;
+        while let Some(c) = s.pop().unwrap() {
+            drained += c.len() as u64;
+        }
+        assert_eq!(drained, held);
     }
 
     #[test]

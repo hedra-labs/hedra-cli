@@ -30,7 +30,7 @@ use crate::pb::hedra::sandbox::v1::{
 };
 use crate::session::{Session, SessionError, SessionMinter};
 use crate::stream::status::{self, reason, BrokerStatus};
-use crate::stream::transport::Breaker;
+use crate::stream::transport::{Breaker, TransportError};
 
 /// The header the broker sends once it has authorised a call.
 pub const ADMITTED_HEADER: &str = "sandbox-admitted";
@@ -318,6 +318,19 @@ pub async fn open_logs<M: SessionMinter>(
     .await
 }
 
+/// The connector's error behind a status tonic built from a transport
+/// failure, if any.
+fn transport_cause(status: &tonic::Status) -> Option<&TransportError> {
+    let mut source = std::error::Error::source(status);
+    while let Some(e) = source {
+        if let Some(t) = e.downcast_ref::<TransportError>() {
+            return Some(t);
+        }
+        source = e.source();
+    }
+    None
+}
+
 async fn retrying<M, T, F, Fut>(
     session: &Session<M>,
     open: &Open<'_>,
@@ -354,7 +367,25 @@ where
                 debug(format!("< {method} admitted ({ADMITTED_HEADER})"));
                 return Ok(admitted);
             }
-            Ok(Err(status)) => BrokerStatus::from(&status),
+            Ok(Err(status)) => {
+                // A connection that can never work fails at once, naming
+                // why, before the status loses its source.
+                if let Some(TransportError::Refused(m)) = transport_cause(&status) {
+                    debug(format!("< {method} refused: {m}"));
+                    return Err(OpenError::Session(SessionError::Transport(
+                        TransportError::Refused(m.clone()),
+                    )));
+                }
+                let mut s = BrokerStatus::from(&status);
+                // tonic built this status from a local transport error, such
+                // as a connection closed before the response headers; the
+                // broker's own statuses never carry a source. Nothing was
+                // sent, so it is retried as an unreachable broker.
+                if s.reason.is_none() && std::error::Error::source(&status).is_some() {
+                    s.code = tonic::Code::Unavailable;
+                }
+                s
+            }
             Err(_) => BrokerStatus::from(&tonic::Status::deadline_exceeded(format!(
                 "the broker did not answer within {}s",
                 open.attempt.as_secs()

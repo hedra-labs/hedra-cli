@@ -151,7 +151,9 @@ const QUEUE_DEPTH: usize = 256;
 /// How an admitted `Logs` call ends once it has replayed the ring buffer.
 #[derive(Clone, Debug)]
 pub enum LogsEnd {
-    /// An `eof` chunk without `follow`; with it, held open.
+    /// Without `follow`, OK trailers once the replay is sent, as the real
+    /// broker ends it (it consumes the buffer's eof marker and sends no
+    /// chunk for it); with it, held open.
     Default,
     Hold,
     Fail(Status),
@@ -873,14 +875,8 @@ impl SessionService for Arc<Broker> {
                     let _ = out.send(Ok(chunk)).await;
                 }
                 match script.end {
-                    LogsEnd::Default if !request.follow => {
-                        let _ = out
-                            .send(Ok(LogChunk {
-                                eof: true,
-                                ..Default::default()
-                            }))
-                            .await;
-                    }
+                    // Dropping `out` ends the call with OK trailers.
+                    LogsEnd::Default if !request.follow => {}
                     LogsEnd::Default | LogsEnd::Hold => std::future::pending::<()>().await,
                     LogsEnd::Fail(status) => {
                         let _ = out.send(Err(status)).await;

@@ -38,6 +38,28 @@ pub(crate) enum Class {
 }
 
 impl Class {
+    /// Every class, for the tests that pin their codes and the help table.
+    #[cfg(test)]
+    pub(crate) const ALL: [Class; 17] = [
+        Class::Internal,
+        Class::NotSignedIn,
+        Class::Interrupted,
+        Class::MissingScope,
+        Class::NotFound,
+        Class::NotEnabled,
+        Class::NotReady,
+        Class::NoCapacity,
+        Class::Payment,
+        Class::Limit,
+        Class::Unavailable,
+        Class::ConnectionLost,
+        Class::Rejected,
+        Class::OutputFailed,
+        Class::Panic,
+        Class::Hangup,
+        Class::Terminated,
+    ];
+
     pub(crate) fn code(self) -> i32 {
         match self {
             Class::Internal => 1,
@@ -109,7 +131,10 @@ impl Failure {
     pub(crate) fn not_found(subject: &str) -> Self {
         Self::new(
             Class::NotFound,
-            format!("No sandbox `{subject}`. Run `hedra-cli sandbox ls`."),
+            format!(
+                "No sandbox `{subject}`. Run `{}`.",
+                super::render::LS_COMMAND
+            ),
         )
     }
 
@@ -154,14 +179,25 @@ impl Failure {
         })
     }
 
-    /// A verb whose stdout is the sandbox's output writes every error to
-    /// stderr, as JSON only when a machine format was asked for explicitly.
-    pub(crate) fn write_stderr(&self, json: bool) {
+    /// The failure as stderr shows it: JSON only when a machine format was
+    /// asked for explicitly, else the `hedra-cli:` line.
+    pub(crate) fn rendered(&self, json: bool) -> String {
         if json {
-            super::stream::note(self.json());
+            self.json().to_string()
         } else {
-            super::stream::note(self.line());
+            self.line()
         }
+    }
+
+    /// A verb whose stdout is the sandbox's output writes every error to
+    /// stderr.
+    pub(crate) fn write_stderr(&self, json: bool) {
+        super::stream::note(self.rendered(json));
+    }
+
+    /// `write_stderr` from async code, waiting at most a second for it.
+    pub(crate) async fn say(&self, json: bool) {
+        super::stream::say_line(self.rendered(json)).await;
     }
 }
 

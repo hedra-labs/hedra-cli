@@ -145,8 +145,9 @@ pub(crate) async fn create(
 /// The next step when a create may have made a sandbox it never confirmed.
 pub(crate) fn may_exist(name: &str) -> String {
     format!(
-        "It may exist: see `hedra-cli sandbox get --sandbox {name}`, and stop it with \
-         `hedra-cli sandbox stop --sandbox {name}`."
+        "It may exist: see `{}`, and stop it with `{}`.",
+        super::render::get_command(name),
+        super::render::stop_command(name)
     )
 }
 
@@ -219,7 +220,9 @@ pub(crate) enum Readiness {
     Failed(Failure),
 }
 
-pub(crate) fn readiness(s: &Sandbox) -> Readiness {
+/// A poll judged as `waiter` needs: a reader follows replica 0 alone, so
+/// another replica's trouble neither holds nor fails its wait.
+pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
     let name = &s.name;
     match s.status {
         SandboxStatus::Failed => {
@@ -238,7 +241,15 @@ pub(crate) fn readiness(s: &Sandbox) -> Readiness {
         SandboxStatus::Active => {}
         _ => return Readiness::Starting,
     }
-    let instances = s.instances.as_deref().unwrap_or_default();
+    let all = s.instances.as_deref().unwrap_or_default();
+    let instances: Vec<_> = match waiter {
+        Waiter::Reader => all.iter().filter(|i| i.replica == 0).collect(),
+        Waiter::Stops => all.iter().collect(),
+    };
+    let needed = match waiter {
+        Waiter::Reader => 1,
+        Waiter::Stops => s.replicas.max(1),
+    };
     if let Some(failed) = instances
         .iter()
         .find(|i| matches!(i.status, SandboxInstanceStatus::Failed))
@@ -249,8 +260,9 @@ pub(crate) fn readiness(s: &Sandbox) -> Readiness {
                 return Readiness::Failed(Failure::new(
                     Class::NoCapacity,
                     format!(
-                        "No `{}` is free right now. Run `hedra-cli sandbox gpus`.",
-                        s.gpu
+                        "No `{}` is free right now. Run `{}`.",
+                        s.gpu,
+                        super::render::GPUS_COMMAND
                     ),
                 ))
             }
@@ -282,7 +294,7 @@ pub(crate) fn readiness(s: &Sandbox) -> Readiness {
         .iter()
         .filter(|i| matches!(i.status, SandboxInstanceStatus::Running))
         .count() as i64;
-    if running >= s.replicas.max(1) {
+    if running >= needed {
         Readiness::Ready
     } else {
         Readiness::Starting
@@ -323,7 +335,7 @@ pub(crate) async fn wait_ready(
                     say(&escape_controls(&line));
                     last_line = line;
                 }
-                match readiness(&sandbox) {
+                match readiness(&sandbox, waiter) {
                     Readiness::Ready => {
                         say(&format!(
                             "`{name}` is ready, {} after the create.",
@@ -348,8 +360,8 @@ pub(crate) async fn wait_ready(
             let took = human_duration(started.elapsed().as_secs() as i64);
             let line = match waiter {
                 Waiter::Reader => format!(
-                    "`{name}` is still starting after {took}. Check on it with `hedra-cli \
-                     sandbox get --sandbox {name}`."
+                    "`{name}` is still starting after {took}. Check on it with `{}`.",
+                    super::render::get_command(id)
                 ),
                 Waiter::Stops => format!("`{name}` is still starting after {took}."),
             };
@@ -370,32 +382,6 @@ pub(crate) async fn wait_ready(
         let next = (poll + every).min(deadline);
         tokio::time::sleep_until(next).await;
     }
-}
-
-/// A stop's outcome.
-#[cfg(test)]
-pub(crate) struct Stopped {
-    pub(crate) sandbox: Sandbox,
-}
-
-/// `POST /sandboxes/{id}/stop`, retried on 409 `ALREADY_IN_PROGRESS` (a
-/// sandbox still `creating`), 408, 429, 5xx and transport errors, then
-/// `GET` until `ended` or `failed`, all under one five-minute deadline.
-#[cfg(test)]
-pub(crate) async fn stop(
-    api: &Api,
-    id: &str,
-    name: &str,
-    timing: &Timing,
-) -> Result<Stopped, Failure> {
-    let started = Instant::now();
-    let deadline = started + timing.stop_deadline;
-    let accepted = request_stop(api, id, name, timing, deadline).await?;
-    super::stream::note(format_args!(
-        "Stopping `{name}`; billing ended at the stop request."
-    ));
-    let sandbox = wait_ended(api, id, name, timing, started, deadline, accepted).await?;
-    Ok(Stopped { sandbox })
 }
 
 /// `POST /sandboxes/{id}/stop` until the route accepts it or `deadline`
@@ -467,8 +453,9 @@ pub(crate) async fn wait_ended(
                 Class::Unavailable,
                 format!(
                     "`{name}` is still stopping after {}; Hedra keeps stopping it. Check with \
-                     `hedra-cli sandbox get --sandbox {id}`.",
-                    human_duration(started.elapsed().as_secs() as i64)
+                     `{}`.",
+                    human_duration(started.elapsed().as_secs() as i64),
+                    super::render::get_command(id)
                 ),
             ));
         }
@@ -489,6 +476,25 @@ mod tests {
     use super::*;
     use serde_json::json;
 
+    /// A stop's outcome.
+    struct Stopped {
+        sandbox: Sandbox,
+    }
+
+    /// `POST /sandboxes/{id}/stop`, retried on 409 `ALREADY_IN_PROGRESS` (a
+    /// sandbox still `creating`), 408, 429, 5xx and transport errors, then
+    /// `GET` until `ended` or `failed`, all under one five-minute deadline.
+    async fn stop(api: &Api, id: &str, name: &str, timing: &Timing) -> Result<Stopped, Failure> {
+        let started = Instant::now();
+        let deadline = started + timing.stop_deadline;
+        let accepted = request_stop(api, id, name, timing, deadline).await?;
+        super::super::stream::note(format_args!(
+            "Stopping `{name}`; billing ended at the stop request."
+        ));
+        let sandbox = wait_ended(api, id, name, timing, started, deadline, accepted).await?;
+        Ok(Stopped { sandbox })
+    }
+
     fn sandbox(status: &str, instances: serde_json::Value, end_reason: Option<&str>) -> Sandbox {
         serde_json::from_value(json!({
             "id": "sandbox_1", "name": "train", "gpu": "h100:1", "gpu_model": "h100",
@@ -504,24 +510,50 @@ mod tests {
     }
 
     fn class(s: &Sandbox) -> Option<Class> {
-        match readiness(s) {
+        match readiness(s, Waiter::Stops) {
             Readiness::Failed(f) => Some(f.class),
             _ => None,
         }
     }
 
+    /// A reader follows replica 0, so replica 1 failing or still starting
+    /// neither fails nor holds its wait; a stop judges every replica.
+    #[test]
+    fn a_reader_waits_on_replica_zero_alone() {
+        let mut s = sandbox(
+            "active",
+            json!([
+                {"replica": 0, "status": "running", "failure_reason": null},
+                {"replica": 1, "status": "failed", "failure_reason": "instance_failed"},
+            ]),
+            None,
+        );
+        s.replicas = 2;
+        assert!(matches!(readiness(&s, Waiter::Reader), Readiness::Ready));
+        assert!(matches!(readiness(&s, Waiter::Stops), Readiness::Failed(_)));
+        s.instances.as_mut().unwrap()[1].status = SandboxInstanceStatus::Starting;
+        assert!(matches!(readiness(&s, Waiter::Reader), Readiness::Ready));
+        assert!(matches!(readiness(&s, Waiter::Stops), Readiness::Starting));
+    }
+
     #[test]
     fn ready_once_every_replica_runs() {
         assert!(matches!(
-            readiness(&sandbox("active", instance("running", None), None)),
+            readiness(
+                &sandbox("active", instance("running", None), None),
+                Waiter::Stops
+            ),
             Readiness::Ready
         ));
         assert!(matches!(
-            readiness(&sandbox("active", instance("starting", None), None)),
+            readiness(
+                &sandbox("active", instance("starting", None), None),
+                Waiter::Stops
+            ),
             Readiness::Starting
         ));
         assert!(matches!(
-            readiness(&sandbox("creating", json!(null), None)),
+            readiness(&sandbox("creating", json!(null), None), Waiter::Stops),
             Readiness::Starting
         ));
     }
@@ -565,7 +597,7 @@ mod tests {
             instance("failed", Some("start_failed")),
             Some("instance_failed"),
         );
-        let Readiness::Failed(f) = readiness(&s) else {
+        let Readiness::Failed(f) = readiness(&s, Waiter::Stops) else {
             panic!("not a failure")
         };
         assert!(
