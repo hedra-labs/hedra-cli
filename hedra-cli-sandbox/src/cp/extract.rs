@@ -10,8 +10,9 @@
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
+use std::hash::{BuildHasher, RandomState};
 use std::io::{self, Read};
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -184,7 +185,19 @@ struct Link {
     root: Root,
     rel: String,
     local: String,
-    target: String,
+    target: PathBuf,
+}
+
+/// A symlink's target as the archive holds it: on Unix byte for byte, as
+/// tar writes it, whether or not it is UTF-8.
+fn link_target(raw: &[u8]) -> PathBuf {
+    #[cfg(unix)]
+    {
+        use std::os::unix::ffi::OsStrExt;
+        PathBuf::from(std::ffi::OsStr::from_bytes(raw))
+    }
+    #[cfg(not(unix))]
+    PathBuf::from(String::from_utf8_lossy(raw).into_owned())
 }
 
 fn mtime_of(h: &tar::Header) -> SystemTime {
@@ -215,7 +228,10 @@ fn extract_from(
     };
     let mut dirs: Vec<Pending> = Vec::new();
     let mut links: Vec<Link> = Vec::new();
-    let mut written: HashSet<String> = HashSet::new();
+    // The files this copy wrote, by a keyed hash of the local name, so a
+    // copy of many small files holds 8 bytes for each.
+    let hasher = RandomState::new();
+    let mut written: HashSet<u64> = HashSet::new();
 
     let mut archive = tar::Archive::new(Capped::new(r));
     let entries = archive.entries().map_err(|e| show(&e.to_string()))?;
@@ -270,14 +286,21 @@ fn extract_from(
             out.skipped.push(local_shown);
             continue;
         }
+        // Before anything is written for it, so a cancelled copy knows
+        // whether it wrote anything.
+        if !progress.began(&local) {
+            return Err("the copy was cancelled".into());
+        }
         let (root, rel) = x.at(&local).map_err(|e| format!("{local_shown}: {e}"))?;
-        progress.began(&local);
         let mode = entry.header().mode().unwrap_or(0o644) & 0o777 & !mask;
         let mtime = mtime_of(entry.header());
         match kind {
             EntryType::Directory => {
                 mkdir_over(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
                 if rel != "." {
+                    // A directory an earlier copy left read-only takes this
+                    // copy's entries; its mode is set again once they are.
+                    add_owner_rwx(x.dir(root), &rel);
                     dirs.push(Pending {
                         root,
                         depth: local.split('/').count(),
@@ -291,13 +314,10 @@ fn extract_from(
             EntryType::Regular => {
                 write_file(x.dir(root), &rel, mode, mtime, &mut entry)
                     .map_err(|e| failed(&local, &rel, e))?;
-                written.insert(local);
+                written.insert(hasher.hash_one(&local));
             }
             EntryType::Symlink => {
-                let target = entry
-                    .link_name_bytes()
-                    .map(|b| String::from_utf8_lossy(&b).into_owned())
-                    .unwrap_or_default();
+                let target = link_target(&entry.link_name_bytes().unwrap_or_default());
                 links.push(Link {
                     root,
                     rel,
@@ -306,14 +326,16 @@ fn extract_from(
                 });
             }
             EntryType::Link => {
-                let target_raw = entry
-                    .link_name_bytes()
-                    .map(|b| String::from_utf8_lossy(&b).into_owned())
-                    .unwrap_or_default();
+                let raw = entry.link_name_bytes().unwrap_or_default().into_owned();
+                let Ok(target_raw) = String::from_utf8(raw) else {
+                    return Err(format!(
+                        "refused \"{shown}\": a hard link whose target is not UTF-8"
+                    ));
+                };
                 let target = local_name(&target_raw, base, name)?;
                 // Only a file this copy wrote, so a merge into an existing
                 // directory cannot link to a file the user already had.
-                if !written.contains(&target) {
+                if !written.contains(&hasher.hash_one(&target)) {
                     return Err(format!(
                         "refused \"{shown}\": a hard link to \"{}\", which this copy did not write",
                         show(&target_raw)
@@ -326,7 +348,7 @@ fn extract_from(
                 replace(&to, leaf).map_err(|e| failed(&local, &rel, e))?;
                 from.hard_link(from_leaf, &to, leaf)
                     .map_err(|e| failed(&local, &rel, e))?;
-                written.insert(local);
+                written.insert(hasher.hash_one(&local));
             }
             _ => {
                 out.warnings.push(format!(
@@ -394,16 +416,20 @@ pub(crate) struct Folding {
     pub(crate) normalization: bool,
 }
 
-/// Entry names that land on the same file in the destination.
+/// Entry names that land on the same file in the destination: each folded
+/// name is held as a keyed hash, beside the first name that folded to it,
+/// which a collision's message names.
 pub(crate) struct Collisions {
     pub(crate) folding: Folding,
-    seen: HashMap<String, String>,
+    hasher: RandomState,
+    seen: HashMap<u64, Box<str>>,
 }
 
 impl Collisions {
     pub(crate) fn new(folding: Folding) -> Self {
         Self {
             folding,
+            hasher: RandomState::new(),
             seen: HashMap::new(),
         }
     }
@@ -420,11 +446,12 @@ impl Collisions {
         if self.folding.normalization {
             key = key.nfc().collect();
         }
+        let key = self.hasher.hash_one(&key);
         match self.seen.get(&key) {
-            Some(prev) if prev != local => Some(prev.clone()),
+            Some(prev) if &**prev != local => Some(prev.to_string()),
             Some(_) => None,
             None => {
-                self.seen.insert(key, local.to_string());
+                self.seen.insert(key, local.into());
                 None
             }
         }
@@ -561,14 +588,49 @@ fn write_file(
 }
 
 #[cfg(unix)]
-fn symlink(d: &Dir, target: &str, rel: &str) -> io::Result<()> {
+fn symlink(d: &Dir, target: &Path, rel: &str) -> io::Result<()> {
     d.symlink_contents(target, rel)
 }
 
 #[cfg(not(unix))]
-fn symlink(_: &Dir, _: &str, _: &str) -> io::Result<()> {
+fn symlink(_: &Dir, _: &Path, _: &str) -> io::Result<()> {
     Err(io::Error::from(io::ErrorKind::Unsupported))
 }
+
+/// Gives the directory at `rel` its owner's read, write and search bits
+/// when it lacks one, so entries can be written into a directory an earlier
+/// copy left read-only. Best effort: a directory that cannot be opened for
+/// reading keeps its mode, and writing beneath it fails naming the entry.
+#[cfg(unix)]
+fn add_owner_rwx(d: &Dir, rel: &str) {
+    use rustix::fs::{fchmod, fstat, openat, Mode, OFlags};
+    let Ok((d, leaf)) = parent(d, rel) else {
+        return;
+    };
+    let Ok(dir) = d.open_dir_nofollow(leaf) else {
+        return;
+    };
+    // As in `set_dir_attrs`: cap-std's directory may be `O_PATH`.
+    let Ok(fd) = openat(
+        &dir,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    ) else {
+        return;
+    };
+    let Ok(st) = fstat(&fd) else {
+        return;
+    };
+    #[allow(clippy::useless_conversion)]
+    let mode = u32::from(st.st_mode) & 0o7777;
+    if mode & 0o700 != 0o700 {
+        let _ = fchmod(&fd, Mode::from_raw_mode((mode | 0o700) as _));
+    }
+}
+
+#[cfg(not(unix))]
+fn add_owner_rwx(_: &Dir, _: &str) {}
 
 /// Sets a directory's mode and mtime, refusing a symlink at `rel`.
 pub(crate) fn set_dir_attrs(d: &Dir, rel: &str, mode: u32, mtime: SystemTime) -> io::Result<()> {

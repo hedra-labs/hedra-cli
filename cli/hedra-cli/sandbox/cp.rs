@@ -1,10 +1,10 @@
 //! `cp`: files and directories in and out of a sandbox, as tar over `Exec`.
 
+use std::ffi::OsStr;
 use std::sync::Arc;
 
 use hedra_cli_sandbox::cp::{self, CopyError, CopyReport, Direction, Progress};
 use hedra_cli_sandbox::session::Session;
-use hedra_cli_sandbox::stream::calls::{self, Open, Waiting};
 use hedra_cli_sandbox::stream::status::BrokerStatus;
 use hedra_cli_sandbox::stream::transport::TransportConfig;
 
@@ -19,13 +19,14 @@ fn is_sandbox(part: &str) -> bool {
     names::is_sandbox_name(part) || names::is_sandbox_id(part)
 }
 
-/// Runs `cp` and returns the exit code: the remote `tar`'s on a copy in,
-/// 0 for a whole copy out, 255 for hedra-cli's own failures.
+/// Runs `cp` and returns the exit code: 0 for a whole copy, the remote
+/// `tar`'s when it fails a copy in and hedra-cli refused nothing, and 255
+/// for hedra-cli's own failures, a copy out whose `tar` failed among them.
 pub(crate) async fn run(
     api: &Api,
     transport: TransportConfig,
-    src: &str,
-    dst: &str,
+    src: &OsStr,
+    dst: &OsStr,
     json_errors: bool,
 ) -> i32 {
     stream::ignore_sigpipe();
@@ -41,7 +42,7 @@ pub(crate) enum Plan {
 
 /// Checks `cp`'s arguments and plans the copy, with no request and nothing
 /// written; `--dry-run` stops here.
-pub(crate) fn plan(src: &str, dst: &str) -> Result<(Target, Plan), Failure> {
+pub(crate) fn plan(src: &OsStr, dst: &OsStr) -> Result<(Target, Plan), Failure> {
     let spec =
         cp::parse_args(src, dst, is_sandbox).map_err(|m| Failure::rejected(escape_controls(&m)))?;
     let target = Target::parse(&spec.sandbox)?;
@@ -52,7 +53,7 @@ pub(crate) fn plan(src: &str, dst: &str) -> Result<(Target, Plan), Failure> {
     Ok((target, plan.map_err(Failure::rejected)?))
 }
 
-async fn run_inner(api: &Api, transport: TransportConfig, src: &str, dst: &str) -> Ended {
+async fn run_inner(api: &Api, transport: TransportConfig, src: &OsStr, dst: &OsStr) -> Ended {
     // Everything that can be refused locally is refused before a request.
     let (target, mut plan) = match plan(src, dst) {
         Ok(p) => p,
@@ -83,36 +84,9 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         },
         transport.clone(),
     );
-    // The proxy only when the broker does not bypass it.
-    let proxy = || session.proxy();
-    let on_wait = |w: &Waiting| {
-        stream::note(escape_controls(&stream::waiting_line(
-            w,
-            &name,
-            proxy().as_deref(),
-        )));
-    };
-    let open = Open {
-        on_wait: &on_wait,
-        ..Default::default()
-    };
-    let opened = tokio::select! {
-        r = calls::open_exec(&session, &open) => r,
-        sig = signals.next() => return discard(plan, Ended::Signal(sig)),
-    };
-    let call = match opened {
+    let call = match exec::open_call(api, &session, &id, &name, &mut signals).await {
         Ok(call) => call,
-        // The read that explains a refusal still answers a signal.
-        Err(e) => {
-            let proxy = proxy();
-            let ended = tokio::select! {
-                f = stream::open_failure(api, &id, &name, Needs::Exec, proxy.as_deref(), e) => {
-                    Ended::Failed(f)
-                }
-                sig = signals.next() => Ended::Signal(sig),
-            };
-            return discard(plan, ended);
-        }
+        Err(ended) => return discard(plan, ended),
     };
 
     let progress = Arc::new(Progress::default());
@@ -132,38 +106,72 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         } => r,
         sig = signals.next() => {
             if let Some(p) = &mut created {
-                p.discard();
+                // The extractor, still running, begins no other entry, so
+                // whether it began one says whether it wrote anything.
+                // An entry it began may still be landing, so the parents
+                // stay and the line says where.
+                if progress.cancel() {
+                    stream::note(format!(
+                        "A partial copy was left at {}.",
+                        escape_controls(&p.target().display().to_string())
+                    ));
+                } else {
+                    p.discard();
+                }
             }
             return Ended::Signal(sig);
         }
     };
+    // A failed copy out leaves what it wrote, and says where, also when a
+    // signal ends `cp` while it reports the failure.
+    let partial = report.partial.as_deref();
+    let signalled = |sig: Sig| {
+        if let Some(p) = partial {
+            stream::note(format!("A partial copy was left at {p}."));
+        }
+        Ended::Signal(sig)
+    };
     // The copy has ended, so a signal or a failed write here leaves what it
     // wrote in place.
     if !report.remote_stderr.is_empty() {
-        if let Some(ended) = relay_stderr(&report.remote_stderr, &mut signals).await {
-            return ended;
+        match relay_stderr(&report.remote_stderr, &mut signals).await {
+            Some(Ended::Signal(sig)) => return signalled(sig),
+            Some(ended) => return ended,
+            None => {}
         }
     }
     for w in &report.warnings {
         stream::note(w);
     }
+    let with_partial = |f: Failure| match partial {
+        Some(p) => f.then(format!("A partial copy was left at {p}.")),
+        None => f,
+    };
     let status = match report.result {
         Ok(code) => return Ended::Exit(code),
-        Err(CopyError::Rejected(m)) => return Ended::Failed(Failure::rejected(m)),
+        Err(CopyError::Rejected(m)) => {
+            let m = match partial {
+                Some(p) => format!("{m}; a partial copy was left at {p}"),
+                None => m,
+            };
+            return Ended::Failed(Failure::rejected(m));
+        }
         Err(CopyError::Call(status)) => {
             let s = BrokerStatus::from(&status);
+            if api.debug {
+                stream::note(escape_controls(&format!("< exec ended: {s}")));
+            }
             let f = stream::broker_failure(&s, &name, Needs::Exec, true);
             if f.class != Class::ConnectionLost {
-                return Ended::Failed(f);
+                return Ended::Failed(with_partial(f));
             }
             Some(s)
         }
         Err(CopyError::Ended) => None,
     };
-    // The read that explains the drop still answers a signal.
-    tokio::select! {
-        f = exec::lost(api, &id, status.as_ref()) => Ended::Failed(stopped_at(f, &report.stopped_at)),
-        sig = signals.next() => Ended::Signal(sig),
+    match exec::lost_unless_signalled(api, &id, status.as_ref(), &mut signals).await {
+        Ok(f) => Ended::Failed(with_partial(stopped_at(f, &report.stopped_at))),
+        Err(sig) => signalled(sig),
     }
 }
 

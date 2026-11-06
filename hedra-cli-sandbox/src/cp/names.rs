@@ -1,22 +1,6 @@
 //! Path and name rules shared by both directions of a copy.
 
-/// `s` with every control character escaped, so a name from the sandbox
-/// cannot carry a terminal escape sequence.
-pub fn escape_controls(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    for c in s.chars() {
-        if c.is_control() {
-            if (c as u32) < 0x100 {
-                out.push_str(&format!("\\x{:02x}", c as u32));
-            } else {
-                out.push_str(&format!("\\u{{{:x}}}", c as u32));
-            }
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+use crate::text::escape_controls;
 
 /// The most characters of a name a message shows.
 const SHOWN_MAX: usize = 200;
@@ -164,11 +148,6 @@ mod tests {
         assert!(local_name("../evil", ".", ".").is_err());
         assert!(local_name("tree/../../evil", "tree", "out").is_err());
         assert!(local_name("/etc/passwd", ".", ".").is_err());
-    }
-
-    #[test]
-    fn escape_controls_escapes_osc() {
-        assert_eq!(escape_controls("a\x1b]52;b\x07"), "a\\x1b]52;b\\x07");
     }
 
     #[test]

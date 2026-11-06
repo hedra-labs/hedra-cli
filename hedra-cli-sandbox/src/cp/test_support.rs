@@ -2,8 +2,10 @@
 
 #![allow(dead_code)] // each OS uses a different subset
 
+use std::future::Future;
 use std::path::Path;
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 
@@ -149,6 +151,14 @@ pub(super) fn spec(remote: &str, local: &Path, direction: Direction) -> CopySpec
     }
 }
 
+/// `copy` with a limit, so a copy that never ends fails its test instead
+/// of hanging the suite.
+pub(super) async fn within<T>(copy: impl Future<Output = T>) -> T {
+    tokio::time::timeout(Duration::from_secs(30), copy)
+        .await
+        .expect("the copy did not end within 30 s")
+}
+
 /// A copy of `qwen:<remote>` to `local` from a sandbox sending `archive`,
 /// then `stderr`, then `code`.
 pub(super) async fn copy_out_of(
@@ -167,7 +177,7 @@ pub(super) async fn copy_out_of(
         fake.exit(code).await;
         fake
     });
-    let r = copy_out(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_out(plan, sink, source, Arc::new(Progress::default()))).await;
     let _ = sandbox.await;
     r
 }

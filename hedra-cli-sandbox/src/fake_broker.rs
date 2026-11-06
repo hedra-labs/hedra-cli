@@ -243,7 +243,7 @@ impl PortScript {
     }
 
     /// Admits the call, runs `steps`, then holds it open until the client
-    /// goes away.
+    /// goes away, unless a step ended it.
     pub fn admit(steps: impl IntoIterator<Item = PortStep>) -> Self {
         Self {
             refuse: None,
@@ -285,7 +285,9 @@ pub enum PortStep {
     AwaitEof,
     /// Sends one `data` frame.
     Data(Vec<u8>),
-    /// Sends `eof`: the sandbox's server closed its side.
+    /// Sends `eof` and ends the call, as the broker does: the supervisor's
+    /// `eof` says its relay is over, not that one direction closed. Steps
+    /// after it do not run.
     Eof,
     /// Closes the call's connection: the broker's side of every call on it
     /// is gone.
@@ -730,7 +732,8 @@ fn admitted<T>(
     response
 }
 
-/// A `PortForward`'s steps, then a hold until the client goes away.
+/// A `PortForward`'s steps, then, unless one ended the call, a hold until
+/// the client goes away.
 async fn run_port(
     broker: Arc<Broker>,
     idx: usize,
@@ -765,6 +768,7 @@ async fn run_port(
             }
             PortStep::Eof => {
                 let _ = out.send(frame(port_server_frame::Frame::Eof(true))).await;
+                return;
             }
             PortStep::Close => broker.close(conn),
             PortStep::Fail(status) => {

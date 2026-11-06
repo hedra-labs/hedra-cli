@@ -66,6 +66,23 @@ impl Run {
                 cmd.env(key, value);
             }
         }
+        // The binary keeps a signal its parent ignored, as `nohup` asks, so
+        // a test runner started with SIGINT ignored (`nohup cargo test`, or
+        // `cargo test &` in a script) would leave every Ctrl-C test waiting.
+        // Each test that wants a signal ignored sets it after this.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: only async-signal-safe calls between fork and exec.
+            unsafe {
+                cmd.pre_exec(|| {
+                    for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                        libc::signal(sig, libc::SIG_DFL);
+                    }
+                    Ok(())
+                });
+            }
+        }
         cmd
     }
 

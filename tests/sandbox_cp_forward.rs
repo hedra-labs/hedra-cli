@@ -333,17 +333,97 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
         let fwd = Forward::start(&run);
         let port = fwd.port();
         let _ = TcpStream::connect(("127.0.0.1", port));
+        // The listener closes as the refusal is said, before the process
+        // exits.
+        fwd.wait_for(class);
+        assert!(
+            TcpStream::connect(("127.0.0.1", port)).is_err(),
+            "{case}: still listening"
+        );
         let (code, err) = fwd.finish();
         assert_eq!(code, want, "{case}: {err}");
         assert!(
             class_line(&err).is_some_and(|l| l.contains(class)),
             "{case}: {err}"
         );
-        assert!(
-            TcpStream::connect(("127.0.0.1", port)).is_err(),
-            "{case}: still listening"
-        );
     }
+}
+
+/// A call that fails for want of a scope after its admission, as when the
+/// key loses `sandboxes:write` mid-session, ends the port-forward with
+/// Missing scope (10) and closes the listener, as a refusal at open does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_scope_lost_after_admission_ends_the_port_forward() {
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitOpen,
+        PortStep::Fail(denied_naming_no_scope()),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let port = fwd.port();
+    let _conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    fwd.wait_for("Missing scope (10)");
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "still listening"
+    );
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 10, "{err}");
+    let line = class_line(&err).unwrap_or_default();
+    assert!(line.contains("`sandboxes:write`"), "{err}");
+}
+
+/// A forwarded connection the broker ends `rate_limited` says, after the
+/// broker's message, that port-forward cannot slow the sandbox's server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rate_limited_connection_says_to_copy_large_files_with_cp() {
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitOpen,
+        PortStep::Fail(broker_status(
+            Code::Unavailable,
+            "rate_limited",
+            "client fell behind the sandbox's output; reconnect",
+            &[],
+        )),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let _conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    let err = fwd.wait_for("with `hedra-cli sandbox cp`.");
+    assert!(
+        err.contains(
+            "a forwarded connection was reset: client fell behind the sandbox's output; \
+             reconnect. `port-forward` cannot slow the sandbox's server; copy large files with \
+             `hedra-cli sandbox cp`."
+        ),
+        "{err}"
+    );
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// A local client that connects and closes having sent nothing, as `nc -z`
+/// or a browser's preconnect does, says nothing about the sandbox's server.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_probe_that_connects_and_closes_says_nothing() {
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::admit([PortStep::AwaitEof, PortStep::Eof]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    conn.shutdown(std::net::Shutdown::Write).unwrap();
+    broker.wait_for(WAIT, |c| c.len() == 1 && c[0].port_eof && c[0].finished);
+    std::thread::sleep(Duration::from_millis(300));
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("nothing is listening"), "{err}");
 }
 
 /// The refusal is printed when the listener closes, so a Ctrl-C while an
@@ -483,6 +563,119 @@ async fn ctrl_c_during_a_copy_out_removes_the_parents_it_made() {
     let out = wait(child, WAIT);
     assert_eq!(out.status.code(), Some(130), "{}", stderr(&out));
     assert!(!run.home.path().join("a").exists());
+    assert!(!stderr(&out).contains("partial"), "{}", stderr(&out));
+}
+
+/// The first entry's header and body, without the end of the archive.
+fn first_entry_only(name: &str) -> Vec<u8> {
+    one_entry(name)[..1024].to_vec()
+}
+
+/// Ctrl-C once a copy out has written something leaves it, with the parents
+/// made for it, and says where.
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_c_after_a_copy_out_wrote_something_leaves_it_and_says_so() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(first_entry_only("a.txt")),
+        Step::Hold,
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/a.txt");
+    let child = run.spawn(&["sandbox", "cp", &src, "a/b/out"]);
+    let written = run.home.path().join("a/b/out");
+    let deadline = Instant::now() + WAIT;
+    while std::fs::read(&written).ok().as_deref() != Some(b"x") {
+        assert!(Instant::now() < deadline, "the entry was never written");
+        std::thread::sleep(Duration::from_millis(20));
+    }
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(130), "{err}");
+    assert!(err.contains("A partial copy was left at a/b/out."), "{err}");
+    assert_eq!(std::fs::read(&written).unwrap(), b"x");
+}
+
+/// A copy out that fails once it has written something leaves it and names
+/// it in the failure line; one whose remote `tar` fails is hedra-cli's
+/// failure, 255, not tar's code.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_failing_part_way_leaves_what_it_wrote_and_names_it() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(first_entry_only("a.txt")),
+        Step::Stderr(b"tar: a.txt: file changed as we read it\n".to_vec()),
+        Step::Exit(1),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/a.txt");
+    let out = run.run(&["sandbox", "cp", &src, "a/b/out"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    let line = class_line(&err).unwrap_or_default();
+    assert!(
+        line.starts_with("hedra-cli: Rejected request (19): ")
+            && line.contains("tar in the sandbox exited 1")
+            && line.ends_with("; a partial copy was left at a/b/out"),
+        "{err}"
+    );
+    assert!(err.contains("file changed as we read it"), "{err}");
+    assert_eq!(
+        std::fs::read(run.home.path().join("a/b/out")).unwrap(),
+        b"x"
+    );
+}
+
+/// `cp` takes a sandbox by name, as its help's examples do.
+#[tokio::test(flavor = "multi_thread")]
+async fn cp_takes_a_sandbox_by_name() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(b"new\n".to_vec()),
+        Step::Count,
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    mount_sandbox(&server, "box", sandbox(ID, "box", "active", running())).await;
+    let run = Run::new(&server);
+    std::fs::write(run.home.path().join("a.txt"), b"hello").unwrap();
+    let out = run.run(&["sandbox", "cp", "a.txt", "box:/work/a.txt"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert_eq!(
+        requests_to(&server, "GET", "/v3/sandboxes/box").await.len(),
+        1
+    );
+    let calls = broker.calls();
+    assert!(calls[0].stdin_eof, "{calls:#?}");
+    assert_eq!(&calls[0].stdin[..5], b"a.txt");
+    assert_eq!(&calls[0].stdin[512..517], b"hello");
+}
+
+/// A copy out to a sandbox that cannot be found removes the parents it
+/// created for the copy.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_from_a_missing_sandbox_removes_the_parents_it_made() {
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    Mock::given(method("GET"))
+        .and(path("/v3/sandboxes/gone"))
+        .respond_with(envelope(404, "NOT_FOUND", "Sandbox not found.", None))
+        .mount(&server)
+        .await;
+    let run = Run::new(&server);
+    let out = run.run(&["sandbox", "cp", "gone:/x", "a/b/out"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    assert!(class_line(&err).is_some(), "{err}");
+    assert!(!run.home.path().join("a").exists(), "{err}");
+    assert!(broker.calls().is_empty());
 }
 
 /// A mint answered 503 refuses the one connection it was for; the listener
@@ -836,7 +1029,7 @@ fn free_port() -> u16 {
 
 /// `port-forward <name> <port>` resolves the name and forwards that port to
 /// the same port in the sandbox, carrying bytes both ways; the sandbox
-/// server's `eof` half-closes the local socket.
+/// server's `eof` ends the call and closes the local connection.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_named_sandbox_and_one_port_forward_that_port_to_the_same_port() {
     use std::io::Write;
@@ -1354,6 +1547,40 @@ async fn an_image_without_tar_fails_the_copy_both_ways() {
     }
 }
 
+/// An image without `sh`, which the supervisor reports with its line that
+/// the command could not start and exit 2, fails the copy naming `sh`, not
+/// with 2, which reads as Not signed in.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_image_without_sh_fails_the_copy_naming_sh() {
+    let line = b"[hedra] the command could not start: exec: \"sh\": executable file not found in $PATH\r\n";
+    for into in [true, false] {
+        let broker = FakeBroker::start();
+        broker.push_exec(ExecScript::admit([
+            Step::Start,
+            Step::Stderr(line.to_vec()),
+            Step::Exit(2),
+        ]));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        std::fs::write(run.home.path().join("a.txt"), b"a").unwrap();
+        let remote = format!("{ID}:/work/a.txt");
+        let args = if into {
+            ["sandbox", "cp", "a.txt", remote.as_str()]
+        } else {
+            ["sandbox", "cp", remote.as_str(), "b.txt"]
+        };
+        let out = run.run(&args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(255), "{args:?}: {err}");
+        assert!(
+            class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Rejected request (19):")
+                && l.contains("could not start `sh` (exec: \"sh\": executable file not found in $PATH)")),
+            "{args:?}: {err}"
+        );
+        assert!(!err.contains("[hedra] the command"), "{args:?}: {err}");
+    }
+}
+
 /// A copy-out entry name holding a terminal escape is refused, and the
 /// name is printed with its control characters escaped.
 #[tokio::test(flavor = "multi_thread")]
@@ -1602,4 +1829,52 @@ async fn a_stop_under_a_port_forward_resets_its_connection_then_exits_13() {
         TcpStream::connect(("127.0.0.1", port)).is_err(),
         "still listening"
     );
+}
+
+/// `--debug` on `cp` and `port-forward` prints the broker lines `exec`
+/// prints: the broker it dials, a refusal and the admission, never the
+/// token.
+#[tokio::test(flavor = "multi_thread")]
+async fn debug_on_cp_and_port_forward_shows_the_broker_and_never_the_token() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::refuse(Status::unavailable("restarting")));
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(b"dir\n".to_vec()),
+        Step::Count,
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    std::fs::write(run.home.path().join("a.txt"), b"a").unwrap();
+    let dst = format!("{ID}:/work");
+    let out = run.run(&["sandbox", "cp", "--debug", "a.txt", &dst]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert!(
+        err.contains(&format!("> exec https://{}", broker.broker_url())),
+        "{err}"
+    );
+    assert!(err.contains("< exec refused: code Unavailable"), "{err}");
+    assert!(err.contains("< exec admitted"), "{err}");
+    assert!(err.contains("authorization: Bearer [REDACTED]"), "{err}");
+    assert!(!err.contains(TOKEN), "{err}");
+
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::refuse(Status::unavailable("restarting")));
+    broker.push_port(PortScript::hold());
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start_with(&run, &["sandbox", "port-forward", "--debug", ID, "0:8888"]);
+    let _conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    fwd.wait_for("< port_forward admitted");
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains(&format!("> port_forward https://{}", broker.broker_url())),
+        "{err}"
+    );
+    assert!(err.contains("< port_forward refused: code Unavailable"), "{err}");
+    assert!(!err.contains(TOKEN), "{err}");
 }

@@ -4,6 +4,7 @@ use std::fs;
 use std::io::Read;
 use std::os::unix::fs::{symlink, PermissionsExt};
 use std::path::{Path, PathBuf};
+use std::sync::atomic::Ordering;
 use std::sync::Arc;
 
 use tokio::sync::mpsc;
@@ -31,6 +32,7 @@ fn tree_archive() -> Vec<u8> {
         e("tree/nested/", b'5', 0o777, b"", ""),
         e("tree/nested/a.txt", b'0', 0o644, b"hello", ""),
         e("tree/run.sh", b'0', 0o4755, b"#!/bin/sh\n", ""),
+        e("tree/shared/", b'5', 0o3775, b"", ""),
         e("tree/link", b'2', 0o777, b"", "nested/a.txt"),
     ])
 }
@@ -57,8 +59,10 @@ async fn copy_out_writes_the_tree_where_scp_would() {
         assert_eq!(fs::read(root.join("nested/a.txt")).unwrap(), b"hello");
         assert_eq!(mode(&root.join("empty")), 0o700 & !umask());
         assert_eq!(mode(&root.join("nested")), 0o777 & !umask());
-        // 4755 loses its setuid bit and the umask's bits.
+        // 4755 loses its setuid bit and the umask's bits, and a directory
+        // its setgid and sticky bits.
         assert_eq!(mode(&root.join("run.sh")), 0o755 & !umask());
+        assert_eq!(mode(&root.join("shared")), 0o775 & !umask());
         assert_eq!(
             fs::read_link(root.join("link")).unwrap(),
             Path::new("nested/a.txt")
@@ -101,10 +105,11 @@ async fn copy_out_checks_the_destination_first() {
     }
     fs::set_permissions(&ro, fs::Permissions::from_mode(0o755)).unwrap();
 
-    // Created for a copy that then failed: removed again.
+    // Created for a copy that then failed before writing: removed again.
     let dst = base.path().join("x/y/out");
     let r = copy_out_of("/work/tree", &dst, vec![], String::new(), 1).await;
-    assert!(matches!(r.result, Ok(1)), "{:?}", r.result);
+    assert!(rejected(&r).contains("exited 1"), "{:?}", r.result);
+    assert_eq!(r.partial, None);
     assert!(!base.path().join("x").exists());
     // A directory that was already there stays.
     fs::create_dir(base.path().join("kept")).unwrap();
@@ -417,7 +422,7 @@ fn a_sparse_header_is_refused_before_its_extension_blocks() {
     for (long, want) in [
         (None, "\"tree/s\""),
         (Some("tree/long-name"), "\"tree/long-name\""),
-        (Some("tree/\x1b]52;c;x\x07"), "\"tree/\\x1b]52;c;x\\x07\""),
+        (Some("tree/\x1b]52;c;x\x07"), "\"tree/\\u{1b}]52;c;x\\u{7}\""),
     ] {
         let src = EndlessSparse::new(long, 4 << 20);
         let sent = src.sent.clone();
@@ -584,7 +589,7 @@ async fn copy_out_fails_a_fifo_top_and_leaves_out_one_beneath() {
     ]);
     let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
     let msg = rejected(&r).to_string();
-    assert!(msg.contains("left out tree/f\\x1b]52;"), "{msg}");
+    assert!(msg.contains("left out tree/f\\u{1b}]52;"), "{msg}");
     assert!(
         r.warnings.iter().any(|w| w.contains("not a file")),
         "{:?}",
@@ -633,18 +638,32 @@ async fn copy_out_judges_the_stream() {
             127,
             Some("has no `tar`"),
         ),
-        ("no sh", String::new(), 2, None),
+        ("no tar, without the marker", String::new(), 127, Some("has no `tar`")),
+        // A supervisor that predates its line for a command that could not
+        // start exits 2 with no output.
+        (
+            "no sh, said nothing",
+            String::new(),
+            2,
+            Some("could not start `sh`;"),
+        ),
+        (
+            "no sh",
+            "[hedra] the command could not start: exec: \"sh\": executable file not found in $PATH\r\n"
+                .into(),
+            2,
+            Some("could not start `sh` (exec: \"sh\": executable file not found in $PATH)"),
+        ),
     ];
     for (name, stderr, code, want) in cases {
         let dst = tempfile::tempdir().unwrap();
-        let archive = if name == "no tar" || name == "no sh" {
+        let archive = if name.starts_with("no tar") || name.starts_with("no sh") {
             vec![]
         } else {
             a.clone()
         };
         let r = copy_out_of("/work/tree", &dst.path().join("out"), archive, stderr, code).await;
         match (name, want) {
-            ("no sh", _) => assert!(rejected(&r).contains("has no `tar`"), "{name}"),
             (_, Some(w)) => assert!(rejected(&r).contains(w), "{name}: {:?}", r.result),
             (_, None) => assert!(matches!(r.result, Ok(0)), "{name}: {:?}", r.result),
         }
@@ -655,41 +674,72 @@ async fn copy_out_judges_the_stream() {
         );
     }
 
-    // A busybox tar that fails is judged by its exit code.
-    let dst = tempfile::tempdir().unwrap();
-    let r = copy_out_of(
-        "/work/tree",
-        &dst.path().join("out"),
-        a.clone(),
-        "tar: error\n".into(),
-        1,
-    )
-    .await;
-    assert!(matches!(r.result, Ok(1)), "{:?}", r.result);
+    // A tar that fails fails the copy out as hedra-cli's own failure, not
+    // with tar's code, which reads as one of hedra-cli's classes, and the
+    // partial copy it wrote stays.
+    for code in [1, 2] {
+        let dst = tempfile::tempdir().unwrap();
+        let r = copy_out_of(
+            "/work/tree",
+            &dst.path().join("out"),
+            a.clone(),
+            "tar: tree/x: file changed as we read it\n".into(),
+            code,
+        )
+        .await;
+        assert_eq!(rejected(&r), format!("tar in the sandbox exited {code}"));
+        assert_eq!(r.remote_stderr, b"tar: tree/x: file changed as we read it\n");
+        assert_eq!(
+            r.partial.as_deref(),
+            Some(dst.path().join("out").to_str().unwrap())
+        );
+    }
 }
 
+/// A call cut off after data arrived leaves what was written, with the
+/// parents created for it, and names it; nothing is deleted.
 #[tokio::test(flavor = "multi_thread")]
 async fn copy_out_reports_a_call_cut_off_part_way() {
     let dst = tempfile::tempdir().unwrap();
     let big = vec![b'x'; 64 << 10];
     let a = archive(&[
         e("tree/", b'5', 0o755, b"", ""),
+        e("tree/small.txt", b'0', 0o644, b"small", ""),
         e("tree/big.bin", b'0', 0o644, &big, ""),
     ]);
-    let plan = plan_copy_out(&spec("/work/tree", &dst.path().join("out"), Direction::Out)).unwrap();
+    let out = dst.path().join("a/b/out");
+    let plan = plan_copy_out(&spec("/work/tree", &out, Direction::Out)).unwrap();
     let (sink, source, mut fake) = call();
     tokio::spawn(async move {
         fake.argv().await;
-        fake.data(Stream::Stdout, &a[..2 * 512 + 10_000]).await;
+        fake.data(Stream::Stdout, &a[..4 * 512 + 10_000]).await;
         let _ = fake.to_client.send(Err(FakeErr("cut"))).await;
     });
-    let r = copy_out(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_out(plan, sink, source, Arc::new(Progress::default()))).await;
     assert!(
         matches!(r.result, Err(CopyError::Call(FakeErr("cut")))),
         "{:?}",
         r.result
     );
     assert_eq!(r.stopped_at.as_deref(), Some("out/big.bin"));
+    assert_eq!(r.partial.as_deref(), Some(out.to_str().unwrap()));
+    assert_eq!(fs::read(out.join("small.txt")).unwrap(), b"small");
+    assert!(fs::metadata(out.join("big.bin")).unwrap().len() < big.len() as u64);
+}
+
+/// A cancelled copy out begins no other entry, and says whether it began
+/// one, so the caller knows whether anything was written.
+#[test]
+fn a_cancelled_copy_begins_no_other_entry() {
+    let p = Progress::default();
+    assert!(!p.cancel());
+    assert!(!p.began("out/a"));
+    assert_eq!(p.entry(), "");
+    let p = Progress::default();
+    assert!(p.began("out/a"));
+    assert!(p.cancel());
+    assert!(!p.began("out/b"));
+    assert_eq!(p.entry(), "out/a");
 }
 
 /// A sandbox taking a copy in: it answers `answer`, reads stdin, exits 0.
@@ -709,7 +759,7 @@ async fn copy_into(
         fake.exit(0).await;
         (argv, stdin)
     });
-    let r = copy_in(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     let (argv, stdin) = sandbox.await.unwrap();
     (r, argv, stdin)
 }
@@ -792,6 +842,10 @@ async fn copy_in_streams_the_tree_as_tar() {
         ),
         (s.clone(), "", "dir", "tree", vec![".", "."]),
         (format!("{s}/."), "/work", "dir", ".", vec!["/work", "/"]),
+        // A trailing separator after the `.` still merges, as Go's
+        // `filepath.Base` reads it.
+        (format!("{s}/./"), "/work", "dir", ".", vec!["/work", "/"]),
+        (format!("{s}/.//"), "/work", "dir", ".", vec!["/work", "/"]),
     ];
     for (local, remote, answer, root, want_args) in cases {
         let (r, argv, stdin) = copy_into(Path::new(&local), remote, answer).await;
@@ -903,6 +957,32 @@ async fn copy_in_follows_a_symlinked_top_only() {
     assert!(got.iter().all(|g| g.body != b"credentials"));
 }
 
+/// A top swapped for a symlink between the plan and the walk is not
+/// followed: the walk opens the top it planned, or fails.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_top_swapped_for_a_symlink_after_the_plan_fails_the_copy() {
+    let (t, src) = fixture();
+    let plan = plan_copy_in(&spec("/work", &src, Direction::In)).unwrap();
+    fs::rename(&src, t.path().join("moved")).unwrap();
+    symlink(t.path().join("moved"), &src).unwrap();
+    let (sink, source, mut fake) = call();
+    let sandbox = tokio::spawn(async move {
+        fake.argv().await;
+        fake.data(Stream::Stdout, b"dir\n").await;
+        let (stdin, eof) = fake.stdin().await;
+        fake.to_client.closed().await;
+        (stdin, eof)
+    });
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
+    assert!(
+        rejected(&r).contains("changed while it was being copied"),
+        "{:?}",
+        r.result
+    );
+    let (stdin, eof) = sandbox.await.unwrap();
+    assert!(!eof && stdin.is_empty());
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn copy_in_refuses_a_fifo_top_and_leaves_out_one_beneath() {
     let t = tempfile::tempdir().unwrap();
@@ -948,7 +1028,7 @@ async fn copy_in_cancels_the_call_on_an_unreadable_file() {
         fake.to_client.closed().await;
         eof
     });
-    let r = copy_in(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     let msg = rejected(&r).to_string();
     assert!(msg.contains("nested/locked"), "{msg}");
     assert!(!sandbox.await.unwrap(), "stdin_eof was sent");
@@ -971,7 +1051,7 @@ async fn copy_in_reports_tar_failures_and_a_missing_tar() {
                 fake.data(Stream::Stderr, stderr.as_bytes()).await;
                 fake.exit(code).await;
             });
-            copy_in(plan, sink, source, Arc::new(Progress::default())).await
+            within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await
         }
     };
     let r = run(Some("dir"), "tar: Unexpected EOF in archive\n", 2).await;
@@ -989,15 +1069,34 @@ async fn copy_in_reports_tar_failures_and_a_missing_tar() {
         r.result
     );
 
-    // A trailing slash names a directory that has to exist.
+    // An image without `sh`, before and after the supervisor said why.
+    let r = run(None, "", 2).await;
+    assert!(rejected(&r).contains("could not start `sh`;"), "{:?}", r.result);
+    let r = run(
+        None,
+        "[hedra] the command could not start: exec: \"sh\": not found\r\n",
+        2,
+    )
+    .await;
+    assert!(
+        rejected(&r).contains("could not start `sh` (exec: \"sh\": not found)"),
+        "{:?}",
+        r.result
+    );
+    // 127 without the marker: `sh` found no `tar`.
+    let r = run(None, "", 127).await;
+    assert!(rejected(&r).contains("has no `tar`"), "{:?}", r.result);
+
+    // A trailing slash names a directory that has to exist; the script
+    // says so having created nothing.
     let plan = plan_copy_in(&spec("/work/new/", &src, Direction::In)).unwrap();
     let (sink, source, mut fake) = call();
     tokio::spawn(async move {
         fake.argv().await;
-        fake.data(Stream::Stdout, b"new\n").await;
-        fake.to_client.closed().await;
+        fake.data(Stream::Stdout, b"notdir\n").await;
+        fake.exit(0).await;
     });
-    let r = copy_in(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     assert!(
         rejected(&r).contains("qwen:/work/new/ is not a directory"),
         "{:?}",
@@ -1182,6 +1281,47 @@ fn parse_args_finds_the_sandbox_side() {
         .contains("neither side"));
 }
 
+/// A local path need not be UTF-8: a file named in Latin-1 is copied in
+/// under its own bytes. A sandbox path must be.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_local_path_that_is_not_utf8_is_copied_by_its_bytes() {
+    use std::ffi::OsStr;
+    use std::os::unix::ffi::OsStrExt;
+    let valid = |n: &str| !n.is_empty() && !n.contains('/');
+    let t = tempfile::tempdir().unwrap();
+    let local = t.path().join(OsStr::from_bytes(b"caf\xe9"));
+    let s = parse_args(local.as_os_str(), "train:/work", valid).unwrap();
+    assert_eq!((s.direction, s.local.as_path()), (Direction::In, local.as_path()));
+    let remote = OsStr::from_bytes(b"train:/work/caf\xe9");
+    assert!(parse_args(remote, "here", valid)
+        .unwrap_err()
+        .contains("not UTF-8"));
+    // A copy out names a new top in UTF-8.
+    let e = plan_copy_out(&spec("/work/x", &t.path().join(OsStr::from_bytes(b"n\xe9w")), Direction::Out))
+        .unwrap_err();
+    assert!(e.contains("not UTF-8"), "{e}");
+
+    // macOS refuses such a name; Linux takes any bytes.
+    if fs::write(&local, b"body").is_err() {
+        return;
+    }
+
+    let (r, _, stdin) = copy_into(&local, "/work", "dir").await;
+    assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+    let mut ar = tar::Archive::new(stdin.as_slice());
+    let names: Vec<Vec<u8>> = ar
+        .entries()
+        .unwrap()
+        .map(|e| e.unwrap().path_bytes().into_owned())
+        .collect();
+    assert_eq!(names, vec![b"caf\xe9".to_vec()]);
+
+    // A copy out lands in any directory.
+    let dir = t.path().join(OsStr::from_bytes(b"d\xe9st"));
+    fs::create_dir(&dir).unwrap();
+    assert!(plan_copy_out(&spec("/work/x", &dir, Direction::Out)).is_ok());
+}
+
 #[test]
 fn plan_copy_out_reads_the_source_as_scp_does() {
     let t = tempfile::tempdir().unwrap();
@@ -1255,6 +1395,50 @@ mod scripts {
         );
         assert_eq!((out.as_slice(), code), (&b"new\n"[..], 0), "{err}");
         assert_eq!(fs::read(&dst).unwrap(), b"body");
+    }
+
+    /// A destination ending in `/` that is not a directory is refused
+    /// before the script creates anything.
+    #[test]
+    fn the_upload_script_creates_nothing_for_a_missing_directory() {
+        let t = tempfile::tempdir().unwrap();
+        let dst = format!("{}/a/b/", t.path().display());
+        let parent = t.path().join("a/b");
+        let (out, err, code) = sh(UPLOAD_SCRIPT, &[&dst, parent.to_str().unwrap()], None, b"");
+        assert_eq!((out.as_slice(), code), (&b"notdir\n"[..], 0), "{err}");
+        assert!(!t.path().join("a").exists());
+    }
+
+    /// What `copy_in` sends, extracted by the host's `tar` through the
+    /// upload script, as the sandbox's `tar` extracts it: GNU tar on Linux
+    /// and bsdtar on macOS.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_local_tar_extracts_what_a_copy_in_sends() {
+        let (_t, src) = fixture();
+        fs::remove_file(src.join("outside")).unwrap();
+        fs::set_permissions(src.join("empty"), fs::Permissions::from_mode(0o750)).unwrap();
+        let (r, argv, stdin) = copy_into(&src, "/work", "dir").await;
+        assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+        let dst = tempfile::tempdir().unwrap();
+        let (out, err, code) = sh(
+            &argv[2],
+            &[
+                dst.path().to_str().unwrap(),
+                dst.path().parent().unwrap().to_str().unwrap(),
+            ],
+            None,
+            &stdin,
+        );
+        assert_eq!((out.as_slice(), code), (&b"dir\n"[..], 0), "{err}");
+        let got = dst.path().join("tree");
+        assert_eq!(fs::read(got.join("nested/a.txt")).unwrap(), b"hello");
+        assert_eq!(fs::read(got.join("run.sh")).unwrap(), b"#!/bin/sh\n");
+        assert_eq!(mode(&got.join("run.sh")) & 0o111, 0o111);
+        assert_eq!(mode(&got.join("empty")) & 0o777, 0o750 & !umask());
+        assert_eq!(
+            fs::read_link(got.join("link")).unwrap(),
+            Path::new("nested/a.txt")
+        );
     }
 
     /// A `CDPATH` in the sandbox's environment neither moves the copy nor
@@ -1347,7 +1531,7 @@ async fn a_failed_walk_sends_no_end_of_archive() {
         fake.data(Stream::Stdout, b"dir\n").await;
         fake.stdin().await
     });
-    let r = copy_in(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     assert!(rejected(&r).contains("tree/b"), "{:?}", r.result);
     let (got, eof) = sandbox.await.unwrap();
     assert!(!eof, "stdin_eof was sent");
@@ -1706,6 +1890,63 @@ async fn directory_modes_go_deepest_first_by_path() {
     assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
     assert_eq!(a_mode.unwrap(), 0);
     assert_eq!(mode(&a_dir.join("b")), 0o750 & !umask());
+
+    // In the stream's own order, a parent closed before its child: set in
+    // that order, the parent would lock its child out.
+    let dst = tempfile::tempdir().unwrap();
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/a/", b'5', 0o000, b"", ""),
+        e("tree/a/b/", b'5', 0o750, b"", ""),
+    ]);
+    let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+    let a_dir = dst.path().join("tree/a");
+    let a_mode = fs::symlink_metadata(&a_dir).map(|m| m.permissions().mode() & 0o777);
+    let _ = fs::set_permissions(&a_dir, fs::Permissions::from_mode(0o755));
+    assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+    assert_eq!(a_mode.unwrap(), 0);
+    assert_eq!(mode(&a_dir.join("b")), 0o750 & !umask());
+}
+
+/// A second copy of a tree holding a read-only directory lands over the
+/// first, which left that directory read-only.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_rerun_copy_out_writes_into_a_directory_the_first_left_read_only() {
+    let dst = tempfile::tempdir().unwrap();
+    let a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/ro/", b'5', 0o555, b"", ""),
+        e("tree/ro/f.txt", b'0', 0o644, b"body", ""),
+    ]);
+    for run in 0..2 {
+        let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+        assert!(matches!(r.result, Ok(0)), "run {run}: {:?}", r.result);
+        assert_eq!(mode(&dst.path().join("tree/ro")), 0o555 & !umask());
+    }
+    assert_eq!(fs::read(dst.path().join("tree/ro/f.txt")).unwrap(), b"body");
+    let _ = fs::set_permissions(dst.path().join("tree/ro"), fs::Permissions::from_mode(0o755));
+}
+
+/// A symlink's target is written byte for byte, as tar wrote it, whether or
+/// not it is UTF-8.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_symlink_target_that_is_not_utf8_is_written_as_it_is() {
+    use std::os::unix::ffi::OsStrExt;
+    let dst = tempfile::tempdir().unwrap();
+    let mut a = archive(&[
+        e("tree/", b'5', 0o755, b"", ""),
+        e("tree/l", b'2', 0o777, b"", "t?x"),
+    ]);
+    // The second header's link name, its byte after `t`, and its checksum.
+    let h = &mut a[512..1024];
+    h[157 + 1] = 0xff;
+    h[148..156].fill(b' ');
+    let sum: u32 = h.iter().map(|b| u32::from(*b)).sum();
+    h[148..155].copy_from_slice(format!("{sum:06o}\0").as_bytes());
+    let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+    assert!(matches!(r.result, Ok(0)), "{:?}", r.result);
+    let target = fs::read_link(dst.path().join("tree/l")).unwrap();
+    assert_eq!(target.as_os_str().as_bytes(), b"t\xffx");
 }
 
 /// A failed tar does not hide an entry hedra-cli left out.
@@ -1733,7 +1974,7 @@ async fn a_left_out_entry_fails_the_copy_when_tar_fails_too() {
         let _ = fake.stdin().await;
         fake.exit(2).await;
     });
-    let r = copy_in(plan, sink, source, Arc::new(Progress::default())).await;
+    let r = within(copy_in(plan, sink, source, Arc::new(Progress::default()))).await;
     let msg = rejected(&r);
     assert!(
         msg.contains("left out tree/pipe") && msg.contains("exited 2"),

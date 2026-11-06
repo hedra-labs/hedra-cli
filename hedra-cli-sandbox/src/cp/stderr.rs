@@ -1,12 +1,13 @@
 //! Reads a copy's stderr a line at a time for the copy's own bookkeeping.
 
-use super::{LOSS_MARKER, NO_TAR_MARKER, TOTALS_ANNOUNCED};
+use super::{COULD_NOT_START, LOSS_MARKER, NO_TAR_MARKER, TOTALS_ANNOUNCED};
 
 /// The most stderr kept to show, and the longest line parsed.
 const KEPT_MAX: usize = 64 << 10;
 
 /// What the copy's stderr said: whether GNU tar ran, its totals, the
-/// supervisor's loss marker, the no-`tar` marker, and the rest to show.
+/// supervisor's loss marker and its line that the command could not start,
+/// the no-`tar` marker, and the rest to show.
 #[derive(Debug)]
 pub(crate) struct CopyStderr {
     partial: Vec<u8>,
@@ -15,6 +16,8 @@ pub(crate) struct CopyStderr {
     pub(crate) gnu: bool,
     pub(crate) dropped: bool,
     pub(crate) no_tar: bool,
+    /// The reason in the supervisor's line that the command could not start.
+    pub(crate) could_not_start: Option<String>,
     pub(crate) totals: Option<u64>,
 }
 
@@ -27,6 +30,7 @@ impl CopyStderr {
             gnu: false,
             dropped: false,
             no_tar: false,
+            could_not_start: None,
             totals: None,
         }
     }
@@ -59,6 +63,10 @@ impl CopyStderr {
         }
         if text.contains(NO_TAR_MARKER) {
             self.no_tar = true;
+            return;
+        }
+        if let Some(why) = text.strip_prefix(COULD_NOT_START) {
+            self.could_not_start = Some(why.trim().to_string());
             return;
         }
         if let Some(n) = totals(&text) {
@@ -94,5 +102,35 @@ mod tests {
         assert_eq!(s.totals, Some(20480));
         assert_eq!(s.kept, b"tar: a warning\n");
         assert!(!s.dropped);
+    }
+
+    #[test]
+    fn reads_the_supervisors_line_that_the_command_could_not_start() {
+        let mut s = CopyStderr::new();
+        s.write(b"[hedra] the command could not start: exec: \"sh\": executable file not found in $PATH\r\n");
+        s.flush();
+        assert_eq!(
+            s.could_not_start.as_deref(),
+            Some("exec: \"sh\": executable file not found in $PATH")
+        );
+        assert!(s.kept.is_empty());
+    }
+
+    #[test]
+    fn neither_the_kept_stderr_nor_a_partial_line_passes_its_cap() {
+        let mut s = CopyStderr::new();
+        let line = [b'x'; 62].iter().chain(b"\n").copied().collect::<Vec<u8>>();
+        for _ in 0..4096 {
+            s.write(&line);
+        }
+        assert_eq!(s.kept.len(), KEPT_MAX);
+        let chunk = vec![b'y'; 4096];
+        for _ in 0..256 {
+            s.write(&chunk);
+            assert!(s.partial.len() <= KEPT_MAX, "{}", s.partial.len());
+        }
+        s.flush();
+        assert!(s.partial.is_empty());
+        assert_eq!(s.kept.len(), KEPT_MAX);
     }
 }

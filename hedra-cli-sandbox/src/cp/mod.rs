@@ -18,9 +18,9 @@ mod tests;
 #[cfg(all(test, windows))]
 mod windows_tests;
 
+use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -30,7 +30,8 @@ use crate::pb::hedra::sandbox::v1::{
     exec_client_frame, exec_server_frame, ExecClientFrame, ExecServerFrame, ExecStart, Stream,
 };
 
-pub(crate) use names::escape_controls;
+use crate::stream::calls::CallClosed;
+use crate::text::escape_controls;
 
 /// The most stdin one frame carries.
 const CHUNK: usize = 32 << 10;
@@ -52,6 +53,10 @@ pub const LOSS_MARKER: &str = "dropped: the broker stopped reading this sandbox'
 /// The line both scripts print on stderr when the image has no `tar`.
 pub const NO_TAR_MARKER: &str = "[hedra-cp] no tar";
 
+/// What the supervisor writes on stderr, before exit 2, when it cannot start
+/// a command, such as `sh` in an image without one; the reason follows.
+pub const COULD_NOT_START: &str = "[hedra] the command could not start:";
+
 /// The line the copy-out script prints on stderr before GNU tar runs.
 const TOTALS_ANNOUNCED: &str = "[hedra-cp] totals";
 
@@ -59,10 +64,11 @@ const TOTALS_ANNOUNCED: &str = "[hedra-cp] totals";
 /// parent, created when missing. An empty `CDPATH` keeps `cd` quiet and
 /// relative to the working directory. It first prints `dir` when the destination
 /// is an existing directory, which receives the source under its own name,
-/// or `new` when the source becomes the destination.
+/// `new` when the source becomes the destination, or `notdir`, creating
+/// nothing, when a destination ending in `/` is not a directory.
 pub const UPLOAD_SCRIPT: &str = r#"CDPATH=
 command -v tar >/dev/null 2>&1 || { echo "[hedra-cp] no tar" >&2; exit 127; }
-if [ -d "$1" ]; then cd -- "$1" && echo dir; else mkdir -p -- "$2" && cd -- "$2" && echo new; fi && exec tar -xf -"#;
+if [ -d "$1" ]; then cd -- "$1" && echo dir; else case $1 in */) echo notdir; exit 0;; esac; mkdir -p -- "$2" && cd -- "$2" && echo new; fi && exec tar -xf -"#;
 
 /// Writes `$2`, in the directory `$1`, as a tar stream on stdout. A
 /// symlinked `$2` is followed. GNU tar reports the bytes it wrote with
@@ -97,10 +103,6 @@ pub trait ExecSource: Send + 'static {
         -> impl Future<Output = Result<Option<ExecServerFrame>, Self::Error>> + Send;
 }
 
-/// A send on a call that has already ended.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct CallClosed;
-
 impl ExecSink for mpsc::Sender<ExecClientFrame> {
     async fn send(&mut self, frame: ExecClientFrame) -> Result<(), CallClosed> {
         mpsc::Sender::send(self, frame)
@@ -124,35 +126,45 @@ impl ExecSource for tonic::Streaming<ExecServerFrame> {
     }
 }
 
-/// How far a copy has got, for a progress line.
+/// The entry a copy began last, which a failure names, and whether the copy
+/// was cancelled.
 #[derive(Debug, Default)]
 pub struct Progress {
-    bytes: AtomicU64,
-    entry: Mutex<String>,
+    entry: Mutex<Begun>,
+}
+
+#[derive(Debug, Default)]
+struct Begun {
+    name: String,
+    cancelled: bool,
 }
 
 impl Progress {
-    /// Bytes moved so far.
-    pub fn bytes(&self) -> u64 {
-        self.bytes.load(Ordering::Relaxed)
+    fn lock(&self) -> std::sync::MutexGuard<'_, Begun> {
+        self.entry.lock().unwrap_or_else(|e| e.into_inner())
     }
 
     /// The entry begun last, escaped; empty before the first.
     pub fn entry(&self) -> String {
-        self.entry
-            .lock()
-            .map(|e| names::show(&e))
-            .unwrap_or_default()
+        names::show(&self.lock().name)
     }
 
-    fn add(&self, n: u64) {
-        self.bytes.fetch_add(n, Ordering::Relaxed);
+    /// Stops a copy out beginning another entry, and says whether it began
+    /// one: when it did not, it has written nothing and never will.
+    pub fn cancel(&self) -> bool {
+        let mut e = self.lock();
+        e.cancelled = true;
+        !e.name.is_empty()
     }
 
-    fn began(&self, name: &str) {
-        if let Ok(mut e) = self.entry.lock() {
-            name.clone_into(&mut e);
+    /// Records that the copy begins `name`; false once it was cancelled.
+    fn began(&self, name: &str) -> bool {
+        let mut e = self.lock();
+        if e.cancelled {
+            return false;
         }
+        name.clone_into(&mut e.name);
+        true
     }
 }
 
@@ -180,34 +192,50 @@ pub struct CopySpec {
 
 /// Splits `<sandbox>:<path>`: a sandbox path when the part before the first
 /// `:` passes `is_sandbox`; on Windows a single letter there is a drive.
-fn remote_arg<'a>(arg: &'a str, is_sandbox: &dyn Fn(&str) -> bool) -> Option<(&'a str, &'a str)> {
-    let (name, path) = arg.split_once(':')?;
+/// Anything else is a local path, which need not be UTF-8; a sandbox path
+/// must be, since the command that copies it is.
+fn remote_arg(arg: &OsStr, is_sandbox: &dyn Fn(&str) -> bool) -> Result<Option<(String, String)>, String> {
+    let text = arg.to_string_lossy();
+    let Some((name, path)) = text.split_once(':') else {
+        return Ok(None);
+    };
     if cfg!(windows) && name.len() == 1 && name.as_bytes()[0].is_ascii_alphabetic() {
-        return None;
+        return Ok(None);
     }
-    is_sandbox(name).then_some((name, path))
+    if !is_sandbox(name) {
+        return Ok(None);
+    }
+    if arg.to_str().is_none() {
+        return Err(format!(
+            "{}:{} is not UTF-8; name the sandbox's path in UTF-8",
+            escape_controls(name),
+            escape_controls(path)
+        ));
+    }
+    Ok(Some((name.to_string(), path.to_string())))
 }
 
 /// Parses `cp <src> <dst>`, exactly one side of which names a sandbox.
 pub fn parse_args(
-    src: &str,
-    dst: &str,
+    src: impl AsRef<OsStr>,
+    dst: impl AsRef<OsStr>,
     is_sandbox: impl Fn(&str) -> bool,
 ) -> Result<CopySpec, String> {
-    match (remote_arg(src, &is_sandbox), remote_arg(dst, &is_sandbox)) {
+    let (src, dst) = (src.as_ref(), dst.as_ref());
+    match (remote_arg(src, &is_sandbox)?, remote_arg(dst, &is_sandbox)?) {
         (Some(_), Some(_)) => {
             Err("both sides name a sandbox; copy between a sandbox and a local path".into())
         }
         (None, None) => Err("neither side names a sandbox; one side is <sandbox>:<path>".into()),
-        (Some((name, path)), None) => Ok(CopySpec {
-            sandbox: name.into(),
-            remote: path.into(),
+        (Some((sandbox, remote)), None) => Ok(CopySpec {
+            sandbox,
+            remote,
             local: PathBuf::from(dst),
             direction: Direction::Out,
         }),
-        (None, Some((name, path))) => Ok(CopySpec {
-            sandbox: name.into(),
-            remote: path.into(),
+        (None, Some((sandbox, remote))) => Ok(CopySpec {
+            sandbox,
+            remote,
             local: PathBuf::from(src),
             direction: Direction::In,
         }),
@@ -220,7 +248,9 @@ pub struct CopyIn {
     sandbox: String,
     remote: String,
     src: PathBuf,
-    name: String,
+    /// The top entry's name, the local file's own unless the sandbox side
+    /// names a new one; as the local file system gives it, UTF-8 or not.
+    name: OsString,
     argv: Vec<String>,
 }
 
@@ -236,6 +266,16 @@ pub struct CopyOut {
 }
 
 impl CopyOut {
+    /// Where the copy lands: the source's new name in the receiving
+    /// directory, or the directory itself for a source's contents.
+    pub fn target(&self) -> PathBuf {
+        if self.name == "." {
+            self.dir.clone()
+        } else {
+            self.dir.join(&self.name)
+        }
+    }
+
     /// Creates the receiving directory and its missing parents, and checks
     /// it can be written, so a destination that cannot take the copy fails
     /// it before the call opens.
@@ -297,9 +337,10 @@ fn writable(_: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
-/// Whether `p`, as given, ends in a `.` component (`src/.`).
+/// Whether `p`, as given, ends in a `.` component (`src/.`, `./`).
 fn ends_in_dot(p: &Path) -> bool {
     let s = p.as_os_str().to_string_lossy();
+    let s = s.trim_end_matches(|c| c == '/' || (cfg!(windows) && c == '\\'));
     s == "." || s.ends_with("/.") || (cfg!(windows) && s.ends_with("\\."))
 }
 
@@ -309,7 +350,7 @@ pub fn plan_copy_in(spec: &CopySpec) -> Result<CopyIn, String> {
     let shown = spec.local.display();
     let abs = std::path::absolute(&spec.local).map_err(|e| format!("cannot read {shown}: {e}"))?;
     let default_name = abs.components().next_back().and_then(|c| match c {
-        std::path::Component::Normal(n) => Some(n.to_string_lossy().into_owned()),
+        std::path::Component::Normal(n) => Some(n.to_os_string()),
         _ => None,
     });
     let src = std::fs::canonicalize(&abs).map_err(|e| format!("cannot read {shown}: {e}"))?;
@@ -321,13 +362,13 @@ pub fn plan_copy_in(spec: &CopySpec) -> Result<CopyIn, String> {
         return Err(format!("{shown} is not a file or a directory"));
     }
     let name = if ends_in_dot(&spec.local) {
-        ".".to_string()
+        OsString::from(".")
     } else {
         match default_name {
             Some(n) => n,
             None => src
                 .file_name()
-                .map(|n| n.to_string_lossy().into_owned())
+                .map(OsStr::to_os_string)
                 .ok_or_else(|| format!("{shown} names no file or directory"))?,
         }
     };
@@ -363,21 +404,14 @@ pub fn plan_copy_out(spec: &CopySpec) -> Result<CopyOut, String> {
     let (mut parent, mut base) = (names::dir(&remote), names::base(&remote));
     // `a/..` cleans to `.`, which would copy the whole working directory.
     let ends_in_dot_dot = names::base(&spec.remote) == "..";
-    match base.as_str() {
-        "/" => return Err("copy what is under the sandbox's root, not the root itself".into()),
-        _ if ends_in_dot_dot => {
-            return Err(format!(
-                "{:?} ends in ..; name the directory itself",
-                escape_controls(&spec.remote)
-            ))
-        }
-        ".." => {
-            return Err(format!(
-                "{:?} ends in ..; name the directory itself",
-                escape_controls(&spec.remote)
-            ))
-        }
-        _ => {}
+    if base == "/" {
+        return Err("copy what is under the sandbox's root, not the root itself".into());
+    }
+    if ends_in_dot_dot || base == ".." {
+        return Err(format!(
+            "{:?} ends in ..; name the directory itself",
+            escape_controls(&spec.remote)
+        ));
     }
     // A source ending in `/.` is the directory's contents.
     if base != "." && names::base(&spec.remote) == "." {
@@ -418,8 +452,12 @@ fn local_target(local: &Path, base: &str) -> Result<(PathBuf, String), String> {
     }
     let name = local
         .file_name()
-        .map(|n| n.to_string_lossy().into_owned())
         .ok_or_else(|| format!("{shown} names no file or directory"))?;
+    // The copy's entries are named under it, and are UTF-8.
+    let name = name
+        .to_str()
+        .ok_or_else(|| format!("{shown} is not UTF-8; copy into a directory, or name the copy in UTF-8"))?
+        .to_string();
     let parent = match local.parent() {
         Some(p) if !p.as_os_str().is_empty() => p.to_path_buf(),
         _ => PathBuf::from("."),
@@ -431,8 +469,9 @@ fn local_target(local: &Path, base: &str) -> Result<(PathBuf, String), String> {
 #[derive(Debug)]
 pub enum CopyError<E> {
     /// hedra-cli refused or could not finish the copy itself: a local file,
-    /// a tar entry, no `tar`, a short `--totals` or the loss marker. The
-    /// message is escaped and names what failed.
+    /// a tar entry, an image that cannot run the copy, a short `--totals`,
+    /// the loss marker, or a copy out whose `tar` failed. The message is
+    /// escaped and names what failed.
     Rejected(String),
     /// The call failed; the caller classes the error.
     Call(E),
@@ -443,7 +482,8 @@ pub enum CopyError<E> {
 /// What a copy did.
 #[derive(Debug)]
 pub struct CopyReport<E> {
-    /// The remote command's exit code, 0 for a whole copy, or why it failed.
+    /// 0 for a whole copy, the remote `tar`'s code for a copy in it failed,
+    /// or why the copy failed.
     pub result: Result<i32, CopyError<E>>,
     /// Lines to print on stderr, escaped.
     pub warnings: Vec<String>,
@@ -451,6 +491,9 @@ pub struct CopyReport<E> {
     pub remote_stderr: Vec<u8>,
     /// The entry the copy began last, escaped, when it stopped part way.
     pub stopped_at: Option<String>,
+    /// Where a failed copy out left what it wrote, escaped; it is not
+    /// removed, as `scp` leaves its own.
+    pub partial: Option<String>,
 }
 
 fn start(argv: &[String]) -> ExecClientFrame {
@@ -462,10 +505,27 @@ fn start(argv: &[String]) -> ExecClientFrame {
     }
 }
 
-/// Whether an exit says the image cannot run the copy: the marker, 127 from
-/// `sh` finding no `tar`, or 2 with no output at all (no `sh`).
-fn no_tar(code: i32, marker: bool, output: bool) -> bool {
-    marker || code == 127 || (code == 2 && !output)
+/// Why an exit says the image cannot run the copy, if it does: the no-`tar`
+/// marker or 127 from `sh` finding no `tar`; or 2 with the supervisor's line
+/// that the command could not start, or with no output at all from a
+/// supervisor that predates that line, which is `sh` failing to start.
+fn unrunnable(code: i32, err: &stderr::CopyStderr, output: bool) -> Option<String> {
+    if err.no_tar || code == 127 {
+        return Some(NO_TAR.into());
+    }
+    if code != 2 {
+        return None;
+    }
+    match &err.could_not_start {
+        Some(why) => Some(format!(
+            "the sandbox could not start `sh` ({}); `cp` needs `sh` and `tar` in the image",
+            escape_controls(why)
+        )),
+        None if !output => {
+            Some("the sandbox could not start `sh`; `cp` needs `sh` and `tar` in the image".into())
+        }
+        None => None,
+    }
 }
 
 const NO_TAR: &str = "the image has no `tar`; `cp` needs `sh` and `tar` in the image";
@@ -514,6 +574,7 @@ fn report<E>(
         warnings,
         remote_stderr: err.kept,
         stopped_at,
+        partial: None,
     }
 }
 
@@ -564,8 +625,8 @@ pub async fn copy_in<S: ExecSink, R: ExecSource>(
             }
             Some(Got::Exit(code)) => {
                 err.flush();
-                let msg = if no_tar(code, err.no_tar, !line.is_empty() || err.any) {
-                    NO_TAR.to_string()
+                let msg = if let Some(m) = unrunnable(code, &err, !line.is_empty() || err.any) {
+                    m
                 } else {
                     format!(
                         "nothing was copied: {}:{} is not a directory and could not be created in the sandbox (exit {code})",
@@ -579,19 +640,18 @@ pub async fn copy_in<S: ExecSink, R: ExecSource>(
         }
     }
     let mut name = plan.name.clone();
-    if String::from_utf8_lossy(&line).trim() == "new" {
-        if plan.remote.ends_with('/') {
+    match String::from_utf8_lossy(&line).trim() {
+        "new" => name = names::base(&names::clean(&plan.remote)).into(),
+        // The script exits having created nothing.
+        "notdir" => {
             let msg = format!(
                 "nothing was copied: {}:{} is not a directory in the sandbox",
                 escape_controls(&plan.sandbox),
                 escape_controls(&plan.remote)
             );
-            // tar there is waiting on stdin; cancel rather than end it.
-            drop(source);
-            drop(sink);
             return report(Err(CopyError::Rejected(msg)), vec![], err, &progress);
         }
-        name = names::base(&names::clean(&plan.remote));
+        _ => {}
     }
 
     let (tx, mut rx) = mpsc::channel::<send::Up>(8);
@@ -670,13 +730,8 @@ pub async fn copy_in<S: ExecSink, R: ExecSource>(
         Ending::Ended => return report(Err(CopyError::Ended), vec![], err, &progress),
         Ending::Exit(c) => c,
     };
-    if no_tar(code, err.no_tar, true) {
-        return report(
-            Err(CopyError::Rejected(NO_TAR.into())),
-            vec![],
-            err,
-            &progress,
-        );
+    if let Some(m) = unrunnable(code, &err, true) {
+        return report(Err(CopyError::Rejected(m)), vec![], err, &progress);
     }
     let walked = match builder.await {
         Ok(Ok(w)) => w,
@@ -711,7 +766,9 @@ impl<T> Drop for AbortOnDrop<T> {
 
 /// Copies a file or a directory out of the sandbox, from the stdout of
 /// `tar -c` there, and holds it to what GNU tar says it wrote. Sends `start`
-/// first; the call must be admitted.
+/// first; the call must be admitted. A copy that fails before writing
+/// anything removes the parents it created; one that wrote something leaves
+/// it in place and names it in [`CopyReport::partial`].
 pub async fn copy_out<S: ExecSink, R: ExecSource>(
     mut plan: CopyOut,
     sink: S,
@@ -722,8 +779,14 @@ pub async fn copy_out<S: ExecSink, R: ExecSource>(
         let err = stderr::CopyStderr::new();
         return report(Err(CopyError::Rejected(m)), vec![], err, &progress);
     }
-    let r = copy_out_prepared(&plan, sink, source, progress).await;
-    if !matches!(r.result, Ok(0)) {
+    let mut r = copy_out_prepared(&plan, sink, source, progress.clone()).await;
+    if matches!(r.result, Ok(0)) {
+        return r;
+    }
+    let target = plan.target();
+    if progress.cancel() && std::fs::symlink_metadata(&target).is_ok() {
+        r.partial = Some(escape_controls(&target.display().to_string()));
+    } else {
         plan.discard();
     }
     r
@@ -755,7 +818,6 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
         match got(frame) {
             Some(Got::Stdout(b)) => {
                 received += b.len() as u64;
-                progress.add(b.len() as u64);
                 if tx.send(extract::Down::Data(b)).await.is_err() {
                     extractor_stopped = true;
                     break Ending::Ended;
@@ -800,8 +862,10 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
         Ending::Exit(c) => c,
     };
     let fail = |msg: String| Err(CopyError::Rejected(msg));
-    let result = if no_tar(code, err.no_tar, received > 0 || err.any) {
-        fail(NO_TAR.into())
+    // A copy out whose `tar` failed is hedra-cli's failure, whatever the
+    // code: only a copy in exits with the remote `tar`'s.
+    let result = if let Some(m) = unrunnable(code, &err, received > 0 || err.any) {
+        fail(m)
     } else if code != 0 {
         match ex.error {
             Some(e) => fail(format!("{e}; tar in the sandbox exited {code}")),
@@ -809,7 +873,7 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
                 "the copy left out {}; tar in the sandbox exited {code}",
                 ex.skipped.join(", ")
             )),
-            None => Ok(code),
+            None => fail(format!("tar in the sandbox exited {code}")),
         }
     } else if err.dropped && !err.gnu {
         fail("the platform dropped part of the stream; the image's tar is not GNU tar, which reports its totals, so only the platform's notice caught it".into())

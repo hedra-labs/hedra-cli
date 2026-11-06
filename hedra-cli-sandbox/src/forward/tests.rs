@@ -98,6 +98,9 @@ impl Call {
 struct Opener {
     calls: mpsc::UnboundedSender<Call>,
     refusals: Mutex<VecDeque<Option<FakeErr>>>,
+    /// When set, each admitted call is handed to the test, then waits for a
+    /// permit before the connection starts reading it.
+    gate: Option<Arc<Semaphore>>,
 }
 
 impl PortOpener for Opener {
@@ -114,6 +117,9 @@ impl PortOpener for Opener {
             from_client: crx,
             to_client: stx,
         });
+        if let Some(gate) = &self.gate {
+            gate.acquire().await.expect("never closed").forget();
+        }
         Ok((ctx, FakeSource(srx)))
     }
 }
@@ -130,6 +136,14 @@ struct Harness {
 }
 
 async fn harness(limits: Limits, refusals: Vec<Option<FakeErr>>) -> Harness {
+    harness_gated(limits, refusals, None).await
+}
+
+async fn harness_gated(
+    limits: Limits,
+    refusals: Vec<Option<FakeErr>>,
+    gate: Option<Arc<Semaphore>>,
+) -> Harness {
     let bound = bind(0).await.unwrap();
     let port = bound.port;
     let v6 = bound.warnings.is_empty();
@@ -138,6 +152,7 @@ async fn harness(limits: Limits, refusals: Vec<Option<FakeErr>>) -> Harness {
     let opener = Opener {
         calls: ctx,
         refusals: Mutex::new(refusals.into()),
+        gate,
     };
     let budget = Arc::new(Budget::new(limits));
     let serve = tokio::spawn(serve_with(
@@ -195,10 +210,11 @@ impl Harness {
     }
 }
 
-/// Whether the connection was reset, not closed.
+/// Whether the connection was reset, not closed. A loaded runner can take
+/// seconds to drain a stalled socket, so the wait is long.
 async fn was_reset(s: &mut TcpStream) -> bool {
     let mut got = Vec::new();
-    match timeout(Duration::from_secs(5), s.read_to_end(&mut got)).await {
+    match timeout(Duration::from_secs(20), s.read_to_end(&mut got)).await {
         Ok(Err(e)) => e.kind() == io::ErrorKind::ConnectionReset,
         Ok(Ok(_)) => false,
         Err(_) => panic!("the connection stayed open"),
@@ -281,28 +297,47 @@ async fn a_local_half_close_still_gets_the_reply() {
     assert!(h.events.try_recv().is_err());
 }
 
+/// The broker sends the server's `eof` and ends the call, as the supervisor's
+/// `eof` means its relay is over: the local client reads what was sent,
+/// then the end, and the connection closes cleanly rather than resetting.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_server_eof_half_closes_the_local_socket() {
+async fn a_server_eof_and_the_call_s_end_close_the_local_connection() {
     let mut h = harness(Limits::default(), vec![]).await;
     let mut client = h.connect().await;
-    let mut call = h.call().await;
+    let call = h.call().await;
     call.data(b"bye").await;
     call.eof().await;
+    drop(call);
     let mut got = Vec::new();
     timeout(Duration::from_secs(5), client.read_to_end(&mut got))
         .await
-        .unwrap()
+        .expect("read timed out")
         .unwrap();
     assert_eq!(got, b"bye");
-    // The other direction stays open until the call ends.
-    client.write_all(b"more").await.unwrap();
-    match timeout(Duration::from_secs(5), call.frame())
+    budget_empties(&h).await;
+    assert!(h.events.try_recv().is_err(), "{:?}", h.events.try_recv());
+}
+
+/// A client that connects and closes having sent nothing, as a port probe
+/// or a browser's preconnect does, says nothing when the server closes in
+/// turn; a server that closes first, with the client still open, still
+/// does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_client_closing_before_it_sends_says_nothing_about_the_server() {
+    let mut h = harness(Limits::default(), vec![]).await;
+    let mut client = h.connect().await;
+    let mut call = h.call().await;
+    client.shutdown().await.unwrap();
+    assert_eq!(call.read_to_eof().await, b"");
+    call.eof().await;
+    drop(call);
+    let mut got = Vec::new();
+    timeout(Duration::from_secs(5), client.read_to_end(&mut got))
         .await
-        .expect("no data")
-    {
-        Some(port_client_frame::Frame::Data(b)) => assert_eq!(b, b"more"),
-        other => panic!("{other:?}"),
-    }
+        .expect("read timed out")
+        .unwrap();
+    budget_empties(&h).await;
+    assert!(h.events.try_recv().is_err(), "{:?}", h.events.try_recv());
 }
 
 #[tokio::test(flavor = "multi_thread")]
@@ -787,15 +822,81 @@ async fn port_zero_retries_a_port_taken_on_ipv6() {
     }
 }
 
-/// On macOS a fixed port held only by a connection in `TIME_WAIT` refuses
-/// the bind too, so the message says so.
-#[cfg(target_os = "macos")]
+/// A rerun on the same port binds at once although the last run closed a
+/// connection first, which leaves it in `TIME_WAIT` for about 30 s on
+/// macOS: Ctrl-C with a browser's keep-alive connections open.
+#[cfg(unix)]
 #[tokio::test]
-async fn a_taken_fixed_port_on_macos_mentions_a_closed_connection() {
-    let held = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
-    let port = held.local_addr().unwrap().port();
-    let e = bind(port).await.unwrap_err();
-    let msg = e.to_string();
-    assert!(msg.contains("closed in the last minute"), "{msg}");
-    assert!(msg.contains("another port"), "{msg}");
+async fn a_port_whose_last_connection_we_closed_binds_again_at_once() {
+    let first = bind(0).await.unwrap();
+    let port = first.port;
+    let listener = &first.listeners[0];
+    let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
+    let (server, _) = listener.accept().await.unwrap();
+    // Our side closes first, so our side is the one in `TIME_WAIT`.
+    drop(server);
+    let mut buf = [0u8; 1];
+    let _ = std::io::Read::read(&mut &client, &mut buf);
+    drop(client);
+    drop(first);
+    let again = bind(port).await;
+    assert!(again.is_ok(), "{:?}", again.err().map(|e| e.to_string()));
+}
+
+/// A wildcard holder fails the bind whatever options it set, on macOS too,
+/// where our loopback binds set `SO_REUSEADDR`.
+#[tokio::test]
+async fn a_wildcard_holder_with_reuse_options_still_fails_the_bind() {
+    use socket2::{Domain, Protocol, Socket, Type};
+    for (reuse_addr, reuse_port) in [(true, false), (false, true), (true, true)] {
+        let s = Socket::new(Domain::IPV4, Type::STREAM, Some(Protocol::TCP)).unwrap();
+        s.set_reuse_address(reuse_addr).unwrap();
+        #[cfg(unix)]
+        s.set_reuse_port(reuse_port).unwrap();
+        #[cfg(not(unix))]
+        let _ = reuse_port;
+        s.bind(&SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)).into())
+            .unwrap();
+        s.listen(16).unwrap();
+        let port = s.local_addr().unwrap().as_socket().unwrap().port();
+        match bind(port).await {
+            Ok(b) => panic!("addr {reuse_addr} port {reuse_port}: bound beside the holder: {b:?}"),
+            Err(e) => assert_eq!(e.error.kind(), io::ErrorKind::AddrInUse, "{e}"),
+        }
+    }
+}
+
+/// Frames the call had queued before the connection read any are a burst
+/// the local socket takes at once: the writer runs between them, so a
+/// reader that keeps up is not reset by the burst.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_burst_the_call_queued_does_not_reset_a_reader_that_keeps_up() {
+    let limits = Limits {
+        connection_buffer: 64 << 10,
+        ..Limits::default()
+    };
+    let gate = Arc::new(Semaphore::new(0));
+    let mut h = harness_gated(limits, vec![], Some(gate.clone())).await;
+    let mut client = h.connect().await;
+    let call = timeout(Duration::from_secs(5), h.calls.recv())
+        .await
+        .expect("no call was opened")
+        .unwrap();
+    // Four 32 KiB frames, twice the buffer, wait before the first is read.
+    let chunk = vec![9u8; 32 << 10];
+    for _ in 0..4 {
+        call.to_client
+            .try_send(Ok(PortServerFrame {
+                frame: Some(port_server_frame::Frame::Data(chunk.clone())),
+            }))
+            .unwrap();
+    }
+    gate.add_permits(1);
+    let mut got = vec![0u8; 4 * chunk.len()];
+    timeout(Duration::from_secs(5), client.read_exact(&mut got))
+        .await
+        .expect("read timed out")
+        .unwrap();
+    assert!(h.events.try_recv().is_err(), "{:?}", h.events.try_recv());
+    drop(call);
 }

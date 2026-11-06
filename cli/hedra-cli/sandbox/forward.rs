@@ -47,6 +47,11 @@ fn permanent_mint(e: &CallError) -> bool {
     }) || matches!(e, CallError::NoCredential(_))
 }
 
+/// Said after the broker's message when it ends a forwarded connection
+/// `rate_limited`.
+const RATE_LIMITED_HINT: &str = "`port-forward` cannot slow the sandbox's server; copy large \
+                                 files with `hedra-cli sandbox cp`.";
+
 pub(crate) struct Source {
     stream: hedra_cli_sandbox::tonic::Streaming<PortServerFrame>,
     name: String,
@@ -58,9 +63,16 @@ impl PortSource for Source {
     async fn recv(&mut self) -> Result<Option<PortServerFrame>, ConnectionFailure> {
         self.stream.message().await.map_err(|status| {
             let s = BrokerStatus::from(&status);
+            let mut failure = stream::broker_failure(&s, &self.name, Needs::Write, true);
+            // The broker gives a forwarded connection no output window, so
+            // a server writing faster than the link ends it however promptly
+            // hedra-cli reads, and reconnecting meets the same limit.
+            if s.is(reason::RATE_LIMITED) {
+                failure.message = format!("{}. {RATE_LIMITED_HINT}", failure.message);
+            }
             ConnectionFailure {
                 permanent: s.is(reason::PERMISSION_DENIED),
-                failure: stream::broker_failure(&s, &self.name, Needs::Write, true),
+                failure,
             }
         })
     }
@@ -88,8 +100,10 @@ impl PortOpener for Opener {
                 self.session.proxy().as_deref(),
             )));
         };
+        let debug = |line: &str| stream::note(escape_controls(line));
         let open = Open {
             on_wait: &on_wait,
+            on_debug: self.api.debug.then_some(&debug as _),
             ..Default::default()
         };
         match calls::open_port_forward(&self.session, &open).await {
@@ -213,8 +227,9 @@ pub(crate) async fn run(
         stream::say_line(w).await;
     }
     stream::say_line(format!(
-        "Forwarding {} to port {remote} in `{name}`. Any local user can connect to it, and it \
-         skips the sandbox's endpoint token.",
+        "Forwarding {} to port {remote} in `{name}`. Any local user can connect to it, and so \
+         can web pages in your browser, and it skips the sandbox's endpoint token; forward only \
+         servers that have their own auth.",
         listening(&bound)
     ))
     .await;

@@ -12,6 +12,7 @@ mod tests;
 use std::future::Future;
 use std::io;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -25,7 +26,7 @@ use crate::pb::hedra::sandbox::v1::{
     port_client_frame, port_server_frame, PortClientFrame, PortServerFrame,
 };
 
-pub use crate::cp::CallClosed;
+use crate::stream::calls::CallClosed;
 use budget::Budget;
 
 /// The most one `data` frame carries.
@@ -164,19 +165,7 @@ impl std::fmt::Display for BindError {
             f,
             "cannot listen on port {} over {}: {}",
             self.port, self.family, self.error
-        )?;
-        if cfg!(target_os = "macos")
-            && self.port != 0
-            && self.error.kind() == io::ErrorKind::AddrInUse
-        {
-            // Without `SO_REUSEADDR` a connection in `TIME_WAIT` holds it.
-            write!(
-                f,
-                " (a connection on that port that closed in the last minute can hold it too); \
-                 try another port, or 0 for any free one"
-            )?;
-        }
-        Ok(())
+        )
     }
 }
 
@@ -224,29 +213,40 @@ const PORT_ZERO_TRIES: usize = 20;
 /// Binds `127.0.0.1:<port>` and `[::1]:<port>`; for port 0, the port the
 /// IPv4 bind chose, retrying when it is taken on IPv6.
 pub async fn bind(port: u16) -> Result<Bound, BindError> {
-    let bound = bind_with(port, bind_exclusive)?;
-    #[cfg(windows)]
+    let bound = bind_with(port, |addr| bind_exclusive(addr, port != 0))?;
+    #[cfg(any(windows, target_os = "macos"))]
     refuse_a_wildcard_holder(bound.port)?;
     Ok(bound)
 }
 
-/// Fails when another socket holds `port` on a wildcard address. Windows
-/// lets our `SO_EXCLUSIVEADDRUSE` bind of `127.0.0.1:P` succeed beside a
-/// same-user `0.0.0.0:P` or `[::]:P` bound without that option, and then
-/// sends the connections to the more specific address to us, so that
-/// process's local clients, with their requests and tokens, would reach the
-/// sandbox; Linux and macOS refuse that bind. A plain wildcard bind of our
-/// own, which never listens, fails beside any wildcard holder and succeeds
-/// beside sockets bound only to a specific address, ours included (the
-/// Windows Server 2003 and later tables in Microsoft Learn's "Using
-/// SO_REUSEADDR and SO_EXCLUSIVEADDRUSE": a default wildcard bind after a
-/// specific one with `SO_EXCLUSIVEADDRUSE` succeeds, for the same user or
-/// another). It runs after the loopback binds, since port 0's port is known
-/// only then, and probes `0.0.0.0:P`, `[::]:P` with `IPV6_V6ONLY`, and a
+/// Fails when another socket holds `port` on a wildcard address, which our
+/// loopback binds do not refuse on Windows or macOS, while that process's
+/// local clients, with their requests and tokens, would then reach the
+/// sandbox.
+///
+/// Windows lets our `SO_EXCLUSIVEADDRUSE` bind of `127.0.0.1:P` succeed
+/// beside a same-user `0.0.0.0:P` or `[::]:P` bound without that option,
+/// and sends the connections to the more specific address to us. A plain
+/// wildcard bind of our own, which never listens, fails beside any wildcard
+/// holder and succeeds beside sockets bound only to a specific address,
+/// ours included (the Windows Server 2003 and later tables in Microsoft
+/// Learn's "Using SO_REUSEADDR and SO_EXCLUSIVEADDRUSE": a default wildcard
+/// bind after a specific one with `SO_EXCLUSIVEADDRUSE` succeeds, for the
+/// same user or another).
+///
+/// macOS binds a fixed port's loopback addresses with `SO_REUSEADDR`, so a
+/// connection the last run closed, in `TIME_WAIT` for about 30 s, does not
+/// hold the port; that option also lets the bind succeed beside a wildcard
+/// holder. The probe there sets `SO_REUSEADDR` too, so it binds beside our
+/// own sockets and a `TIME_WAIT`, and fails beside a wildcard holder,
+/// whatever options the holder set.
+///
+/// It runs after the loopback binds, since port 0's port is known only
+/// then, and probes `0.0.0.0:P`, `[::]:P` with `IPV6_V6ONLY`, and a
 /// dual-stack `[::]:P`: the first fails beside a `0.0.0.0` holder, the
 /// second beside an IPv6-only `[::]` one, and the third beside a dual-stack
 /// `[::]` one, which on Windows lets both of the first two bind.
-#[cfg(windows)]
+#[cfg(any(windows, target_os = "macos"))]
 fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
     use socket2::{Domain, Protocol, Socket, Type};
     let probes = [
@@ -261,6 +261,8 @@ fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
         };
         let probe = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))
             .and_then(|s| {
+                #[cfg(target_os = "macos")]
+                s.set_reuse_address(true)?;
                 if let Some(only) = only_v6 {
                     s.set_only_v6(only)?;
                 }
@@ -282,17 +284,26 @@ fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
     Ok(())
 }
 
-/// Binds so that another socket on the port fails the bind. std sets
-/// `SO_REUSEADDR` on Unix, which lets macOS bind `127.0.0.1:P` over another
-/// process's `*:P` and take its local traffic; Linux refuses that bind
-/// either way, so keeps the option for a port with connections in
-/// `TIME_WAIT`. Windows needs `SO_EXCLUSIVEADDRUSE`, and `bind`
-/// checks for a wildcard holder that option does not refuse.
-fn bind_exclusive(addr: SocketAddr) -> io::Result<std::net::TcpListener> {
+/// Binds so that another socket on the port fails the bind. Linux refuses a
+/// bind beside another socket on the port with or without `SO_REUSEADDR`,
+/// so sets it, for a port with connections in `TIME_WAIT`. macOS sets it
+/// only for a fixed port, since it lets the bind succeed beside a wildcard
+/// holder, which `bind` then probes for; a port-0 pick with it would skip
+/// the kernel's wildcard check. Windows needs `SO_EXCLUSIVEADDRUSE`, and
+/// `bind` probes for a wildcard holder that option does not refuse.
+fn bind_exclusive(addr: SocketAddr, fixed: bool) -> io::Result<std::net::TcpListener> {
     use socket2::{Domain, Protocol, Socket, Type};
     let s = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
     #[cfg(any(target_os = "linux", target_os = "android"))]
     s.set_reuse_address(true)?;
+    // Port 0's IPv6 bind, at the port the IPv4 bind picked, keeps the
+    // kernel's check too, so a holder there sends it on to another port.
+    #[cfg(target_os = "macos")]
+    if fixed {
+        s.set_reuse_address(true)?;
+    }
+    #[cfg(not(target_os = "macos"))]
+    let _ = fixed;
     #[cfg(windows)]
     exclusive_addr_use(&s)?;
     if addr.is_ipv6() {
@@ -424,7 +435,9 @@ pub enum Event<E> {
     /// Its call failed after `open`; the connection was reset.
     Lost(E),
     /// The sandbox closed it before sending a byte: nothing is listening on
-    /// `127.0.0.1:<port>` in the sandbox, or the server closed it.
+    /// `127.0.0.1:<port>` in the sandbox, or the server closed it. A local
+    /// client that closed first having sent nothing, such as a port probe,
+    /// is not reported.
     NothingListening {
         /// The sandbox port.
         port: u16,
@@ -620,14 +633,25 @@ impl<O: PortOpener> Connection<O> {
     ) -> End {
         let (mut rd, mut wr) = stream.split();
         let (out_tx, mut out_rx) = mpsc::unbounded_channel::<Out>();
+        // The local client closed before sending a byte, as a port probe or
+        // a browser's preconnect does: the server closing in turn says
+        // nothing about whether one is listening.
+        let closed_quietly = AtomicBool::new(false);
+        let closed_quietly = &closed_quietly;
 
         // Local to sandbox: data, then `eof` at the local half-close.
         let mut sink = sink;
         let up = async move {
             let mut buf = vec![0u8; CHUNK];
+            let mut sent_any = false;
             loop {
                 match rd.read(&mut buf).await {
                     Ok(0) => {
+                        // Before the send: `down` may take the reply's
+                        // `eof` while this one is still being sent.
+                        if !sent_any {
+                            closed_quietly.store(true, Ordering::SeqCst);
+                        }
                         let eof = PortClientFrame {
                             frame: Some(port_client_frame::Frame::Eof(true)),
                         };
@@ -636,6 +660,7 @@ impl<O: PortOpener> Connection<O> {
                         std::future::pending::<()>().await;
                     }
                     Ok(n) => {
+                        sent_any = true;
                         let data = PortClientFrame {
                             frame: Some(port_client_frame::Frame::Data(buf[..n].to_vec())),
                         };
@@ -690,7 +715,7 @@ impl<O: PortOpener> Connection<O> {
                             tokio::task::yield_now().await;
                         }
                         Some(port_server_frame::Frame::Eof(_)) => {
-                            if !got_any {
+                            if !got_any && !closed_quietly.load(Ordering::SeqCst) {
                                 let _ = events.try_send(Event::NothingListening { port: remote });
                             }
                             let _ = out_tx.send(Out::Eof);

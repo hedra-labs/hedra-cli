@@ -147,4 +147,34 @@ mod tests {
         tokio::pin!(notified);
         assert!(futures_util::FutureExt::now_or_never(notified).is_some());
     }
+
+    /// A connection that closes with bytes still held gives them back.
+    #[test]
+    fn a_closed_connection_gives_its_bytes_back() {
+        let b = budget(100, 150);
+        let (a, _) = b.register();
+        assert!(b.take(a, 60));
+        b.unregister(a);
+        assert_eq!(b.total(), 0);
+        assert_eq!(b.connections(), 0);
+    }
+
+    /// On a tie, the connection whose bytes overflowed the budget is the
+    /// one reset, and the other keeps what it holds.
+    #[test]
+    fn a_tie_resets_the_connection_that_overflowed() {
+        let b = budget(100, 95);
+        let (a, ra) = b.register();
+        let (c, _) = b.register();
+        assert!(b.take(a, 50));
+        assert!(b.take(c, 40));
+        // c would hold 50, as a does.
+        assert!(!b.take(c, 10));
+        assert_eq!(b.held(a), Some(50));
+        assert_eq!(b.held(c), None);
+        assert_eq!(b.total(), 50);
+        let notified = ra.notified();
+        tokio::pin!(notified);
+        assert!(futures_util::FutureExt::now_or_never(notified).is_none());
+    }
 }

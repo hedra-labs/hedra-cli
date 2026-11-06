@@ -1,8 +1,8 @@
-//! The sandbox stream verbs: `exec`, `shell` (and `shell --gpu`), `logs` and
-//! `attach`, which hold a stream open to the sandbox through the broker. Each
-//! is grafted into the generated `sandbox` group beside the generated control
-//! commands (`ls`, `get`, `create`, `stop`, …), which this module does not
-//! touch.
+//! The sandbox stream verbs: `exec`, `shell` (and `shell --gpu`), `logs`,
+//! `attach`, `cp` and `port-forward`, which hold a stream open to the sandbox
+//! through the broker. Each is grafted into the generated `sandbox` group
+//! beside the generated control commands (`ls`, `get`, `create`, `stop`, …),
+//! which this module does not touch.
 //!
 //! Unless `HEDRA_CLI_SANDBOX_PREVIEW=1`, the verbs are not grafted at all, so
 //! no help, completion script or typo suggestion names them, and
@@ -248,18 +248,39 @@ fn attach_command() -> Command {
 }
 
 fn cp_command() -> Command {
+    const EXAMPLES: &str = "Examples:\n  hedra-cli sandbox cp ./data train:/work/data\n  \
+                            hedra-cli sandbox cp train:/work/out ./out";
     Command::new("cp")
         .about("Copy files and directories in or out of a sandbox; one side is <SANDBOX>:<PATH>")
-        .after_long_help(EXIT_CODES)
-        .arg(Arg::new("source").value_name("SOURCE").required(true))
+        .long_about(
+            "Copy a file or a directory into or out of a sandbox. One side is <SANDBOX>:<PATH>, \
+             a path in the sandbox, where a relative path is relative to the image's working \
+             directory; the other is a local path. Directories copy without a flag.\n\n\
+             As scp -r and docker cp do, an existing directory receives the source under the \
+             source's own name; otherwise the destination is the new name, and a missing \
+             parent is created.\n\n\
+             A source path that ends in /. copies the directory's contents, and a destination \
+             that ends in / has to be an existing directory. A symlinked source copies what it \
+             links to.\n\n\
+             The copy runs over exec and tar, so the image needs sh and tar; GNU tar also lets \
+             hedra-cli check that a copy out arrived whole. A copy out that fails part way \
+             leaves what it wrote in place and names it.",
+        )
+        .after_help(EXAMPLES)
+        .after_long_help(format!("{EXAMPLES}\n\n{EXIT_CODES}"))
+        .arg(
+            Arg::new("source")
+                .value_name("SOURCE")
+                .required(true)
+                .value_parser(clap::value_parser!(std::ffi::OsString))
+                .help("A local path, or <SANDBOX>:<PATH>"),
+        )
         .arg(
             Arg::new("destination")
                 .value_name("DESTINATION")
-                .required(true),
-        )
-        .after_help(
-            "Examples:\n  hedra-cli sandbox cp ./data train:/work/data\n  \
-             hedra-cli sandbox cp train:/work/out ./out",
+                .required(true)
+                .value_parser(clap::value_parser!(std::ffi::OsString))
+                .help("A local path, or <SANDBOX>:<PATH>"),
         )
 }
 
@@ -316,10 +337,10 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
         let code = refusal_code(verb, &f);
         fail(f, code);
     }
-    let api = Api::new(ctx, flag("debug"));
+    let api = std::sync::Arc::new(Api::new(ctx, flag("debug")));
     let code = match verb {
         "cp" => {
-            let arg = |n: &str| m.get_one::<String>(n).expect("required");
+            let arg = |n: &str| m.get_one::<std::ffi::OsString>(n).expect("required");
             match stream::transport_config(ctx.http_config()) {
                 Ok(transport) => unwinding(json_errors, || {
                     run_async(cp::run(
@@ -334,7 +355,7 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
             }
         }
         "port-forward" => {
-            let api = std::sync::Arc::new(Api::new(ctx, flag("debug")));
+            let api = api.clone();
             let ports = m.get_one::<String>("ports").expect("required").clone();
             match target(m).and_then(|t| {
                 stream::transport_config(ctx.http_config()).map(|transport| (t, transport))
@@ -435,7 +456,7 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
         exec_env(m)?;
     }
     if verb == "cp" {
-        let arg = |n: &str| m.get_one::<String>(n).expect("required");
+        let arg = |n: &str| m.get_one::<std::ffi::OsString>(n).expect("required");
         cp::plan(arg("source"), arg("destination"))?;
     }
     if verb == "port-forward" {

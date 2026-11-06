@@ -12,7 +12,7 @@ use bytes::Bytes;
 use tar::{Builder, EntryType, Header};
 use tokio::sync::mpsc;
 
-use super::names::escape_controls;
+use crate::text::escape_controls;
 use super::{Progress, CHUNK, TAR_RECORD};
 
 /// What the tar builder hands the sending task.
@@ -33,7 +33,7 @@ pub(crate) struct Walked {
 /// into `tx`, then sends [`Up::Done`]. The error names the file that failed.
 pub(crate) fn send_tar(
     src: &Path,
-    name: &str,
+    name: &std::ffi::OsStr,
     tx: mpsc::Sender<Up>,
     progress: Arc<Progress>,
 ) -> Result<Walked, String> {
@@ -41,16 +41,14 @@ pub(crate) fn send_tar(
         tx,
         buf: Vec::with_capacity(CHUNK),
         total: 0,
-        progress: progress.clone(),
-        poisoned: false,
     };
     let mut b = Builder::new(&mut w);
     let mut walked = Walked::default();
     if let Err(e) = walk(&mut b, src, name, &progress, &mut walked) {
         // Nothing more reaches the call: the builder's drop would write the
         // end blocks, and a whole chunk of them could be sent before the
-        // reset, so the remote tar would see a clean end.
-        b.get_mut().poisoned = true;
+        // reset, so the remote tar would see a clean end. The writer itself
+        // never flushes on drop, so what it holds is never sent.
         std::mem::forget(b);
         return Err(e);
     }
@@ -72,22 +70,13 @@ struct ChunkWriter {
     tx: mpsc::Sender<Up>,
     buf: Vec<u8>,
     total: u64,
-    progress: Arc<Progress>,
-    /// Set when the walk failed; every later write is discarded.
-    poisoned: bool,
 }
 
 impl ChunkWriter {
     fn hand_over(&mut self, chunk: Vec<u8>) -> io::Result<()> {
-        if self.poisoned {
-            return Ok(());
-        }
-        let n = chunk.len();
         self.tx
             .blocking_send(Up::Data(Bytes::from(chunk)))
-            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "the call ended"))?;
-        self.progress.add(n as u64);
-        Ok(())
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "the call ended"))
     }
 
     /// Pads the stream to a whole tar record, as GNU tar pads its own.
@@ -102,9 +91,6 @@ impl ChunkWriter {
 
 impl Write for ChunkWriter {
     fn write(&mut self, p: &[u8]) -> io::Result<usize> {
-        if self.poisoned {
-            return Ok(p.len());
-        }
         self.buf.extend_from_slice(p);
         self.total += p.len() as u64;
         while self.buf.len() >= CHUNK {
@@ -216,7 +202,7 @@ fn left_out(walked: &mut Walked, entry: &Path) {
 fn walk<W: Write>(
     b: &mut Builder<W>,
     src: &Path,
-    name: &str,
+    name: &std::ffi::OsStr,
     progress: &Progress,
     walked: &mut Walked,
 ) -> Result<(), String> {
@@ -387,7 +373,7 @@ mod unix {
 fn walk<W: Write>(
     b: &mut Builder<W>,
     src: &Path,
-    name: &str,
+    name: &std::ffi::OsStr,
     progress: &Progress,
     walked: &mut Walked,
 ) -> Result<(), String> {
@@ -667,7 +653,18 @@ mod windows {
         } else {
             Open::File
         };
-        let f = open_at(parent, name, what, true).map_err(|e| read_failed(shown, e))?;
+        let f = match open_at(parent, name, what, true) {
+            Ok(f) => f,
+            Err(e) => {
+                // A directory or junction where the listing saw a file
+                // refuses a file's open: read what is there now.
+                let now = open_at(parent, name, Open::Link, true).and_then(|g| stat(&g));
+                if now.is_ok_and(|st| st.kind != seen) {
+                    return Err(changed(shown));
+                }
+                return Err(read_failed(shown, e));
+            }
+        };
         let st = stat(&f).map_err(|e| read_failed(shown, e))?;
         if st.kind != seen {
             return Err(changed(shown));
@@ -874,6 +871,41 @@ pub(crate) fn test_entry<W: Write>(
     )
 }
 
+/// One entry of the Windows walk, `name` in `parent`, as the listing saw it
+/// (`seen_dir`), so a test can swap what is there between the two.
+#[cfg(all(test, windows))]
+pub(crate) fn test_entry<W: Write>(
+    b: &mut Builder<W>,
+    parent: &Path,
+    name: &str,
+    seen_dir: bool,
+    walked: &mut Walked,
+) -> Result<(), String> {
+    use std::os::windows::fs::OpenOptionsExt;
+    use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
+    let pdir = std::fs::OpenOptions::new()
+        .read(true)
+        .custom_flags(FILE_FLAG_BACKUP_SEMANTICS)
+        .open(parent)
+        .map_err(|e| read_failed(parent, e))?;
+    let seen = if seen_dir {
+        windows::Kind::Dir
+    } else {
+        windows::Kind::File
+    };
+    windows::entry(
+        b,
+        &pdir,
+        std::ffi::OsStr::new(name),
+        seen,
+        &parent.join(name),
+        Path::new(name),
+        false,
+        &Progress::default(),
+        walked,
+    )
+}
+
 #[cfg(all(test, unix))]
 pub(crate) fn test_append<W: Write>(
     b: &mut Builder<W>,
@@ -936,26 +968,5 @@ mod tests {
         let mut cut = reparse(IO_REPARSE_TAG_SYMLINK, Some(1), "abc", "");
         cut.truncate(cut.len() - 2);
         assert_eq!(reparse_target(&cut), None);
-    }
-
-    #[test]
-    fn a_poisoned_writer_sends_nothing() {
-        let (tx, mut rx) = mpsc::channel(8);
-        let mut w = ChunkWriter {
-            tx,
-            buf: Vec::new(),
-            total: 0,
-            progress: Arc::new(Progress::default()),
-            poisoned: false,
-        };
-        w.write_all(&[1; 100]).unwrap();
-        w.poisoned = true;
-        w.write_all(&vec![0; 2 * CHUNK]).unwrap();
-        w.flush().unwrap();
-        drop(w);
-        assert!(matches!(
-            rx.try_recv(),
-            Err(mpsc::error::TryRecvError::Disconnected)
-        ));
     }
 }
