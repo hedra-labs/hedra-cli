@@ -238,8 +238,13 @@ pub async fn bind(port: u16) -> Result<Bound, BindError> {
 /// sandbox; Linux and macOS refuse that bind. A plain wildcard bind of our
 /// own, which never listens, fails beside any wildcard holder and succeeds
 /// beside sockets bound only to a specific address, ours included (the
-/// Windows Server 2003 and later table in Microsoft Learn's "Using
-/// SO_REUSEADDR and SO_EXCLUSIVEADDRUSE").
+/// Windows Server 2003 and later tables in Microsoft Learn's "Using
+/// SO_REUSEADDR and SO_EXCLUSIVEADDRUSE": a default wildcard bind after a
+/// specific one with `SO_EXCLUSIVEADDRUSE` succeeds, for the same user or
+/// another). It runs after the loopback binds, since port 0's port is known
+/// only then, and probes `0.0.0.0:P` and `[::]:P` with `IPV6_V6ONLY`: the
+/// first fails beside a `0.0.0.0` or dual-stack `[::]` holder, the second
+/// beside an IPv6-only `[::]` one.
 #[cfg(windows)]
 fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
     use socket2::{Domain, Protocol, Socket, Type};

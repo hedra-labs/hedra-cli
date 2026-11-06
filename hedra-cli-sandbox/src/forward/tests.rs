@@ -724,15 +724,33 @@ async fn a_port_held_by_a_wildcard_listener_fails() {
     assert_eq!(err.error.kind(), io::ErrorKind::AddrInUse, "{err}");
 }
 
-/// `[::]`, which takes IPv4 too unless the host is IPv6-only.
+/// A listener on `[::]:0`, IPv6-only or dual-stack, when the host has IPv6.
+fn wildcard_v6_listener(only_v6: bool) -> Option<socket2::Socket> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    let s = Socket::new(Domain::IPV6, Type::STREAM, Some(Protocol::TCP)).ok()?;
+    s.set_only_v6(only_v6).ok()?;
+    s.bind(&SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)).into())
+        .ok()?;
+    s.listen(16).ok()?;
+    Some(s)
+}
+
+/// `[::]` taking IPv4 too, and `[::]` with `IPV6_V6ONLY`, which on Windows
+/// a `0.0.0.0` probe alone would miss.
 #[tokio::test]
-async fn a_port_held_by_a_dual_stack_listener_fails() {
-    let Ok(held) = std::net::TcpListener::bind("[::]:0") else {
-        return;
-    };
-    let port = held.local_addr().unwrap().port();
-    let err = bind(port).await.unwrap_err();
-    assert_eq!(err.error.kind(), io::ErrorKind::AddrInUse, "{err}");
+async fn a_port_held_by_an_ipv6_wildcard_listener_fails() {
+    for only_v6 in [false, true] {
+        let Some(held) = wildcard_v6_listener(only_v6) else {
+            continue;
+        };
+        let port = held.local_addr().unwrap().as_socket().unwrap().port();
+        let err = bind(port).await.unwrap_err();
+        assert_eq!(
+            err.error.kind(),
+            io::ErrorKind::AddrInUse,
+            "{only_v6}: {err}"
+        );
+    }
 }
 
 #[tokio::test]
