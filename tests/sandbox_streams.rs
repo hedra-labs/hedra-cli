@@ -1068,6 +1068,41 @@ async fn logs_f_follows_replica_zero_when_another_replica_fails() {
     assert_eq!(broker.calls().len(), 1);
 }
 
+/// A wait that failed while the sandbox started, re-read once replica 0 is
+/// running, goes on to follow it instead of ending.
+#[tokio::test]
+async fn logs_f_follows_once_replica_zero_runs_after_a_failed_wait() {
+    let broker = FakeBroker::start();
+    broker.log(b"zero\n");
+    broker.push_logs(LogsScript::admit(LogsEnd::Hold));
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    let at = |status: &str, instances: serde_json::Value| {
+        ResponseTemplate::new(200).set_body_json(sandbox(ID, "box", status, instances))
+    };
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            at("creating", json!(null)),
+            at(
+                "active",
+                json!([{"replica": 0, "status": "failed", "failure_reason": "instance_failed"}]),
+            ),
+            at("active", running()),
+        ]))
+        .mount(&server)
+        .await;
+    let mut child = Run::new(&server).spawn(&["sandbox", "logs", "-f", ID]);
+    let seen = collect(child.stdout.take().unwrap());
+    wait_until("replica 0's output", || {
+        seen.lock().unwrap().ends_with(b"zero\n")
+    });
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(broker.calls().len(), 1);
+}
+
 #[tokio::test]
 async fn logs_f_resumes_a_nanosecond_after_the_last_chunk_on_one_mint() {
     let broker = FakeBroker::start();

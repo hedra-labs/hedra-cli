@@ -380,6 +380,34 @@ async fn a_signal_during_the_shell_sends_one_stop_and_exits_with_its_code() {
     }
 }
 
+/// An unusable proxy is refused before the paid create, even with a bypass
+/// list that the broker's host is not yet known against.
+#[tokio::test]
+async fn an_unusable_proxy_with_a_bypass_list_is_refused_before_the_create() {
+    let broker = FakeBroker::start();
+    let server = api(&broker, 0).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let mut args = ARGS.to_vec();
+    args.push("2h");
+    let mut cmd = run.command(&args);
+    cmd.env("HTTPS_PROXY", "socks5://127.0.0.1:1080")
+        .env("NO_PROXY", "example.com");
+    let child = pty.spawn(&cmd);
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert_eq!(
+        class_line(&out.stderr),
+        Some(
+            "hedra-cli: Rejected request (19): a SOCKS proxy is not supported for sandbox \
+             sessions; use an http:// proxy (set by HTTPS_PROXY)"
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(creates(&server).await.is_empty());
+}
+
 #[tokio::test]
 async fn a_taken_name_is_retried_once_under_a_new_name_and_key() {
     let broker = FakeBroker::start();

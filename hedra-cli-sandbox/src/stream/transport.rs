@@ -488,8 +488,10 @@ fn extra_roots(
 }
 
 /// On macOS and Windows the OS verifies the broker's certificate, plus the
-/// extra roots, as it does for the REST calls' native-tls. `SSL_CERT_FILE`
-/// and `SSL_CERT_DIR` then add nothing and replace nothing, as for REST.
+/// extra roots, as it does for the REST calls' native-tls. The extra roots
+/// come from the first of `HEDRA_CLI_CA_BUNDLE`, `HEDRA_CLI_EXTRA_CA_CERTS`
+/// and `SSL_CERT_FILE`, as for REST, so `SSL_CERT_FILE` adds to the OS's
+/// roots rather than replacing them; `SSL_CERT_DIR` is not read, as for REST.
 #[cfg(any(target_os = "macos", windows))]
 fn verified(
     builder: rustls::ConfigBuilder<rustls::ClientConfig, rustls::WantsVerifier>,

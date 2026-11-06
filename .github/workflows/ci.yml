@@ -136,6 +136,11 @@ jobs:
 
   # The sandbox stream commands handle terminals, consoles and signals per
   # platform, so they are built and tested on Windows and macOS too.
+  #
+  # Advisory for now: branch protection does not require it, and the
+  # justfile's `required_checks` leaves it out. Its runners are slower and
+  # new to this repo, so it becomes required once it has run green on more
+  # pull requests. Until then, read a red run before merging.
   platforms:
     strategy:
       fail-fast: false

@@ -583,7 +583,9 @@ impl NextSig for Signals {
 /// How long hedra-cli waits for one of its own stderr lines to be written.
 const LINE_WAIT: Duration = Duration::from_secs(1);
 /// How long an exit waits for the lines still queued, its own last line
-/// among them, unless a signal came or the writer has stalled.
+/// among them, unless a signal came. It waits so even when an earlier line
+/// outlasted `LINE_WAIT`: a writer starved on a busy machine still gets the
+/// final line out, and a stderr nobody reads costs the exit this much.
 const EXIT_WAIT: Duration = Duration::from_secs(10);
 
 /// Whether a signal has arrived, after which every wait is short: the
@@ -604,17 +606,17 @@ static RAW: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(f
 struct Lines {
     tx: std::sync::mpsc::SyncSender<(String, Ack)>,
     /// A write has outlasted its wait: later lines are queued, or dropped
-    /// once the queue is full, without waiting.
-    stalled: std::sync::atomic::AtomicBool,
+    /// once the queue is full, without waiting, until the writer catches up.
+    stalled: std::sync::Arc<std::sync::atomic::AtomicBool>,
 }
 
-fn lines() -> &'static Lines {
-    static LINES: std::sync::OnceLock<Lines> = std::sync::OnceLock::new();
-    LINES.get_or_init(|| {
+impl Lines {
+    /// A writer thread writing each queued line with `write`.
+    fn spawn(mut write: impl FnMut(&[u8]) + Send + 'static) -> Self {
         let (tx, rx) = std::sync::mpsc::sync_channel::<(String, Ack)>(64);
+        let stalled = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let caught_up = stalled.clone();
         std::thread::spawn(move || {
-            #[cfg(not(unix))]
-            use std::io::Write;
             for (line, ack) in rx {
                 // A raw terminal does not return the carriage on a newline.
                 let line = if RAW.load(std::sync::atomic::Ordering::SeqCst) {
@@ -622,13 +624,8 @@ fn lines() -> &'static Lines {
                 } else {
                     line
                 };
-                #[cfg(unix)]
-                let _ = write_all_fd(2, line.as_bytes());
-                #[cfg(not(unix))]
-                let _ = std::io::stderr().write_all(line.as_bytes());
-                lines()
-                    .stalled
-                    .store(false, std::sync::atomic::Ordering::SeqCst);
+                write(line.as_bytes());
+                caught_up.store(false, std::sync::atomic::Ordering::SeqCst);
                 match ack {
                     Ack::Sync(a) => {
                         let _ = a.try_send(());
@@ -639,19 +636,54 @@ fn lines() -> &'static Lines {
                 }
             }
         });
-        Lines {
-            tx,
-            stalled: std::sync::atomic::AtomicBool::new(false),
+        Lines { tx, stalled }
+    }
+
+    /// Queues `line`, and says whether to wait for it: not when it was
+    /// dropped, nor once an earlier write has stalled.
+    fn queue(&self, line: String, ack: Ack) -> bool {
+        self.tx.try_send((line, ack)).is_ok()
+            && !self.stalled.load(std::sync::atomic::Ordering::SeqCst)
+    }
+
+    /// Waits up to `wait` for every line queued so far to be written,
+    /// stalled or not.
+    fn flush(&self, wait: Duration) {
+        let deadline = std::time::Instant::now() + wait;
+        let (ack, done) = std::sync::mpsc::sync_channel(1);
+        // An empty line writes nothing, and its ack comes after every
+        // earlier one. A full queue is retried until there is room.
+        let mut marker = (String::new(), Ack::Sync(ack));
+        loop {
+            match self.tx.try_send(marker) {
+                Ok(()) => break,
+                Err(std::sync::mpsc::TrySendError::Full(m)) => marker = m,
+                Err(std::sync::mpsc::TrySendError::Disconnected(_)) => return,
+            }
+            if std::time::Instant::now() >= deadline {
+                return;
+            }
+            std::thread::sleep(Duration::from_millis(10));
         }
-    })
+        let _ = done.recv_timeout(deadline.saturating_duration_since(std::time::Instant::now()));
+    }
+
+    fn mark_stalled(&self) {
+        self.stalled
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
 }
 
-/// Queues `line`, and says whether to wait for it: not when it was dropped,
-/// nor once an earlier write has stalled.
-fn queue(line: String, ack: Ack) -> bool {
-    let lines = lines();
-    lines.tx.try_send((line, ack)).is_ok()
-        && !lines.stalled.load(std::sync::atomic::Ordering::SeqCst)
+fn lines() -> &'static Lines {
+    static LINES: std::sync::OnceLock<Lines> = std::sync::OnceLock::new();
+    LINES.get_or_init(|| {
+        Lines::spawn(|bytes| {
+            #[cfg(unix)]
+            let _ = write_all_fd(2, bytes);
+            #[cfg(not(unix))]
+            let _ = std::io::Write::write_all(&mut std::io::stderr(), bytes);
+        })
+    })
 }
 
 /// Starts the stderr writer, so the first line does not wait on a thread
@@ -660,47 +692,34 @@ pub(crate) fn start_lines() {
     let _ = lines();
 }
 
-/// Waits for every queued stderr line to be written before an exit: up to
-/// `EXIT_WAIT`, or `LINE_WAIT` once a signal has arrived; not at all when a
-/// write has stalled, since nobody is reading stderr.
+/// Waits for every queued stderr line, the exit's own last line among them,
+/// to be written before an exit: up to `EXIT_WAIT`, or `LINE_WAIT` once a
+/// signal has arrived.
 pub(crate) fn flush_lines() {
-    if lines().stalled.load(std::sync::atomic::Ordering::SeqCst) {
-        return;
-    }
     let wait = if SIGNALLED.load(std::sync::atomic::Ordering::SeqCst) {
         LINE_WAIT
     } else {
         EXIT_WAIT
     };
-    let (ack, done) = std::sync::mpsc::sync_channel(1);
-    // An empty line writes nothing, and its ack comes after every earlier one.
-    if lines().tx.try_send((String::new(), Ack::Sync(ack))).is_ok() {
-        let _ = done.recv_timeout(wait);
-    }
-}
-
-fn stalled() {
-    lines()
-        .stalled
-        .store(true, std::sync::atomic::Ordering::SeqCst);
+    lines().flush(wait);
 }
 
 /// Writes a line to stderr, waiting at most a second for it and ignoring a
 /// failure, since after a signal the terminal may be gone.
 pub(crate) fn note(line: impl std::fmt::Display) {
     let (ack, done) = std::sync::mpsc::sync_channel(1);
-    if queue(format!("{line}\n"), Ack::Sync(ack)) && done.recv_timeout(LINE_WAIT).is_err() {
-        stalled();
+    if lines().queue(format!("{line}\n"), Ack::Sync(ack)) && done.recv_timeout(LINE_WAIT).is_err() {
+        lines().mark_stalled();
     }
 }
 
 /// `note`, awaited.
 pub(crate) async fn say_line(line: impl std::fmt::Display) {
     let (ack, done) = tokio::sync::oneshot::channel();
-    if queue(format!("{line}\n"), Ack::Async(ack))
+    if lines().queue(format!("{line}\n"), Ack::Async(ack))
         && tokio::time::timeout(LINE_WAIT, done).await.is_err()
     {
-        stalled();
+        lines().mark_stalled();
     }
 }
 
@@ -1051,6 +1070,33 @@ pub(crate) fn remote_term(local: Option<&str>, explicit: Option<&str>) -> String
 
 #[cfg(test)]
 mod tests {
+    /// A writer that has stalled still gets the exit's last line out: the
+    /// exit waits for it up to its bound.
+    #[test]
+    fn an_exit_waits_for_its_last_line_after_the_writer_stalled() {
+        let written = std::sync::Arc::new(std::sync::Mutex::new(Vec::<u8>::new()));
+        let into = written.clone();
+        // A starved writer: each write takes longer than a line's wait.
+        let lines = super::Lines::spawn(move |bytes| {
+            std::thread::sleep(std::time::Duration::from_millis(1500));
+            into.lock().unwrap().extend_from_slice(bytes);
+        });
+        let (ack, done) = std::sync::mpsc::sync_channel(1);
+        assert!(lines.queue("first\n".into(), super::Ack::Sync(ack)));
+        assert!(done.recv_timeout(super::LINE_WAIT).is_err());
+        lines.mark_stalled();
+        let (ack, _done) = std::sync::mpsc::sync_channel(1);
+        assert!(!lines.queue(
+            "hedra-cli: Internal (1): last\n".into(),
+            super::Ack::Sync(ack)
+        ));
+        lines.flush(super::EXIT_WAIT);
+        assert_eq!(
+            String::from_utf8_lossy(&written.lock().unwrap()),
+            "first\nhedra-cli: Internal (1): last\n"
+        );
+    }
+
     use super::*;
 
     #[test]

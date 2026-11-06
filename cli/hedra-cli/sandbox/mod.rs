@@ -392,7 +392,13 @@ fn gpu_shell_args(
         ttl_seconds,
         term: m.get_one::<String>("term").cloned(),
     };
-    Ok((shell, stream::transport_config(ctx.http_config())?))
+    let transport = stream::transport_config(ctx.http_config())?;
+    // With a bypass list the other verbs refuse an unusable proxy once the
+    // session names the broker; the create comes first here and is paid
+    // for, so the proxy is checked before it, bypass list or not.
+    hedra_cli_sandbox::stream::transport::check_proxy(&transport)
+        .map_err(|e| Failure::rejected(error::escape_controls(&e.to_string())))?;
+    Ok((shell, transport))
 }
 
 /// `exec`'s `--env` pairs.
@@ -620,32 +626,36 @@ mod tests {
         }
     }
 
+    /// The code the help documents for `class`. The match has no wildcard,
+    /// so a new class does not compile until it is given a code here, and
+    /// added to `Class::ALL`.
+    fn documented_code(class: Class) -> i32 {
+        match class {
+            Class::Internal => 1,
+            Class::NotSignedIn => 2,
+            Class::MissingScope => 10,
+            Class::NotFound => 11,
+            Class::NotEnabled => 12,
+            Class::NotReady => 13,
+            Class::NoCapacity => 14,
+            Class::Payment => 15,
+            Class::Limit => 16,
+            Class::Unavailable => 17,
+            Class::ConnectionLost => 18,
+            Class::Rejected => 19,
+            Class::Hangup => 129,
+            Class::Interrupted => 130,
+            Class::Terminated => 143,
+            Class::OutputFailed | Class::Panic => 255,
+        }
+    }
+
     /// Every class's code, the public contract each verb's `--help` prints,
     /// and that the help table lists each one.
     #[test]
     fn each_class_exits_with_its_code_and_the_help_table_lists_it() {
-        let expected = [
-            (Class::Internal, 1),
-            (Class::NotSignedIn, 2),
-            (Class::Interrupted, 130),
-            (Class::MissingScope, 10),
-            (Class::NotFound, 11),
-            (Class::NotEnabled, 12),
-            (Class::NotReady, 13),
-            (Class::NoCapacity, 14),
-            (Class::Payment, 15),
-            (Class::Limit, 16),
-            (Class::Unavailable, 17),
-            (Class::ConnectionLost, 18),
-            (Class::Rejected, 19),
-            (Class::OutputFailed, 255),
-            (Class::Panic, 255),
-            (Class::Hangup, 129),
-            (Class::Terminated, 143),
-        ];
-        assert_eq!(expected.len(), Class::ALL.len());
-        for (class, code) in expected {
-            assert!(Class::ALL.contains(&class));
+        for class in Class::ALL {
+            let code = documented_code(class);
             assert_eq!(class.code(), code, "{class:?}");
             let listed = EXIT_CODES
                 .lines()
