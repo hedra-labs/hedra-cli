@@ -3,6 +3,7 @@
 
 use std::time::Duration;
 
+use hedra_cli_sandbox::backoff::Backoff;
 use hedra_cli_sdk::api::{
     CreateSandboxRequest, Sandbox, SandboxFailureReason, SandboxInstanceStatus, SandboxStatus,
 };
@@ -19,6 +20,10 @@ pub(crate) const CREATE_LOOP: Duration = Duration::from_secs(5 * 60);
 pub(crate) const READY_BUDGET: Duration = Duration::from_secs(20 * 60);
 pub(crate) const CREATE_ATTEMPT: Duration = Duration::from_secs(45);
 const STOP_DEADLINE: Duration = Duration::from_secs(5 * 60);
+/// Between the create's and the stop's retries, whose deadlines run to
+/// minutes: the cap spares a struggling route without leaving it untried for
+/// long.
+const ROUTE_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(16));
 /// The longest wait taken from an envelope's `retry_after`.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
@@ -35,10 +40,6 @@ pub(crate) fn retry_wait(error: &CallError, backoff: Duration) -> Duration {
 /// `limit`, cut to what is left before `deadline`.
 fn within(limit: Duration, deadline: Instant) -> Duration {
     limit.min(deadline.saturating_duration_since(Instant::now()))
-}
-
-fn next_backoff(backoff: Duration) -> Duration {
-    (backoff * 2).min(Duration::from_secs(16))
 }
 
 fn describe(error: &CallError) -> String {
@@ -98,7 +99,7 @@ pub(crate) async fn create(
             Created::Refused(failure)
         }
     };
-    let mut backoff = Duration::from_secs(1);
+    let mut backoff = ROUTE_BACKOFF;
     loop {
         let error = match attempt(
             timing.create_attempt,
@@ -111,17 +112,21 @@ pub(crate) async fn create(
         };
         let subject = Some(body.name.as_str());
         let wait = match &error {
-            CallError::Http(e) if e.is(409, "ALREADY_IN_PROGRESS") => retry_wait(&error, backoff),
+            CallError::Http(e) if e.is(409, "ALREADY_IN_PROGRESS") => {
+                retry_wait(&error, backoff.wait())
+            }
             CallError::Http(e) if e.status == 429 => {
-                let wait = retry_wait(&error, backoff);
+                let wait = retry_wait(&error, backoff.wait());
                 if limited + wait > timing.limit_wait {
                     return refused(error.failure(subject), unanswered);
                 }
                 limited += wait;
                 wait
             }
-            CallError::Http(e) if e.status == 408 || e.status >= 500 => retry_wait(&error, backoff),
-            CallError::Transport(_) | CallError::Timeout => backoff,
+            CallError::Http(e) if e.status == 408 || e.status >= 500 => {
+                retry_wait(&error, backoff.wait())
+            }
+            CallError::Transport(_) | CallError::Timeout => backoff.wait(),
             // An answer hedra-cli could not read may be a 201.
             CallError::Unreadable(_) => {
                 return Created::Unknown(unknown(error.failure(subject), name))
@@ -138,7 +143,7 @@ pub(crate) async fn create(
             describe(&error)
         ));
         tokio::time::sleep(wait).await;
-        backoff = next_backoff(backoff);
+        backoff.grow();
     }
 }
 
@@ -393,7 +398,7 @@ pub(crate) async fn request_stop(
     timing: &Timing,
     deadline: Instant,
 ) -> Result<Sandbox, Failure> {
-    let mut backoff = Duration::from_secs(1);
+    let mut backoff = ROUTE_BACKOFF;
     let mut said_waiting = false;
     loop {
         let limit = within(timing.stop_attempt, deadline);
@@ -409,12 +414,12 @@ pub(crate) async fn request_stop(
                     ));
                     said_waiting = true;
                 }
-                retry_wait(&e, backoff)
+                retry_wait(&e, backoff.wait())
             }
             CallError::Http(h) if h.status == 408 || h.status == 429 || h.status >= 500 => {
-                retry_wait(&e, backoff)
+                retry_wait(&e, backoff.wait())
             }
-            CallError::Transport(_) | CallError::Timeout => backoff,
+            CallError::Transport(_) | CallError::Timeout => backoff.wait(),
             _ => return Err(e.failure(Some(name))),
         };
         if Instant::now() + wait >= deadline {
@@ -428,7 +433,7 @@ pub(crate) async fn request_stop(
             return Err(failure);
         }
         tokio::time::sleep(wait).await;
-        backoff = next_backoff(backoff);
+        backoff.grow();
     }
 }
 

@@ -202,7 +202,11 @@ impl Failure {
 }
 
 /// The v3 error envelope, read leniently: a load balancer's 502 or a
-/// proxy's page has none.
+/// proxy's page has none. Read here rather than through the generated
+/// `api_error_from_body`, which lifts a reason and a sentence but leaves
+/// `retry_after`, which the verbs' retries wait on, and `trace_id`, which
+/// each failure line prints, as untyped JSON in its `details`, and which
+/// cannot tell an absent `code` from one equal to the HTTP reason.
 #[derive(Debug, Default, Clone, PartialEq)]
 pub(crate) struct Envelope {
     pub(crate) code: Option<String>,

@@ -687,6 +687,70 @@ async fn a_mint_answered_503_is_retried() {
     assert_eq!(broker.calls().len(), 1);
 }
 
+/// The verbs' client runs with the executor's retries off: a lookup, which
+/// the verb attempts once, is sent once however the route answers.
+#[tokio::test]
+async fn a_name_lookup_answered_503_is_sent_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/v3/sandboxes/box"))
+        .respond_with(envelope(503, "UNAVAILABLE", "starting", Some(0)))
+        .mount(&server)
+        .await;
+    let out = Run::new(&server).run(&["sandbox", "exec", "box", "-n", "--", "true"]);
+    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+    assert_eq!(
+        requests_to(&server, "GET", "/v3/sandboxes/box").await.len(),
+        1
+    );
+}
+
+/// A lookup's 404s exit with the class codes the help documents.
+#[tokio::test]
+async fn a_lookups_404s_exit_not_found_and_not_enabled() {
+    for (message, code, line) in [
+        (
+            "Sandbox not found.",
+            11,
+            "hedra-cli: Not found (11): No sandbox `box`. Run `hedra-cli sandbox ls`.",
+        ),
+        (
+            "Sandboxes are not available.",
+            12,
+            "hedra-cli: Not enabled (12): Sandboxes are not available to this workspace yet. \
+             Ask Hedra to enable them.",
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/v3/sandboxes/box"))
+            .respond_with(envelope(404, "NOT_FOUND", message, None))
+            .mount(&server)
+            .await;
+        let out = Run::new(&server).run(&["sandbox", "logs", "box"]);
+        assert_eq!(out.status.code(), Some(code), "{}", stderr(&out));
+        assert_eq!(class_line(&stderr(&out)), Some(line));
+    }
+}
+
+/// A broker that closes the connection after reading the request has not
+/// admitted the call, so the open is retried.
+#[tokio::test]
+async fn a_connection_dropped_before_admission_is_retried() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::drop_connection());
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(b"second".to_vec()),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "second");
+    assert_eq!(broker.calls().len(), 2);
+}
+
 // ---------------------------------------------------------------- transport
 
 fn write_dotenv(run: &Run, proxy: &Proxy) {
@@ -726,6 +790,115 @@ async fn a_dotenv_cannot_set_the_proxy_or_turn_off_verification() {
     let out = run.run(&exec_args(&["-n", "--", "x"]));
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert!(proxy.requests().is_empty(), "{:?}", proxy.requests());
+}
+
+/// An untrusted broker certificate is not retried for the admission budget:
+/// the open fails at once and names the variables that add a CA.
+#[tokio::test]
+async fn an_untrusted_broker_certificate_fails_at_once_naming_the_fix() {
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    let started = std::time::Instant::now();
+    let out = Run::new(&server)
+        .command(&exec_args(&["-n", "--", "x"]))
+        .env_remove("HEDRA_CLI_CA_BUNDLE")
+        .output()
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+    let err = stderr(&out);
+    let line = class_line(&err).unwrap_or_default();
+    assert!(
+        line.starts_with(
+            "hedra-cli: Rejected request (19): Could not connect to the sandbox broker: \
+             the broker's TLS certificate is not trusted"
+        ),
+        "{err}"
+    );
+    assert!(line.contains("HEDRA_CLI_CA_BUNDLE"), "{err}");
+    assert_eq!(broker.failed_handshakes(), 1);
+}
+
+/// A proxy answering the CONNECT with 407 fails the open at once, with the
+/// proxy's answer.
+#[tokio::test]
+async fn a_proxy_refusing_the_tunnel_fails_at_once_with_its_answer() {
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let tunnels = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = tunnels.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut client) = conn else { continue };
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                if client.read(&mut b).unwrap_or(0) == 0 {
+                    break;
+                }
+                head.push(b[0]);
+            }
+            let _ = client.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+        }
+    });
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    let started = std::time::Instant::now();
+    let out = Run::new(&server)
+        .command(&exec_args(&["-n", "--", "x"]))
+        .env("HTTPS_PROXY", format!("http://127.0.0.1:{port}"))
+        .output()
+        .unwrap();
+    assert!(
+        started.elapsed() < Duration::from_secs(10),
+        "{:?}",
+        started.elapsed()
+    );
+    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+    assert_eq!(
+        class_line(&stderr(&out)),
+        Some(
+            "hedra-cli: Rejected request (19): Could not connect to the sandbox broker: the \
+             proxy refused the tunnel to the broker: HTTP/1.1 407 Proxy Authentication Required."
+        )
+    );
+    assert_eq!(tunnels.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(broker.connections(), 0);
+}
+
+/// A malformed `HEDRA_CLI_PROXY` fails before any request, naming the
+/// variable and never its value, which may hold a password.
+#[tokio::test]
+async fn a_malformed_hedra_cli_proxy_is_refused_without_its_password() {
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    for (verb, code) in [
+        (&["sandbox", "exec", ID, "-n", "--", "x"][..], 255),
+        (&["sandbox", "logs", ID][..], 19),
+    ] {
+        let out = Run::new(&server)
+            .command(verb)
+            .env("HEDRA_CLI_PROXY", "http://user:s3cret@127.0.0.1:notaport")
+            .output()
+            .unwrap();
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(code), "{verb:?}: {err}");
+        assert!(!err.contains("s3cret"), "{err}");
+        assert!(!err.contains("panicked"), "{err}");
+        let line = class_line(&err).unwrap_or_default();
+        assert!(
+            line.starts_with("hedra-cli: Rejected request (19): "),
+            "{err}"
+        );
+        assert!(line.contains("HEDRA_CLI_PROXY"), "{err}");
+    }
+    assert!(server.received_requests().await.unwrap().is_empty());
+    assert_eq!(broker.connections(), 0);
 }
 
 #[tokio::test]
@@ -853,6 +1026,46 @@ async fn logs_falls_back_to_the_stored_copy_on_sandbox_disconnected() {
     let out = Run::new(&server).run(&["sandbox", "logs", ID]);
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(stdout(&out), "stored\n");
+}
+
+/// `logs -f` follows replica 0: replica 1 failing while the sandbox starts
+/// does not end the follow.
+#[tokio::test]
+async fn logs_f_follows_replica_zero_when_another_replica_fails() {
+    let broker = FakeBroker::start();
+    broker.log(b"zero\n");
+    broker.push_logs(LogsScript::admit(LogsEnd::Hold));
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    let mut started = sandbox(ID, "box", "creating", json!(null));
+    started["replicas"] = json!(2);
+    let mut split = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "failed", "failure_reason": "instance_failed"},
+        ]),
+    );
+    split["replicas"] = json!(2);
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            ResponseTemplate::new(200).set_body_json(started),
+            ResponseTemplate::new(200).set_body_json(split),
+        ]))
+        .mount(&server)
+        .await;
+    let mut child = Run::new(&server).spawn(&["sandbox", "logs", "-f", ID]);
+    let seen = collect(child.stdout.take().unwrap());
+    wait_until("replica 0's output", || {
+        seen.lock().unwrap().ends_with(b"zero\n")
+    });
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(broker.calls().len(), 1);
 }
 
 #[tokio::test]

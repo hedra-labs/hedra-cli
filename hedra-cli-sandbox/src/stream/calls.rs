@@ -25,6 +25,7 @@ use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tonic::Streaming;
 
+use crate::backoff::Backoff;
 use crate::pb::hedra::sandbox::v1::{
     ExecClientFrame, ExecServerFrame, LogChunk, LogsRequest, PortClientFrame, PortServerFrame,
 };
@@ -39,6 +40,9 @@ pub const ADMISSION_RETRY: Duration = Duration::from_secs(60);
 /// How long one attempt may wait for the broker's response headers.
 pub const OPEN_ATTEMPT: Duration = Duration::from_secs(15);
 const SEND_BUFFER: usize = 16;
+/// Between refused opens: a supervisor reconnecting or a broker restarting
+/// is usually back within seconds, so the 60 s budget tries a dozen times.
+const ADMISSION_BACKOFF: Backoff = Backoff::new(Duration::from_millis(500), Duration::from_secs(5));
 /// How long after its senders drop a call's reset may take to go out before
 /// its connection is closed.
 const RESET_WAIT: Duration = Duration::from_millis(250);
@@ -343,7 +347,7 @@ where
     Fut: std::future::Future<Output = Result<T, tonic::Status>>,
 {
     let deadline = Instant::now() + open.retry_for;
-    let mut backoff = Duration::from_millis(500);
+    let mut backoff = ADMISSION_BACKOFF;
     let mut reauthenticated = false;
     loop {
         let (client, breaker) = session
@@ -405,11 +409,11 @@ where
         if status.is(reason::SANDBOX_DISCONNECTED) {
             session.invalidate().await;
         }
-        if !status::retry_before_admission(&status) || Instant::now() + backoff >= deadline {
+        if !status::retry_before_admission(&status) || Instant::now() + backoff.wait() >= deadline {
             return Err(OpenError::Refused(status));
         }
         (open.on_wait)(&waiting_for(&status));
-        tokio::time::sleep(backoff).await;
-        backoff = (backoff * 2).min(Duration::from_secs(5));
+        tokio::time::sleep(backoff.wait()).await;
+        backoff.grow();
     }
 }

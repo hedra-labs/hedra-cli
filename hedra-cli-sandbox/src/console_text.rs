@@ -1,5 +1,5 @@
-//! The text conversions behind Windows consoles, kept apart from the
-//! Windows calls so every platform's tests check them.
+//! The text conversions and key classification behind Windows consoles,
+//! kept apart from the Windows calls so every platform's tests check them.
 
 /// The length of `data` up to the end of its last complete UTF-8 sequence.
 pub fn complete_prefix(data: &[u8]) -> usize {
@@ -35,9 +35,28 @@ pub fn decode_units(carry: &mut Option<u16>, units: &[u16]) -> Vec<u8> {
     String::from_utf16_lossy(&all).into_bytes()
 }
 
+/// The Alt key's virtual-key code, `VK_MENU`.
+const VK_MENU: u16 = 0x12;
+
+/// Whether a console key record carries a typed character: a key press
+/// with one, or the Alt release that ends an Alt+Numpad entry (Alt+0233 is
+/// `é`), which the console delivers on the release.
+pub fn carries_input(key_down: bool, ch: u16, virtual_key: u16) -> bool {
+    ch != 0 && (key_down || virtual_key == VK_MENU)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_press_or_an_alt_numpad_release_carries_input() {
+        assert!(carries_input(true, u16::from(b'a'), 0x41));
+        assert!(carries_input(false, 0xe9, VK_MENU));
+        assert!(!carries_input(false, u16::from(b'a'), 0x41));
+        assert!(!carries_input(true, 0, 0x10));
+        assert!(!carries_input(false, 0, VK_MENU));
+    }
 
     #[test]
     fn an_incomplete_utf8_sequence_is_held_back() {

@@ -1,6 +1,16 @@
-//! Hand-written support for hedra-cli's sandbox commands: the gRPC client the
-//! stream verbs use to reach a sandbox's sessions through the broker's
-//! `SessionService`.
+//! Hand-written support for hedra-cli's sandbox stream verbs (`exec`,
+//! `shell`, `logs`, `attach`):
+//!
+//! - `session` and `stream`: the gRPC client that reaches a sandbox's
+//!   sessions through the broker's `SessionService`, with its TLS and proxy
+//!   transport, the open's retries and the output spool;
+//! - `backoff`: the doubling wait every retry loop, the CLI's own included,
+//!   takes;
+//! - `console` and `console_text`: raw-mode input and output on a Windows
+//!   console, and the text conversions behind them;
+//! - behind the `fake-broker` feature, for tests only: `fake_broker`, a
+//!   local broker, and `console_host`, a fresh console for the Windows
+//!   console tests.
 //!
 //! `fern generate` never rewrites or deletes this crate, since `.fernignore`
 //! lists it. The root `Cargo.toml` names it as a path dependency and has no
@@ -26,6 +36,7 @@ pub mod pb {
     }
 }
 
+pub mod backoff;
 #[cfg(windows)]
 pub mod console;
 #[cfg(all(windows, feature = "fake-broker"))]

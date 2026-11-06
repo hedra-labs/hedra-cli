@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::fake_broker::{
-    broker_status, ca_bundle, ExecScript, FakeBroker, LogsEnd, LogsScript, Step,
+    broker_status, ca_pem, ExecScript, FakeBroker, LogsEnd, LogsScript, Step,
 };
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::tonic::{Code, Status};
@@ -80,6 +80,20 @@ impl Run {
             .spawn()
             .unwrap()
     }
+}
+
+/// The fake broker's CA, for `HEDRA_CLI_CA_BUNDLE`: written once per test
+/// process under cargo's scratch directory, which outlives a test's home, as
+/// a child spawned from a dropped `Run` still reads it.
+pub fn ca_bundle() -> std::path::PathBuf {
+    static PATH: std::sync::OnceLock<std::path::PathBuf> = std::sync::OnceLock::new();
+    PATH.get_or_init(|| {
+        let path = std::path::Path::new(env!("CARGO_TARGET_TMPDIR"))
+            .join(format!("fake-broker-ca-{}.pem", std::process::id()));
+        std::fs::write(&path, ca_pem()).unwrap();
+        path
+    })
+    .clone()
 }
 
 pub fn stderr(o: &Output) -> String {
@@ -638,6 +652,27 @@ impl OnPty {
     pub fn signal(&self, sig: i32) {
         // SAFETY: sends a signal to a process this test started.
         assert_eq!(unsafe { libc::kill(self.pid(), sig) }, 0);
+    }
+
+    /// Waits until hedra-cli's stderr shows `needle`, failing the test
+    /// after `timeout` or once hedra-cli has exited without it.
+    pub fn wait_for_stderr(&self, needle: &str, timeout: Duration) {
+        let deadline = Instant::now() + timeout;
+        loop {
+            let err = String::from_utf8_lossy(&self.err.lock().unwrap()).into_owned();
+            if err.contains(needle) {
+                return;
+            }
+            assert!(
+                !err.contains("\n@@exit:"),
+                "hedra-cli exited before printing {needle:?}: {err}"
+            );
+            assert!(
+                Instant::now() < deadline,
+                "no {needle:?} on stderr within {timeout:?}: {err}"
+            );
+            std::thread::sleep(Duration::from_millis(20));
+        }
     }
 
     /// Waits for hedra-cli to exit; the terminal stays open until `self`

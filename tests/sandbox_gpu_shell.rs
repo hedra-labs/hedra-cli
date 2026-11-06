@@ -17,17 +17,17 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 const WAIT: Duration = Duration::from_secs(30);
 const GPU_ID: &str = "sandbox_9b2d5c1e-7a40-4f3b-8e61-2c5d9f0a1b7e";
 
-/// Answers with `answer`, and records that a request arrived, so a test can
-/// signal hedra-cli only once it is waiting on that request.
-struct Noted {
-    answer: ResponseTemplate,
+/// Answers as `answer` does, and records that a request arrived, so a test
+/// can signal hedra-cli only once it is waiting on that request.
+struct Noted<R> {
+    answer: R,
     arrived: Arc<AtomicBool>,
 }
 
-impl Respond for Noted {
-    fn respond(&self, _: &Request) -> ResponseTemplate {
+impl<R: Respond> Respond for Noted<R> {
+    fn respond(&self, req: &Request) -> ResponseTemplate {
         self.arrived.store(true, Ordering::SeqCst);
-        self.answer.clone()
+        self.answer.respond(req)
     }
 }
 
@@ -148,6 +148,9 @@ async fn mount_api(
         .mount(server)
         .await;
 }
+
+/// What `shell --gpu` says when a signal arrives during the create.
+const FINISHING: &str = "Finishing the create so the sandbox can be stopped";
 
 const ARGS: [&str; 7] = [
     "sandbox",
@@ -478,7 +481,8 @@ async fn a_second_ctrl_c_abandons_the_create_and_stops_nothing() {
     let out = on_pty(&Run::new(&server), |child| {
         wait_until(&arrived);
         child.signal(libc::SIGINT);
-        std::thread::sleep(Duration::from_millis(500));
+        // Once the first is taken, so the two are not coalesced.
+        child.wait_for_stderr(FINISHING, WAIT);
         child.signal(libc::SIGINT);
     });
     assert_eq!(out.code, 255, "{}", out.stderr);
@@ -494,6 +498,107 @@ async fn a_second_ctrl_c_abandons_the_create_and_stops_nothing() {
     );
     assert_eq!(creates(&server).await.len(), 1);
     assert_eq!(stops(&server).await, 0);
+}
+
+/// Mounts a create answering `create`, noting its arrival, with `GET`
+/// answering `get` and the stop route a stopped sandbox.
+async fn api_creating(create: impl Respond + 'static, get: Value) -> (MockServer, Arc<AtomicBool>) {
+    let server = MockServer::start().await;
+    let arrived = Arc::new(AtomicBool::new(false));
+    Mock::given(method("POST"))
+        .and(path("/v3/sandboxes"))
+        .respond_with(Noted {
+            answer: create,
+            arrived: arrived.clone(),
+        })
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{GPU_ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(get))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{GPU_ID}/stop")))
+        .respond_with(ResponseTemplate::new(200).set_body_json(sandbox(
+            GPU_ID,
+            "shell-aaaaaa",
+            "ended",
+            json!([{"replica": 0, "status": "stopped"}]),
+        )))
+        .mount(&server)
+        .await;
+    (server, arrived)
+}
+
+/// One Ctrl-C during the create lets it finish, then stops the sandbox it
+/// answered with, whether the first attempt answers or a replay does.
+#[tokio::test]
+async fn one_ctrl_c_during_the_create_stops_the_sandbox_it_answers_with() {
+    let created = || {
+        ResponseTemplate::new(201).set_body_json(sandbox(
+            GPU_ID,
+            "shell-aaaaaa",
+            "active",
+            running(),
+        ))
+    };
+    let answers = [
+        Sequence::new(vec![created().set_delay(Duration::from_secs(2))]),
+        // A retried create replays the first's answer under the same key.
+        Sequence::new(vec![
+            envelope(
+                409,
+                "ALREADY_IN_PROGRESS",
+                "The create is running.",
+                Some(1),
+            )
+            .set_delay(Duration::from_secs(1)),
+            created(),
+        ]),
+    ];
+    for (i, answer) in answers.into_iter().enumerate() {
+        let (server, arrived) =
+            api_creating(answer, sandbox(GPU_ID, "shell-aaaaaa", "active", running())).await;
+        let out = on_pty(&Run::new(&server), |child| {
+            wait_until(&arrived);
+            child.signal(libc::SIGINT);
+        });
+        assert_eq!(out.code, 130, "{i}: {}", out.stderr);
+        assert!(out.stderr.contains(FINISHING), "{i}: {}", out.stderr);
+        let keys: Vec<_> = creates(&server)
+            .await
+            .into_iter()
+            .map(|c| c["idempotency-key"].clone())
+            .collect();
+        assert_eq!(keys.len(), i + 1, "{i}");
+        assert!(keys.iter().all(|k| *k == keys[0]), "{i}: {keys:?}");
+        assert_eq!(stops(&server).await, 1, "{i}");
+    }
+}
+
+/// A Ctrl-C while the sandbox is starting stops it.
+#[tokio::test]
+async fn ctrl_c_during_the_ready_wait_stops_the_sandbox() {
+    let starting = || {
+        sandbox(
+            GPU_ID,
+            "shell-aaaaaa",
+            "active",
+            json!([{"replica": 0, "status": "starting"}]),
+        )
+    };
+    let (server, _) = api_creating(
+        ResponseTemplate::new(201).set_body_json(starting()),
+        starting(),
+    )
+    .await;
+    let out = on_pty(&Run::new(&server), |child| {
+        child.wait_for_stderr("replica 0 starting", WAIT);
+        child.signal(libc::SIGINT);
+    });
+    assert_eq!(out.code, 130, "{}", out.stderr);
+    assert_eq!(stops(&server).await, 1);
 }
 
 #[tokio::test]

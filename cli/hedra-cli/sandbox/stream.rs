@@ -4,6 +4,7 @@
 
 use std::time::{Duration, SystemTime};
 
+use hedra_cli_sandbox::backoff::Backoff;
 use hedra_cli_sandbox::session::{MintFuture, Minted, SessionError, SessionMinter};
 use hedra_cli_sandbox::stream::calls::{waiting_for, OpenError, Waiting};
 use hedra_cli_sandbox::stream::status::{reason, BrokerStatus};
@@ -18,6 +19,8 @@ use super::render;
 
 /// How long a mint keeps retrying.
 const MINT_RETRY: Duration = Duration::from_secs(60);
+/// Between a mint's retries: the cap keeps several tries inside the minute.
+const MINT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(8));
 
 /// Mints session JWTs for replica 0 of one sandbox through the v3 route.
 pub(crate) struct Minter<'a> {
@@ -37,7 +40,7 @@ impl SessionMinter for Minter<'_> {
 /// errors for up to a minute; a second mint is harmless.
 async fn mint(api: &Api, id: &str) -> Result<Minted, CallError> {
     let deadline = Instant::now() + MINT_RETRY;
-    let mut backoff = Duration::from_secs(1);
+    let mut backoff = MINT_BACKOFF;
     let request = SessionQueryRequest { replica: Some(0) };
     loop {
         match attempt(ATTEMPT, api.client.session(id, &request, None)).await {
@@ -50,12 +53,12 @@ async fn mint(api: &Api, id: &str) -> Result<Minted, CallError> {
                 })
             }
             Err(e) => {
-                let wait = retry_wait(&e, backoff);
+                let wait = retry_wait(&e, backoff.wait());
                 if !e.transient() || Instant::now() + wait >= deadline {
                     return Err(e);
                 }
                 tokio::time::sleep(wait).await;
-                backoff = (backoff * 2).min(Duration::from_secs(8));
+                backoff.grow();
             }
         }
     }

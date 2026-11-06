@@ -4,6 +4,7 @@
 
 use std::time::Duration;
 
+use hedra_cli_sandbox::backoff::Backoff;
 use hedra_cli_sandbox::pb::hedra::sandbox::v1::{LogChunk, LogsRequest};
 use hedra_cli_sandbox::prost_types::Timestamp;
 use hedra_cli_sandbox::session::{Session, SessionError};
@@ -30,7 +31,9 @@ const MEMORY: usize = 8 * 1024 * 1024;
 const TOTAL: u64 = 1024 * 1024 * 1024;
 /// A starting sandbox's wait: the pool's 15 minutes.
 const START_BUDGET: Duration = Duration::from_secs(15 * 60);
-const MAX_BACKOFF: Duration = Duration::from_secs(30);
+/// Between a follow's reopens: a follow outlasts a broker outage of any
+/// length, so the cap keeps it trying twice a minute.
+const REOPEN_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
 
 enum Ended {
     Done,
@@ -154,7 +157,7 @@ impl Logs<'_> {
         // Until a call is admitted, an open retries for the 60 s every verb
         // takes; after, a reopen takes the follow's own backoff.
         let mut admitted = false;
-        let mut backoff = Duration::from_secs(1);
+        let mut backoff = REOPEN_BACKOFF;
         let mut first = true;
         loop {
             let read = attempt(ATTEMPT, self.api.client.get(&id, None)).await;
@@ -167,8 +170,8 @@ impl Logs<'_> {
                         "Could not read `{}` to reopen its output; retrying.",
                         self.name
                     ));
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                    tokio::time::sleep(backoff.wait()).await;
+                    backoff.grow();
                     continue;
                 }
                 Err(e) => return Ended::Failed(e.failure(Some(&self.name))),
@@ -277,8 +280,8 @@ impl Logs<'_> {
                         && hedra_cli_sandbox::stream::status::retry_before_admission(&st) =>
                 {
                     on_wait(&calls::waiting_for(&st));
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                    tokio::time::sleep(backoff.wait()).await;
+                    backoff.grow();
                     continue;
                 }
                 Err(e) => {
@@ -326,8 +329,8 @@ impl Logs<'_> {
                     }
                     // A follow reopens after its backoff; the next pass reads
                     // the sandbox again, so a stop ends it with the tail.
-                    tokio::time::sleep(backoff).await;
-                    backoff = (backoff * 2).min(MAX_BACKOFF);
+                    tokio::time::sleep(backoff.wait()).await;
+                    backoff.grow();
                 }
             }
         }
@@ -338,7 +341,7 @@ impl Logs<'_> {
     async fn pump(
         &mut self,
         stream: &mut hedra_cli_sandbox::tonic::Streaming<LogChunk>,
-        backoff: &mut Duration,
+        backoff: &mut Backoff,
     ) -> Pumped {
         let mut spool = Spool::new(MEMORY, TOTAL);
         let mut open = true;
@@ -389,7 +392,7 @@ impl Logs<'_> {
                         if let Some(at) = chunk.at {
                             self.since = Some(next_nanosecond(at));
                         }
-                        *backoff = Duration::from_secs(1);
+                        backoff.reset();
                         self.printed = true;
                         if let Err(e) = spool.push(&chunk.data) {
                             return Pumped::End(buffer_failed(e));

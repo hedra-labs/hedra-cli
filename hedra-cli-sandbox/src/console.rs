@@ -243,7 +243,7 @@ fn next_record(handle: HANDLE) -> NextRecord {
     let key = unsafe { record.Event.KeyEvent };
     // SAFETY: both union members are u16-sized views of the same character.
     let ch = unsafe { key.uChar.UnicodeChar };
-    if key.bKeyDown != 0 && ch != 0 {
+    if crate::console_text::carries_input(key.bKeyDown != 0, ch, key.wVirtualKeyCode) {
         NextRecord::Char
     } else {
         NextRecord::Other

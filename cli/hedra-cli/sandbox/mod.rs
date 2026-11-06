@@ -127,10 +127,7 @@ fn stream_verb_in(args: &[String]) -> Option<&'static str> {
             positionals.push(arg);
             continue;
         }
-        let takes_value = super::dotenv::VALUE_FLAGS.contains(&arg)
-            || super::dotenv::SHORT_VALUE_FLAGS.contains(&arg)
-            || arg == "--base-url";
-        if takes_value {
+        if super::dotenv::takes_separate_value(arg) {
             let _ = args.next();
         }
     }

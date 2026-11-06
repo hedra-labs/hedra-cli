@@ -15,9 +15,8 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::SocketAddr;
-use std::path::PathBuf;
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Mutex, OnceLock};
 use std::task::{Context, Poll};
 use std::time::{Duration, Instant};
 
@@ -39,12 +38,66 @@ use crate::pb::hedra::sandbox::v1::{
 };
 use crate::stream::calls::ADMITTED_HEADER;
 
-const SERVER_CERT: &[u8] = include_bytes!("../testdata/server.pem");
-const SERVER_KEY: &[u8] = include_bytes!("../testdata/server.key");
+/// How long the fake broker's certificates are valid either side of now.
+const CERT_VALIDITY: time::Duration = time::Duration::days(7);
 
-/// The CA that signed the fake broker's certificate, for `HEDRA_CLI_CA_BUNDLE`.
-pub fn ca_bundle() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("testdata/ca.pem")
+/// The fake broker's TLS material, made once per process: a CA, and a
+/// certificate for `localhost` and `127.0.0.1` it signed. macOS refuses a
+/// server certificate valid for more than 825 days even under a CA the
+/// caller added, so a checked-in certificate would expire under the tests.
+struct TestPki {
+    ca_pem: String,
+    cert: rustls::pki_types::CertificateDer<'static>,
+    key: Vec<u8>,
+}
+
+fn test_pki() -> &'static TestPki {
+    static PKI: OnceLock<TestPki> = OnceLock::new();
+    PKI.get_or_init(make_test_pki)
+}
+
+fn make_test_pki() -> TestPki {
+    use rcgen::{
+        BasicConstraints, CertificateParams, DnType, ExtendedKeyUsagePurpose, IsCa, KeyPair,
+        KeyUsagePurpose, SanType,
+    };
+    let now = time::OffsetDateTime::now_utc();
+    let ca_key = KeyPair::generate().expect("a CA key");
+    let mut ca = CertificateParams::new(Vec::<String>::new()).expect("CA parameters");
+    ca.distinguished_name
+        .push(DnType::CommonName, "hedra-cli fake broker test CA");
+    ca.is_ca = IsCa::Ca(BasicConstraints::Unconstrained);
+    ca.key_usages = vec![KeyUsagePurpose::KeyCertSign, KeyUsagePurpose::CrlSign];
+    ca.not_before = now - CERT_VALIDITY;
+    ca.not_after = now + CERT_VALIDITY;
+    let ca_cert = ca.self_signed(&ca_key).expect("the CA certificate");
+
+    let key = KeyPair::generate().expect("a server key");
+    let mut server = CertificateParams::new(vec!["localhost".to_string()]).expect("parameters");
+    server
+        .distinguished_name
+        .push(DnType::CommonName, "localhost");
+    server
+        .subject_alt_names
+        .push(SanType::IpAddress(std::net::Ipv4Addr::LOCALHOST.into()));
+    server.key_usages = vec![KeyUsagePurpose::DigitalSignature];
+    server.extended_key_usages = vec![ExtendedKeyUsagePurpose::ServerAuth];
+    server.not_before = now - CERT_VALIDITY;
+    server.not_after = now + CERT_VALIDITY;
+    let cert = server
+        .signed_by(&key, &ca_cert, &ca_key)
+        .expect("the server certificate");
+    TestPki {
+        ca_pem: ca_cert.pem(),
+        cert: cert.der().clone(),
+        key: key.serialize_der(),
+    }
+}
+
+/// The PEM of the CA that signed the fake broker's certificate, for a file
+/// `HEDRA_CLI_CA_BUNDLE` names. Every fake broker in a process shares it.
+pub fn ca_pem() -> &'static str {
+    &test_pki().ca_pem
 }
 
 /// A status carrying an `ErrorInfo` in the broker's domain.
@@ -99,6 +152,9 @@ enum Answer {
     Unadmitted,
     /// No response headers at all.
     Stall,
+    /// Closes the TCP connection after reading the request, before any
+    /// response headers.
+    Drop,
 }
 
 /// What one `Exec` call does.
@@ -136,6 +192,15 @@ impl ExecScript {
     pub fn stall() -> Self {
         Self {
             answer: Answer::Stall,
+            steps: Vec::new(),
+        }
+    }
+
+    /// Reads the request, then closes the connection without answering: a
+    /// broker restarting mid-open.
+    pub fn drop_connection() -> Self {
+        Self {
+            answer: Answer::Drop,
             steps: Vec::new(),
         }
     }
@@ -360,12 +425,9 @@ fn at_or_after(at: &Option<Timestamp>, since: &Option<Timestamp>) -> bool {
 }
 
 fn tls_acceptor() -> TlsAcceptor {
-    let certs = rustls_pemfile::certs(&mut &SERVER_CERT[..])
-        .collect::<Result<Vec<_>, _>>()
-        .expect("the test certificate");
-    let key = rustls_pemfile::private_key(&mut &SERVER_KEY[..])
-        .expect("the test key")
-        .expect("a key");
+    let pki = test_pki();
+    let certs = vec![pki.cert.clone()];
+    let key = rustls::pki_types::PrivatePkcs8KeyDer::from(pki.key.clone()).into();
     let provider = Arc::new(rustls::crypto::ring::default_provider());
     let mut config = rustls::ServerConfig::builder_with_provider(provider)
         .with_safe_default_protocol_versions()
@@ -761,6 +823,10 @@ impl SessionService for Arc<Broker> {
         if let Answer::Stall = script.answer {
             std::future::pending::<()>().await;
         }
+        if let Answer::Drop = script.answer {
+            self.close(conn);
+            std::future::pending::<()>().await;
+        }
         if let Answer::Refuse(status) = script.answer.clone() {
             // Anything sent before admission would arrive in this window.
             let window = tokio::time::sleep(Duration::from_millis(150));
@@ -938,7 +1004,7 @@ mod tests {
         Session::new(
             m,
             TransportConfig {
-                extra_roots_pem: vec![std::fs::read(ca_bundle()).unwrap()],
+                extra_roots_pem: vec![ca_pem().as_bytes().to_vec()],
                 user_agent: "test".into(),
                 ..Default::default()
             },
