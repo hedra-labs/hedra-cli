@@ -1147,6 +1147,26 @@ mod tests {
         assert_eq!(m.mints.load(Ordering::SeqCst), 2);
     }
 
+    #[tokio::test]
+    async fn repeated_sandbox_disconnected_mints_again_at_most_once_per_floor() {
+        let broker = FakeBroker::start();
+        for _ in 0..3 {
+            broker.push_exec(ExecScript::refuse(broker_status(
+                Code::Unavailable,
+                "sandbox_disconnected",
+                "not yet",
+                &[],
+            )));
+        }
+        broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+        let m = minter(&broker);
+        let s = session(&m);
+        assert!(calls::open_exec(&s, &Open::default()).await.is_ok());
+        assert_eq!(broker.calls().len(), 4);
+        // The first refusal re-mints; the next two, within the floor, do not.
+        assert_eq!(m.mints.load(Ordering::SeqCst), 2);
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn dropping_a_call_resets_it_rather_than_ending_its_input() {
         let broker = FakeBroker::start();

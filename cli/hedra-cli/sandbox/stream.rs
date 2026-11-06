@@ -211,7 +211,7 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
                     let line = if message.is_empty() {
                         "Sandbox sessions are temporarily unavailable; retry shortly.".to_string()
                     } else {
-                        format!("Sandbox sessions are temporarily unavailable; retry shortly. ({message})")
+                        format!("Sandbox sessions are temporarily unavailable ({message}); retry shortly.")
                     };
                     let mut f = Failure::new(Class::Unavailable, line);
                     f.reason = s.reason.clone();
@@ -286,16 +286,17 @@ pub(crate) async fn open_failure(
         OpenError::Session(SessionError::Transport(TransportError::Connect(m))) => Failure::new(
             Class::Unavailable,
             format!(
-                "Sandbox sessions are temporarily unavailable; retry shortly. ({}) {}",
+                "Sandbox sessions are temporarily unavailable ({}); retry shortly. {}",
                 escape_controls(&m),
                 escape_controls(&unreached(proxy))
             ),
         ),
         OpenError::Session(SessionError::Mint(e)) => {
-            let stopped = e
-                .http()
-                .is_some_and(|h| h.status == 404 || h.is(400, "FAILED_PRECONDITION"));
-            if stopped {
+            // A 404 says only that the session route found no live replica, so
+            // the sandbox's own state names why. A 400 FAILED_PRECONDITION
+            // already says it ("The instance at this replica has stopped."),
+            // and its message is the line, as Not ready or stopped (13).
+            if e.http().is_some_and(|h| h.status == 404) {
                 if let Ok(s) = attempt(ATTEMPT, api.client.get(id, None)).await {
                     return Failure::new(Class::NotReady, state_line(&s, name));
                 }
@@ -594,10 +595,10 @@ static SIGNALLED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool:
 /// How often the exit flush looks at `SIGNALLED`.
 const FLUSH_SLICE: Duration = Duration::from_millis(50);
 
-/// Sets `SIGNALLED` on each signal `stream` delivers, for as long as the
-/// runtime runs: the verb's own `Signals` stops being polled once it returns,
-/// and a signal during the exit flush must still shorten it.
-fn watch<S, F>(mut stream: S, mut recv: F)
+/// Sets `flag` (`SIGNALLED`) on each signal `stream` delivers, for as long
+/// as the runtime runs: the verb's own `Signals` stops being polled once it
+/// returns, and a signal during the exit flush must still shorten it.
+fn watch<S, F>(flag: &'static std::sync::atomic::AtomicBool, mut stream: S, mut recv: F)
 where
     S: Send + 'static,
     F: for<'a> FnMut(
@@ -612,7 +613,7 @@ where
     };
     rt.spawn(async move {
         while recv(&mut stream).await {
-            SIGNALLED.store(true, std::sync::atomic::Ordering::SeqCst);
+            flag.store(true, std::sync::atomic::Ordering::SeqCst);
         }
     });
 }
@@ -783,6 +784,11 @@ fn ignored(sig: libc::c_int) -> bool {
 #[cfg(unix)]
 impl Signals {
     pub(crate) fn new() -> Self {
+        Self::watching(&SIGNALLED)
+    }
+
+    /// `new`, with the watchers setting `flag`.
+    fn watching(flag: &'static std::sync::atomic::AtomicBool) -> Self {
         use tokio::signal::unix::{signal, SignalKind};
         let listen = |sig: libc::c_int, kind: SignalKind| {
             if ignored(sig) {
@@ -797,7 +803,7 @@ impl Signals {
             (libc::SIGHUP, SignalKind::hangup()),
         ] {
             if let Some(stream) = listen(sig, kind) {
-                watch(stream, |s| {
+                watch(flag, stream, |s| {
                     Box::pin(async move { s.recv().await.is_some() })
                 });
             }
@@ -843,10 +849,14 @@ impl Signals {
     pub(crate) fn new() -> Self {
         use tokio::signal::windows::{ctrl_break, ctrl_c, ctrl_close};
         if let Ok(s) = ctrl_c() {
-            watch(s, |s| Box::pin(async move { s.recv().await.is_some() }));
+            watch(&SIGNALLED, s, |s| {
+                Box::pin(async move { s.recv().await.is_some() })
+            });
         }
         if let Ok(s) = ctrl_break() {
-            watch(s, |s| Box::pin(async move { s.recv().await.is_some() }));
+            watch(&SIGNALLED, s, |s| {
+                Box::pin(async move { s.recv().await.is_some() })
+            });
         }
         Self {
             int: ctrl_c().ok(),
@@ -875,18 +885,43 @@ pub(crate) fn die_by_sigpipe() -> ! {
     std::process::exit(141)
 }
 
+/// Which verb asked for a terminal, for the alternative its refusal offers.
+#[derive(Clone, Copy)]
+pub(crate) enum NoTerminal {
+    /// `exec -t`: the same command runs without a terminal.
+    ExecT,
+    /// `shell`: a command runs without one through `exec`.
+    Shell,
+    /// `shell --gpu`: no form of it runs without a terminal.
+    GpuShell,
+}
+
+impl NoTerminal {
+    /// The sentence's end: the alternative, if there is one, and the stop.
+    fn alternative(self) -> &'static str {
+        match self {
+            NoTerminal::ExecT => ", or drop -t.",
+            NoTerminal::Shell => {
+                ", or run a command without one with `hedra-cli sandbox exec <sandbox> -- <command>`."
+            }
+            NoTerminal::GpuShell => ".",
+        }
+    }
+}
+
 /// Whether stdin and stdout are consoles. Under mintty and Git Bash they are
 /// msys pipes, which `IsTerminal` accepts but raw mode cannot drive.
 #[cfg(windows)]
-pub(crate) fn foreground_terminal() -> Result<(), Failure> {
+pub(crate) fn foreground_terminal(without: NoTerminal) -> Result<(), Failure> {
     use hedra_cli_sandbox::console::{is_console, Std};
     if is_console(Std::In) && is_console(Std::Out) {
         return Ok(());
     }
-    Err(Failure::rejected(
+    Err(Failure::rejected(format!(
         "This needs a console on stdin and stdout: use Windows Terminal or a console window \
-         (mintty and Git Bash are not consoles), or drop -t.",
-    ))
+         (mintty and Git Bash are not consoles){}",
+        without.alternative()
+    )))
 }
 
 /// Ignores SIGPIPE while a stream is open, so a broker reset ends the stream
@@ -913,19 +948,21 @@ pub(crate) fn die_by_sigpipe() -> ! {
 /// Whether stdin and stdout are terminals and this process is in the
 /// terminal's foreground process group.
 #[cfg(unix)]
-pub(crate) fn foreground_terminal() -> Result<(), Failure> {
+pub(crate) fn foreground_terminal(without: NoTerminal) -> Result<(), Failure> {
     use std::io::IsTerminal;
     if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
-        return Err(Failure::rejected(
-            "This needs a terminal on stdin and stdout. Run it in a terminal, or drop -t.",
-        ));
+        return Err(Failure::rejected(format!(
+            "This needs a terminal on stdin and stdout: run it in a terminal{}",
+            without.alternative()
+        )));
     }
     // SAFETY: plain queries of the controlling terminal and process group.
     let (fg, own) = unsafe { (libc::tcgetpgrp(0), libc::getpgrp()) };
     if fg != own {
-        return Err(Failure::rejected(
-            "This needs the terminal: run it in the foreground, or drop -t.",
-        ));
+        return Err(Failure::rejected(format!(
+            "This needs the terminal: run it in the foreground{}",
+            without.alternative()
+        )));
     }
     Ok(())
 }
@@ -1184,6 +1221,34 @@ mod tests {
             String::from_utf8_lossy(&written.lock().unwrap()),
             "first\nhedra-cli: Internal (1): last\n"
         );
+    }
+
+    /// A signal that arrives once the verb has stopped polling its `Signals`
+    /// still marks the process signalled, so the exit flush is cut short. A
+    /// flag of its own keeps `SIGNALLED`, which other tests' flushes read,
+    /// clear.
+    #[cfg(unix)]
+    #[tokio::test]
+    async fn a_signal_nobody_polls_for_still_marks_the_process_signalled() {
+        static FLAG: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+        let Some(sig) = [libc::SIGHUP, libc::SIGTERM, libc::SIGINT]
+            .into_iter()
+            .find(|&s| !ignored(s))
+        else {
+            return;
+        };
+        let signals = Signals::watching(&FLAG);
+        // SAFETY: raising a signal whose handler `Signals::watching` installed.
+        _ = unsafe { libc::raise(sig) };
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+        while !FLAG.load(std::sync::atomic::Ordering::SeqCst) {
+            assert!(
+                std::time::Instant::now() < deadline,
+                "the watcher never saw the signal"
+            );
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+        }
+        drop(signals);
     }
 
     #[test]

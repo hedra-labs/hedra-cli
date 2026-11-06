@@ -29,6 +29,20 @@ use super::stream::{self, Minter, Needs, Out, Sig, Signals, WriteEnd};
 const MEMORY: usize = 8 * 1024 * 1024;
 /// What it holds in all before it stops reading.
 const TOTAL: u64 = 1024 * 1024 * 1024;
+
+/// The spool's limits. Test hook (debug builds only):
+/// `HEDRA_CLI_TEST_LOG_SPOOL_BYTES` lowers both to that many bytes, so a test
+/// can fill the spool without writing a gibibyte.
+fn spool_limits() -> (usize, u64) {
+    #[cfg(debug_assertions)]
+    if let Some(bytes) = std::env::var("HEDRA_CLI_TEST_LOG_SPOOL_BYTES")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+    {
+        return (bytes.min(MEMORY), bytes as u64);
+    }
+    (MEMORY, TOTAL)
+}
 /// A starting sandbox's wait: the pool's 15 minutes.
 const START_BUDGET: Duration = Duration::from_secs(15 * 60);
 /// Between a follow's reopens: a follow outlasts a broker outage of any
@@ -343,7 +357,8 @@ impl Logs<'_> {
         stream: &mut hedra_cli_sandbox::tonic::Streaming<LogChunk>,
         backoff: &mut Backoff,
     ) -> Pumped {
-        let mut spool = Spool::new(MEMORY, TOTAL);
+        let (memory, total) = spool_limits();
+        let mut spool = Spool::new(memory, total);
         let mut open = true;
         let mut ending = Pumped::Dropped(None);
         loop {

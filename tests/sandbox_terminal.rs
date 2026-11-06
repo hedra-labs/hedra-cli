@@ -114,19 +114,74 @@ async fn shell_sends_the_non_login_argv_on_a_terminal() {
     );
 }
 
+/// Each refusal offers what runs without a terminal: `exec` without `-t`,
+/// and for `shell`, a command through `exec`.
 #[tokio::test]
 async fn t_without_a_terminal_is_refused_before_any_request() {
-    let broker = FakeBroker::start();
-    let server = running_sandbox(&broker).await;
-    let out = Run::new(&server).run(&["sandbox", "exec", "-t", ID, "--", "bash"]);
-    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
-    assert!(
-        class_line(&stderr(&out))
-            .is_some_and(|l| l.starts_with("hedra-cli: Rejected request (19): ")),
-        "{}",
-        stderr(&out)
-    );
-    assert!(server.received_requests().await.unwrap().is_empty());
+    for (args, alternative) in [
+        (
+            &["sandbox", "exec", "-t", ID, "--", "bash"][..],
+            "run it in a terminal, or drop -t.",
+        ),
+        (
+            &["sandbox", "shell", ID][..],
+            "run it in a terminal, or run a command without one with \
+             `hedra-cli sandbox exec <sandbox> -- <command>`.",
+        ),
+    ] {
+        let broker = FakeBroker::start();
+        let server = running_sandbox(&broker).await;
+        let out = Run::new(&server).run(args);
+        assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+        assert_eq!(
+            class_line(&stderr(&out)),
+            Some(
+                format!(
+                    "hedra-cli: Rejected request (19): This needs a terminal on stdin and stdout: \
+                     {alternative}"
+                )
+                .as_str()
+            ),
+            "{}",
+            stderr(&out)
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
+}
+
+/// A background job has the terminal but cannot take it.
+#[tokio::test]
+async fn t_in_a_background_job_is_refused_before_any_request() {
+    for (args, alternative) in [
+        (
+            &["sandbox", "exec", "-t", ID, "--", "bash"][..],
+            ", or drop -t.",
+        ),
+        (
+            &["sandbox", "shell", ID][..],
+            ", or run a command without one with `hedra-cli sandbox exec <sandbox> -- <command>`.",
+        ),
+    ] {
+        let broker = FakeBroker::start();
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        let pty = Pty::open(24, 80);
+        let out = pty.spawn(&in_background(&run.command(args))).finish(WAIT);
+        assert_eq!(out.code, 255, "{}", out.stderr);
+        assert_eq!(
+            class_line(&out.stderr),
+            Some(
+                format!(
+                    "hedra-cli: Rejected request (19): This needs the terminal: run it in the \
+                     foreground{alternative}"
+                )
+                .as_str()
+            ),
+            "{}",
+            out.stderr
+        );
+        assert!(server.received_requests().await.unwrap().is_empty());
+    }
 }
 
 #[tokio::test]

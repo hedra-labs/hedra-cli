@@ -687,6 +687,61 @@ async fn a_mint_answered_503_is_retried() {
     assert_eq!(broker.calls().len(), 1);
 }
 
+/// A mint refused FAILED_PRECONDITION already says why, so its message is
+/// the line and the sandbox is not read; a 404 says only that no replica
+/// answered, so the sandbox's own state is the line.
+#[tokio::test]
+async fn a_mint_refusal_names_its_cause_and_only_a_404_reads_the_sandbox() {
+    let stopped = sandbox(
+        ID,
+        "box",
+        "ended",
+        json!([{"replica": 0, "status": "ended", "failure_reason": "oom"}]),
+    );
+    for (answer, line, reads) in [
+        (
+            envelope(
+                400,
+                "FAILED_PRECONDITION",
+                "The instance at this replica has stopped.",
+                None,
+            ),
+            "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped."
+                .to_string(),
+            0,
+        ),
+        (
+            envelope(404, "NOT_FOUND", "No replica is serving sessions.", None),
+            format!("hedra-cli: Not ready or stopped (13): `{ID}`'s instance stopped (oom)."),
+            1,
+        ),
+    ] {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(format!("/v3/sandboxes/{ID}/session")))
+            .respond_with(answer)
+            .mount(&server)
+            .await;
+        mount_sandbox(&server, ID, stopped.clone()).await;
+        // `exec` exits 255 for any failure of hedra-cli's own; the line names
+        // the class.
+        let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));
+        assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
+        assert_eq!(
+            class_line(&stderr(&out)),
+            Some(line.as_str()),
+            "{}",
+            stderr(&out)
+        );
+        assert_eq!(
+            requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+                .await
+                .len(),
+            reads
+        );
+    }
+}
+
 /// The verbs' client runs with the executor's retries off: a lookup, which
 /// the verb attempts once, is sent once however the route answers.
 #[tokio::test]
@@ -1229,6 +1284,37 @@ fn fill_ring(broker: &FakeBroker) {
     for _ in 0..64 {
         broker.log(&[b'z'; 64 * 1024]);
     }
+}
+
+/// A follow whose stdout falls a spool behind stops reading, says so, and
+/// once stdout drains reopens from the last chunk it printed, so every byte
+/// the broker still holds arrives once.
+#[tokio::test]
+async fn logs_f_past_the_spool_stops_reading_then_reopens_from_its_last_chunk() {
+    let broker = FakeBroker::start();
+    fill_ring(&broker);
+    broker.push_logs(LogsScript::admit(LogsEnd::Hold));
+    broker.push_logs(LogsScript::admit(LogsEnd::Hold));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "logs", "-f", ID]);
+    cmd.env("HEDRA_CLI_TEST_LOG_SPOOL_BYTES", (256 * 1024).to_string())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped());
+    let mut child = cmd.spawn().unwrap();
+    let err = collect(child.stderr.take().unwrap());
+    wait_until("the spool's note", || {
+        String::from_utf8_lossy(&err.lock().unwrap()).contains("faster than it is read")
+    });
+    let seen = collect(child.stdout.take().unwrap());
+    wait_until("the reopen to replay the rest", || {
+        seen.lock().unwrap().len() == 64 * 64 * 1024
+    });
+    assert!(broker.calls().len() >= 2, "{:?}", broker.calls().len());
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.code(), Some(0));
+    assert_eq!(seen.lock().unwrap().len(), 64 * 64 * 1024);
 }
 
 #[tokio::test]

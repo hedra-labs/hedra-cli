@@ -321,22 +321,25 @@ fn refusal_code(verb: &str, f: &Failure) -> i32 {
     }
 }
 
+/// The variables an unusable HTTP client may have been built from.
+const HTTP_SETTINGS: [&str; 8] = [
+    "HEDRA_CLI_PROXY",
+    "HTTPS_PROXY",
+    "https_proxy",
+    "ALL_PROXY",
+    "all_proxy",
+    "HEDRA_CLI_CA_BUNDLE",
+    "HEDRA_CLI_EXTRA_CA_CERTS",
+    "SSL_CERT_FILE",
+];
+
 /// The refusal for HTTP settings the client cannot be built from. It names
 /// the variables, never their values, which can hold credentials.
 fn unusable_http_settings() -> String {
-    let set: Vec<&str> = [
-        "HEDRA_CLI_PROXY",
-        "HTTPS_PROXY",
-        "https_proxy",
-        "ALL_PROXY",
-        "all_proxy",
-        "HEDRA_CLI_CA_BUNDLE",
-        "HEDRA_CLI_EXTRA_CA_CERTS",
-        "SSL_CERT_FILE",
-    ]
-    .into_iter()
-    .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
-    .collect();
+    let set: Vec<&str> = HTTP_SETTINGS
+        .into_iter()
+        .filter(|k| std::env::var_os(k).is_some_and(|v| !v.is_empty()))
+        .collect();
     if set.is_empty() {
         "hedra-cli's HTTP settings cannot be used.".to_string()
     } else {
@@ -406,7 +409,12 @@ fn gpu_shell_args(
 }
 
 /// The broker host the session route names, so `shell --gpu` can tell before
-/// its create whether a bypass list covers it.
+/// its create whether a bypass list covers it. The route names its broker
+/// only in a session, which needs the sandbox the create makes, so the
+/// production host stands in. Against another API, a bypass list that covers
+/// only that API's broker can see an unusable proxy refused before the create
+/// that the session would have bypassed: the check errs before the payment,
+/// not after.
 const BROKER_HOST: &str = "broker.sandbox.hedra.com";
 
 /// `exec`'s `--env` pairs.
@@ -447,6 +455,7 @@ fn stream_verb(
         exec::Exec {
             argv: exec::shell_argv(),
             tty: true,
+            shell: true,
             no_stdin: false,
             env: HashMap::new(),
             term,
@@ -459,6 +468,7 @@ fn stream_verb(
                 .cloned()
                 .collect(),
             tty: m.get_flag("tty"),
+            shell: false,
             no_stdin: m.get_flag("no-stdin"),
             env: exec_env(m)?,
             term,
@@ -587,6 +597,13 @@ async fn warnings_before_create(api: &Api, gpu: &str, read: std::time::Duration)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `SSL_CERT_FILE` feeds the trust store the client is built with, so a
+    /// bad one is among the settings the refusal names.
+    #[test]
+    fn the_http_settings_named_include_ssl_cert_file() {
+        assert!(HTTP_SETTINGS.contains(&"SSL_CERT_FILE"));
+    }
 
     /// The generated command tree, built from the embedded spec as the
     /// runtime builds it.

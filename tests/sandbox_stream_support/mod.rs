@@ -226,6 +226,29 @@ pub fn wait(mut child: Child, timeout: Duration) -> Output {
     }
 }
 
+/// `cmd` as a background job on the terminal: its stdin and stdout are the
+/// terminal, but it runs in a process group of its own, which is not the
+/// terminal's foreground group. A non-interactive shell has no job control,
+/// so `perl` moves it.
+#[cfg(unix)]
+pub fn in_background(cmd: &Command) -> Command {
+    let mut sh = Command::new("perl");
+    sh.arg("-e")
+        .arg("setpgrp(0, 0) or die $!; exec { $ARGV[0] } @ARGV or die $!")
+        .arg(cmd.get_program())
+        .args(cmd.get_args())
+        .env_clear();
+    for (k, v) in cmd.get_envs() {
+        if let Some(v) = v {
+            sh.env(k, v);
+        }
+    }
+    if let Some(dir) = cmd.get_current_dir() {
+        sh.current_dir(dir);
+    }
+    sh
+}
+
 /// The `hedra-cli: <class> (<code>):` line, if stderr has one.
 pub fn class_line(err: &str) -> Option<&str> {
     err.lines().find(|l| l.starts_with("hedra-cli: "))

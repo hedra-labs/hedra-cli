@@ -18,6 +18,10 @@ use super::stream::{self, Minter, Needs, Out, RawMode, Sig, Signals, WriteEnd};
 
 /// A larger `start` is refused before it is sent: the broker's frame limit.
 const MAX_START_BYTES: usize = 1 << 20;
+/// What the broker adds when it forwards argv and env in a frame of its own,
+/// under the same limit: a session id (a UUID), the terminal's size and an
+/// output window, about 50 bytes encoded.
+const BROKER_START_OVERHEAD: usize = 64;
 
 /// The argv `shell` runs: the image's shell, interactive and not a login
 /// shell, so the image's `PATH` survives.
@@ -32,6 +36,9 @@ pub(crate) fn shell_argv() -> Vec<String> {
 pub(crate) struct Exec {
     pub(crate) argv: Vec<String>,
     pub(crate) tty: bool,
+    /// `shell` rather than `exec -t`: names the alternative a terminal
+    /// refusal offers.
+    pub(crate) shell: bool,
     pub(crate) no_stdin: bool,
     pub(crate) env: HashMap<String, String>,
     pub(crate) term: Option<String>,
@@ -101,7 +108,12 @@ pub(crate) async fn finish(ended: Ended, json_errors: bool) -> i32 {
 
 async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec: Exec) -> Ended {
     if exec.tty {
-        if let Err(f) = stream::foreground_terminal() {
+        let without = if exec.shell {
+            stream::NoTerminal::Shell
+        } else {
+            stream::NoTerminal::ExecT
+        };
+        if let Err(f) = stream::foreground_terminal(without) {
             return Ended::Failed(f);
         }
     }
@@ -441,10 +453,11 @@ fn frame(f: exec_client_frame::Frame) -> ExecClientFrame {
 }
 
 /// The `start` frame, refused when over the broker's limit, which it
-/// applies to the whole frame as encoded.
+/// applies to the whole frame as it forwards it, with its own fields added.
 fn start_frame(start: ExecStart) -> Result<ExecClientFrame, Failure> {
     let f = frame(exec_client_frame::Frame::Start(start));
-    if hedra_cli_sandbox::prost::Message::encoded_len(&f) > MAX_START_BYTES {
+    if hedra_cli_sandbox::prost::Message::encoded_len(&f) + BROKER_START_OVERHEAD > MAX_START_BYTES
+    {
         return Err(Failure::rejected(
             "The command and its environment are over the 1 MiB a session's first frame can hold.",
         ));
@@ -488,17 +501,18 @@ mod tests {
     }
 
     #[test]
-    fn the_start_limit_counts_the_whole_frame() {
-        // The largest argv whose frame is exactly at the limit.
-        let len = (MAX_START_BYTES - 16..MAX_START_BYTES)
+    fn the_start_limit_counts_the_whole_frame_and_the_brokers_fields() {
+        // The largest argv whose frame leaves exactly the broker's room.
+        let limit = MAX_START_BYTES - BROKER_START_OVERHEAD;
+        let len = (limit - 16..limit)
             .rev()
-            .find(|&n| {
-                frame(exec_client_frame::Frame::Start(start(n))).encoded_len() == MAX_START_BYTES
-            })
+            .find(|&n| frame(exec_client_frame::Frame::Start(start(n))).encoded_len() == limit)
             .expect("a frame at the limit");
         assert!(start_frame(start(len)).is_ok());
-        // One byte more is refused, though `start` alone still fits.
-        assert!(start(len + 1).encoded_len() <= MAX_START_BYTES);
+        // One byte more is refused, though the frame alone still fits.
+        assert!(
+            frame(exec_client_frame::Frame::Start(start(len + 1))).encoded_len() <= MAX_START_BYTES
+        );
         let f = start_frame(start(len + 1)).unwrap_err();
         assert_eq!(f.class, Class::Rejected);
     }

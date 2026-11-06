@@ -43,6 +43,10 @@ const SEND_BUFFER: usize = 16;
 /// Between refused opens: a supervisor reconnecting or a broker restarting
 /// is usually back within seconds, so the 60 s budget tries a dozen times.
 const ADMISSION_BACKOFF: Backoff = Backoff::new(Duration::from_millis(500), Duration::from_secs(5));
+/// The least time between the re-mints `sandbox_disconnected` causes: a
+/// supervisor reconnecting takes seconds, so minting on every retry only adds
+/// load on the session route.
+const REMINT_FLOOR: Duration = Duration::from_secs(10);
 /// How long after its senders drop a call's reset may take to go out before
 /// its connection is closed.
 const RESET_WAIT: Duration = Duration::from_millis(250);
@@ -349,6 +353,7 @@ where
     let deadline = Instant::now() + open.retry_for;
     let mut backoff = ADMISSION_BACKOFF;
     let mut reauthenticated = false;
+    let mut reminted_at: Option<Instant> = None;
     loop {
         let (client, breaker) = session
             .client_with_breaker()
@@ -405,9 +410,13 @@ where
             reauthenticated = true;
             continue;
         }
-        // No supervisor for the token's instance: the next call mints again.
-        if status.is(reason::SANDBOX_DISCONNECTED) {
+        // No supervisor for the token's instance: the next call mints again,
+        // at most once per floor, while the admission budget runs on.
+        if status.is(reason::SANDBOX_DISCONNECTED)
+            && reminted_at.is_none_or(|at| at.elapsed() >= REMINT_FLOOR)
+        {
             session.invalidate().await;
+            reminted_at = Some(Instant::now());
         }
         if !status::retry_before_admission(&status) || Instant::now() + backoff.wait() >= deadline {
             return Err(OpenError::Refused(status));

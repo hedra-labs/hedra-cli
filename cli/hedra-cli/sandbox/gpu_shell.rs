@@ -104,7 +104,7 @@ pub(crate) async fn run(
         255
     };
     // Everything that can be checked without a sandbox, before paying for one.
-    if let Err(f) = stream::foreground_terminal() {
+    if let Err(f) = stream::foreground_terminal(stream::NoTerminal::GpuShell) {
         return out(f).await;
     }
     stream::ignore_sigpipe();
@@ -159,6 +159,7 @@ pub(crate) async fn run(
     let shell_exec = Exec {
         argv: exec::shell_argv(),
         tty: true,
+        shell: true,
         no_stdin: false,
         env: HashMap::new(),
         term: shell.term.clone(),

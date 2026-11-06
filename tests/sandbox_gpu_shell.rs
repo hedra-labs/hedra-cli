@@ -239,6 +239,31 @@ async fn without_a_terminal_nothing_is_created() {
     assert!(server.received_requests().await.unwrap().is_empty());
 }
 
+/// A background job has the terminal on stdin and stdout but cannot take
+/// it, so it is refused before the paid create, offering no form without a
+/// terminal.
+#[tokio::test]
+async fn a_background_job_is_refused_before_the_create() {
+    let broker = FakeBroker::start();
+    let server = api(&broker, 0).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let mut args = ARGS.to_vec();
+    args.push("2h");
+    let child = pty.spawn(&in_background(&run.command(&args)));
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert_eq!(
+        class_line(&out.stderr),
+        Some(
+            "hedra-cli: Rejected request (19): This needs the terminal: run it in the foreground."
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(server.received_requests().await.unwrap().is_empty());
+}
+
 #[tokio::test]
 async fn a_refusal_before_the_command_ran_stops_the_sandbox() {
     let after_start = |code, reason| {
@@ -886,6 +911,45 @@ async fn a_dropped_stream_says_how_the_sandbox_ended_without_a_reopen_command() 
         assert!(!line.contains("sandbox shell"), "{line}");
         assert_eq!(stops(&server).await, 0, "{says}");
     }
+}
+
+/// A read after the drop that fails says nothing of how the sandbox ended,
+/// so it is taken as still running: the line still names the reopen and the
+/// stop commands.
+#[tokio::test]
+async fn a_dropped_stream_whose_read_fails_still_prints_the_stop_command() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Close]));
+    // The ready wait reads it running; every read after the drop fails.
+    let get = Sequence::new(vec![
+        ResponseTemplate::new(200).set_body_json(sandbox(
+            GPU_ID,
+            "shell-aaaaaa",
+            "active",
+            running(),
+        )),
+        ResponseTemplate::new(500),
+    ]);
+    let server = api_with(&broker, 0, get, ResponseTemplate::new(500)).await;
+    let out = on_pty(&Run::new(&server), |_| {});
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    let line = class_line(&out.stderr).unwrap_or_default();
+    assert!(
+        line.starts_with("hedra-cli: Connection lost (18): Lost the connection to the sandbox"),
+        "{line}"
+    );
+    assert!(
+        line.contains(&format!("`hedra-cli sandbox stop --sandbox {GPU_ID}`")),
+        "{line}"
+    );
+    assert!(line.contains("is still running"), "{line}");
+    assert!(
+        requests_to(&server, "GET", &format!("/v3/sandboxes/{GPU_ID}"))
+            .await
+            .len()
+            >= 2
+    );
+    assert_eq!(stops(&server).await, 0);
 }
 
 #[tokio::test]
