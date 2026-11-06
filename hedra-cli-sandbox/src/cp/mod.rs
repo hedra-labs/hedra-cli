@@ -22,6 +22,7 @@ mod windows_tests;
 use std::ffi::{OsStr, OsString};
 use std::future::Future;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 
 use bytes::Bytes;
@@ -135,6 +136,14 @@ impl ExecSource for tonic::Streaming<ExecServerFrame> {
 #[derive(Debug, Default)]
 pub struct Progress {
     entry: Mutex<Begun>,
+    /// Set with `Begun::cancelled`, for the extractor's reads to check
+    /// without taking the lock.
+    stop: AtomicBool,
+    /// A copy out's extractor was started, and whether it has ended, with
+    /// the signal its end wakes.
+    extracting: AtomicBool,
+    extracted: AtomicBool,
+    ended: tokio::sync::Notify,
 }
 
 #[derive(Debug, Default)]
@@ -164,7 +173,37 @@ impl Progress {
     pub fn cancel(&self) -> bool {
         let mut e = self.lock();
         e.cancelled = true;
+        self.stop.store(true, Ordering::SeqCst);
         e.writing
+    }
+
+    /// Waits for a copy out's extractor, once started, to end, as it does
+    /// soon after [`Progress::cancel`] once the copy is dropped, having put
+    /// back the modes of directories it opened up.
+    pub async fn extracted(&self) {
+        loop {
+            let notified = self.ended.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if !self.extracting.load(Ordering::SeqCst) || self.extracted.load(Ordering::SeqCst) {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    fn extraction_starts(&self) {
+        self.extracting.store(true, Ordering::SeqCst);
+    }
+
+    fn extraction_ended(&self) {
+        self.extracted.store(true, Ordering::SeqCst);
+        self.ended.notify_waiters();
+    }
+
+    /// Whether the copy was cancelled.
+    fn cancelled(&self) -> bool {
+        self.stop.load(Ordering::SeqCst)
     }
 
     /// Whether a write of a copy out left something in the destination.
@@ -297,9 +336,9 @@ pub struct CopyOut {
     argv: Vec<String>,
     /// Directories [`CopyOut::prepare`] created, deepest first.
     created: Vec<PathBuf>,
-    /// Whether the target was there before the first [`CopyOut::prepare`],
-    /// which may create it; unknown before that.
-    existed: Option<bool>,
+    /// Whether the target was a directory before the first
+    /// [`CopyOut::prepare`], which may create it; unknown before that.
+    existed_dir: Option<bool>,
 }
 
 impl CopyOut {
@@ -317,8 +356,9 @@ impl CopyOut {
     /// it can be written, so a destination that cannot take the copy fails
     /// it before the call opens.
     pub fn prepare(&mut self) -> Result<(), String> {
-        if self.existed.is_none() {
-            self.existed = Some(std::fs::symlink_metadata(self.target()).is_ok());
+        if self.existed_dir.is_none() {
+            let m = std::fs::symlink_metadata(self.target());
+            self.existed_dir = Some(m.is_ok_and(|m| m.is_dir()));
         }
         let shown = self.dir.display().to_string();
         let mut missing = Vec::new();
@@ -358,11 +398,11 @@ impl CopyOut {
     }
 
     /// What a copy out that wrote something and failed left at its target:
-    /// part of the copy in a target that was already there, or a partial
-    /// copy in one this copy made.
+    /// part of the copy in a directory that was already there, or a partial
+    /// copy in one this copy made or a file it replaced.
     pub fn left(&self) -> Left {
         let path = escape_controls(&self.target().display().to_string());
-        match self.existed {
+        match self.existed_dir {
             Some(true) => Left::Into(path),
             _ => Left::Partial(path),
         }
@@ -484,7 +524,7 @@ pub fn plan_copy_out(spec: &CopySpec) -> Result<CopyOut, String> {
         name,
         argv,
         created: Vec::new(),
-        existed: None,
+        existed_dir: None,
     })
 }
 
@@ -823,7 +863,7 @@ impl<T> Drop for AbortOnDrop<T> {
 /// first; the call must be admitted. A copy that fails before writing
 /// anything removes the parents it created; one that wrote something leaves
 /// it in place and names it in [`CopyReport::partial`], unless every entry
-/// landed and only `tar`'s exit failed the copy.
+/// tar sent landed and only `tar`'s exit 1 failed the copy.
 pub async fn copy_out<S: ExecSink, R: ExecSource>(
     mut plan: CopyOut,
     sink: S,
@@ -848,7 +888,7 @@ pub async fn copy_out<S: ExecSink, R: ExecSource>(
 }
 
 /// [`copy_out`] once the destination is prepared, and whether the copy
-/// failed though every entry landed whole.
+/// failed though every entry tar sent landed.
 async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
     plan: &CopyOut,
     mut sink: S,
@@ -862,7 +902,12 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
     let extractor = {
         let progress = progress.clone();
         let (dir, base, name) = (plan.dir.clone(), plan.base.clone(), plan.name.clone());
-        tokio::task::spawn_blocking(move || extract::extract(rx, &dir, &base, &name, &progress))
+        progress.extraction_starts();
+        tokio::task::spawn_blocking(move || {
+            let x = extract::extract(rx, &dir, &base, &name, &progress);
+            progress.extraction_ended();
+            x
+        })
     };
     let mut received: u64 = 0;
     let mut extractor_stopped = false;
@@ -920,9 +965,10 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
         }
         Ending::Exit(c) => c,
     };
-    // Every entry landed and GNU tar's totals match what arrived, so a `tar`
-    // exiting 1 (a file changed as it read it) left the copy whole, though
-    // the copy still fails; said so, it names no partial copy.
+    // Every entry tar sent landed and GNU tar's totals match what arrived.
+    // A `tar` exiting 1 (a file changed, shrank or went away as it read it)
+    // still fails the copy, but the line says every entry arrived and names
+    // no partial copy.
     let whole = ex.error.is_none()
         && ex.skipped.is_empty()
         && ex.whole
@@ -944,7 +990,7 @@ async fn copy_out_prepared<S: ExecSink, R: ExecSource>(
                 ex.skipped.join(", ")
             )),
             None if whole => fail(format!(
-                "tar in the sandbox exited 1; the copy at {} is whole, but tar reported a file that changed as it read it",
+                "tar in the sandbox exited 1 (its message is above); every entry it sent arrived at {}",
                 escape_controls(&plan.target().display().to_string())
             )),
             None => fail(format!("tar in the sandbox exited {code}")),

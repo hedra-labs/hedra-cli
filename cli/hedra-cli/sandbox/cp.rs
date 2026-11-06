@@ -14,6 +14,10 @@ use super::exec::{self, Ended};
 use super::names::{self, Target};
 use super::stream::{self, Minter, Needs, Out, Sig, Signals, WriteEnd};
 
+/// How long a signal waits for a copy out's extractor to stop, and to put
+/// back the modes of the user's directories it opened up, before `cp` exits.
+const EXTRACTOR_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// Whether `part` names a sandbox: a valid name or a `sandbox_` id.
 fn is_sandbox(part: &str) -> bool {
     names::is_sandbox_name(part) || names::is_sandbox_id(part)
@@ -97,20 +101,29 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
     };
     // Dropping the copy on a signal drops both halves of the call, which
     // cancels the remote tar.
-    let report: CopyReport<hedra_cli_sandbox::tonic::Status> = tokio::select! {
+    let copied = tokio::select! {
         r = async {
             match plan {
                 Plan::In(p) => cp::copy_in(p, call.send, call.recv, progress.clone()).await,
                 Plan::Out(p) => cp::copy_out(p, call.send, call.recv, progress.clone()).await,
             }
-        } => r,
-        sig = signals.next() => {
+        } => Ok(r),
+        sig = signals.next() => Err(sig),
+    };
+    let report: CopyReport<hedra_cli_sandbox::tonic::Status> = match copied {
+        Ok(r) => r,
+        Err(sig) => {
             if let Some(p) = &mut created {
                 // The extractor, still running, writes nothing more once
                 // cancelled, so whether it wrote anything says whether part
                 // of the copy is there. A write it began may still be
                 // landing, so the parents stay and the line says where.
-                if progress.cancel() {
+                let wrote = progress.cancel();
+                // The copy is dropped, so the extractor's stream has ended:
+                // it stops, and puts back the modes of the user's
+                // directories it opened up, before the exit.
+                let _ = tokio::time::timeout(EXTRACTOR_GRACE, progress.extracted()).await;
+                if wrote {
                     stream::note(p.left().sentence());
                 } else {
                     p.discard();

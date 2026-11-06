@@ -762,11 +762,134 @@ async fn a_failed_copy_out_puts_back_a_read_only_directory_it_wrote_into() {
     let _ = std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755));
 }
 
+/// A copy over more read-only directories than the default limit on open
+/// files lands: opening each one up for the copy holds no descriptor.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_over_many_read_only_directories_holds_no_descriptor_for_each() {
+    use std::os::unix::fs::PermissionsExt;
+    use std::os::unix::process::CommandExt;
+    const DIRS: usize = 400;
+    let mut stream = header("tree/", b'5', 0o755, 0);
+    for i in 0..DIRS {
+        stream.extend(header(&format!("tree/d{i}/"), b'5', 0o555, 0));
+        stream.extend(&one_entry(&format!("tree/d{i}/f"))[..1024]);
+    }
+    stream.resize(stream.len().div_ceil(10240) * 10240 + 10240, 0);
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(stream),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    for i in 0..DIRS {
+        let d = run.home.path().join(format!("tree/d{i}"));
+        std::fs::create_dir_all(&d).unwrap();
+        std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o555)).unwrap();
+    }
+    let src = format!("{ID}:/work/tree");
+    let mut cmd = run.command(&["sandbox", "cp", &src, "."]);
+    // SAFETY: only async-signal-safe calls between fork and exec.
+    unsafe {
+        cmd.pre_exec(|| {
+            let limit = libc::rlimit {
+                rlim_cur: 256,
+                rlim_max: libc::RLIM_INFINITY,
+            };
+            if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            Ok(())
+        });
+    }
+    let out = cmd.output().unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    for i in 0..DIRS {
+        let d = run.home.path().join(format!("tree/d{i}"));
+        assert_eq!(std::fs::read(d.join("f")).unwrap(), b"x", "d{i}");
+        let mode = std::fs::metadata(&d).unwrap().permissions().mode() & 0o7777;
+        assert_eq!(mode, 0o555, "d{i}");
+        let _ = std::fs::set_permissions(&d, std::fs::Permissions::from_mode(0o755));
+    }
+}
+
+/// A copy out cut part way over a file of the user's names what it left as
+/// a partial copy: the file was replaced, so nothing of the user's is in it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_cut_over_an_existing_file_says_a_partial_copy_was_left() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(first_entry_only("a.txt")),
+        Step::Exit(2),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    std::fs::write(run.home.path().join("out"), b"mine").unwrap();
+    let src = format!("{ID}:/work/a.txt");
+    let out = run.run(&["sandbox", "cp", &src, "out"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    let line = class_line(&err).unwrap_or_default();
+    assert!(
+        line.contains("tar in the sandbox exited 2")
+            && line.ends_with("; a partial copy was left at ./out"),
+        "{err}"
+    );
+    assert!(!err.contains("already existed"), "{err}");
+}
+
+/// Ctrl-C while a copy out writes a file into the user's read-only
+/// directory stops the write, puts the directory's mode back before `cp`
+/// exits 130, and names the directory part of the copy was written into.
+#[tokio::test(flavor = "multi_thread")]
+async fn ctrl_c_mid_file_puts_back_a_read_only_directory_before_exiting() {
+    use std::os::unix::fs::PermissionsExt;
+    const BIG: u64 = 256 << 20;
+    let broker = FakeBroker::start();
+    let mut stream = header("tree/", b'5', 0o755, 0);
+    stream.extend(header("tree/ro/", b'5', 0o555, 0));
+    stream.extend(header("tree/ro/big", b'0', 0o644, BIG));
+    let chunk = vec![7u8; 1 << 20];
+    let mut steps = vec![Step::Start, Step::Stdout(stream)];
+    for _ in 0..64 {
+        steps.push(Step::Stdout(chunk.clone()));
+    }
+    steps.push(Step::Hold);
+    broker.push_exec(ExecScript::admit(steps));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let ro = run.home.path().join("tree/ro");
+    std::fs::create_dir_all(&ro).unwrap();
+    std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o555)).unwrap();
+    let src = format!("{ID}:/work/tree");
+    let child = run.spawn(&["sandbox", "cp", &src, "."]);
+    let big = ro.join("big");
+    let deadline = Instant::now() + WAIT;
+    while std::fs::metadata(&big).map_or(0, |m| m.len()) == 0 {
+        assert!(Instant::now() < deadline, "the file was never begun");
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    let mode = std::fs::metadata(&ro).unwrap().permissions().mode() & 0o7777;
+    let _ = std::fs::set_permissions(&ro, std::fs::Permissions::from_mode(0o755));
+    assert_eq!(out.status.code(), Some(130), "{err}");
+    assert_eq!(mode, 0o555, "{err}");
+    assert!(
+        err.contains("Part of the copy was written into ./tree, which already existed."),
+        "{err}"
+    );
+}
+
 /// GNU tar exiting 1 on a whole stream whose totals match what arrived
-/// still fails the copy with 255, but says the copy is whole and why tar
+/// still fails the copy with 255, but says every entry arrived and why tar
 /// failed, and names no partial copy.
 #[tokio::test(flavor = "multi_thread")]
-async fn tar_exiting_1_on_a_whole_stream_says_the_copy_is_whole() {
+async fn tar_exiting_1_on_a_whole_stream_says_every_entry_arrived() {
     let broker = FakeBroker::start();
     let stream = one_entry("a.txt");
     let tar_err = format!(
@@ -788,7 +911,7 @@ async fn tar_exiting_1_on_a_whole_stream_says_the_copy_is_whole() {
     let line = class_line(&err).unwrap_or_default();
     assert!(
         line.ends_with(
-            "tar in the sandbox exited 1; the copy at ./out is whole, but tar reported a file that changed as it read it"
+            "tar in the sandbox exited 1 (its message is above); every entry it sent arrived at ./out"
         ),
         "{err}"
     );

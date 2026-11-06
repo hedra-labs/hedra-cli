@@ -702,8 +702,8 @@ async fn copy_out_judges_the_stream() {
     }
 
     // GNU tar exiting 1 on a whole stream whose totals match still fails
-    // the copy, but says it is whole and names no partial copy; exit 2, or
-    // totals that do not match, leave it partial.
+    // the copy, but says every entry arrived and names no partial copy;
+    // exit 2, or totals that do not match, leave it partial.
     for (code, totals, whole) in [(1, a.len(), true), (2, a.len(), false), (1, 512, false)] {
         let dst = tempfile::tempdir().unwrap();
         let out = dst.path().join("out");
@@ -721,13 +721,13 @@ async fn copy_out_judges_the_stream() {
             assert_eq!(
                 m,
                 format!(
-                    "tar in the sandbox exited 1; the copy at {} is whole, but tar reported a file that changed as it read it",
+                    "tar in the sandbox exited 1 (its message is above); every entry it sent arrived at {}",
                     out.display()
                 )
             );
             assert_eq!(r.partial, None);
         } else {
-            assert!(!m.contains("whole"), "{m}");
+            assert!(!m.contains("every entry"), "{m}");
             assert_eq!(r.partial, Some(Left::Partial(out.display().to_string())));
         }
     }

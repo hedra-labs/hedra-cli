@@ -53,38 +53,59 @@ pub(crate) struct Extracted {
     loosened: Vec<Loosened>,
 }
 
-/// A directory [`add_owner_rwx`] changed, held open, and its mode before.
-/// None on Windows, where modes are not set.
-#[cfg_attr(not(unix), allow(dead_code))]
+/// A directory [`add_owner_rwx`] changed, by its root and name there, and
+/// its mode before. By name, not held open, so a copy over many read-only
+/// directories holds no descriptor for each. None on Windows, where modes
+/// are not set.
 struct Loosened {
-    #[cfg(unix)]
-    fd: rustix::fd::OwnedFd,
-    #[cfg(unix)]
+    root: Root,
+    rel: String,
     mode: u32,
 }
 
-impl Loosened {
-    /// Puts the directory's mode back. Best effort, as loosening it was.
-    fn restore(&self) {
-        #[cfg(unix)]
-        {
-            let mode = rustix::fs::Mode::from_raw_mode(self.mode as _);
-            let _ = rustix::fs::fchmod(&self.fd, mode);
+/// Puts back the modes of the directories in `loosened`, beneath `dir` and
+/// the top `name`, without following a symlink. Best effort, as loosening
+/// them was.
+fn restore_modes(dir: &Path, name: &str, loosened: &[Loosened]) {
+    if loosened.is_empty() {
+        return;
+    }
+    let Ok(outer) = Dir::open_ambient_dir(dir, cap_std::ambient_authority()) else {
+        return;
+    };
+    let inner = (name != ".")
+        .then(|| outer.open_dir_nofollow(name).ok())
+        .flatten();
+    for l in loosened.iter().rev() {
+        let d = match l.root {
+            Root::Outer => &outer,
+            Root::Inner => match &inner {
+                Some(d) => d,
+                None => continue,
+            },
+        };
+        if let Some(fd) = open_dir_fd(d, &l.rel) {
+            let _ = set_mode(&fd, l.mode);
         }
     }
 }
 
 /// A `Read` over the chunks the receiving task hands over. A channel closed
-/// without [`Down::End`] is an error, and sets `cut`.
-struct ChannelReader {
+/// without [`Down::End`] is an error, and sets `cut`; so is any read once
+/// the copy was cancelled, so a file being written stops at once.
+struct ChannelReader<'a> {
     rx: mpsc::Receiver<Down>,
     cur: Bytes,
     ended: bool,
     cut: Arc<AtomicBool>,
+    progress: &'a Progress,
 }
 
-impl Read for ChannelReader {
+impl Read for ChannelReader<'_> {
     fn read(&mut self, buf: &mut [u8]) -> io::Result<usize> {
+        if self.progress.cancelled() {
+            return Err(io::Error::other(CANCELLED));
+        }
         while self.cur.is_empty() {
             if self.ended {
                 return Ok(0);
@@ -134,6 +155,7 @@ pub(crate) fn extract_probing(
         cur: Bytes::new(),
         ended: false,
         cut: cut.clone(),
+        progress,
     };
     let mut out = Extracted::default();
     let result = extract_from(&mut r, dir, base, name, progress, probe, &mut out);
@@ -141,9 +163,7 @@ pub(crate) fn extract_probing(
     // leaves the user's directories as they were.
     let loosened = std::mem::take(&mut out.loosened);
     if let Err(e) = result {
-        for l in loosened.iter().rev() {
-            l.restore();
-        }
+        restore_modes(dir, name, &loosened);
         out.error = Some(e);
         out.cut = cut.load(Ordering::SeqCst);
         return out;
@@ -243,7 +263,7 @@ fn mtime_of(h: &tar::Header) -> SystemTime {
 }
 
 fn extract_from(
-    r: &mut ChannelReader,
+    r: &mut ChannelReader<'_>,
     dir: &Path,
     base: &str,
     name: &str,
@@ -342,7 +362,13 @@ fn extract_from(
                     // A directory an earlier copy left read-only takes this
                     // copy's entries; its mode is set again once they are,
                     // or put back when the copy fails.
-                    out.loosened.extend(add_owner_rwx(x.dir(root), &rel));
+                    if let Some(mode) = add_owner_rwx(x.dir(root), &rel) {
+                        out.loosened.push(Loosened {
+                            root,
+                            rel: rel.clone(),
+                            mode,
+                        });
+                    }
                     dirs.push(Pending {
                         root,
                         depth: local.split('/').count(),
@@ -726,36 +752,57 @@ fn symlink(_: &Dir, _: &Path, _: &str) -> io::Result<()> {
 
 /// Gives the directory at `rel` its owner's read, write and search bits
 /// when it lacks one, so entries can be written into a directory an earlier
-/// copy left read-only, and returns it with its mode before when it changed
-/// it. Best effort: a directory that cannot be opened for reading keeps its
+/// copy left read-only, and returns its mode before when it changed it.
+/// Best effort: a directory that cannot be opened for reading keeps its
 /// mode, and writing beneath it fails naming the entry.
 #[cfg(unix)]
-fn add_owner_rwx(d: &Dir, rel: &str) -> Option<Loosened> {
-    use rustix::fs::{fchmod, fstat, openat, Mode, OFlags};
-    let (d, leaf) = parent(d, rel).ok()?;
-    let dir = d.open_dir_nofollow(leaf).ok()?;
-    // As in `set_dir_attrs`: cap-std's directory may be `O_PATH`.
-    let Ok(fd) = openat(
-        &dir,
-        ".",
-        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
-        Mode::empty(),
-    ) else {
-        return None;
-    };
-    let st = fstat(&fd).ok()?;
+fn add_owner_rwx(d: &Dir, rel: &str) -> Option<u32> {
+    let fd = open_dir_fd(d, rel)?;
+    let st = rustix::fs::fstat(&fd).ok()?;
     #[allow(clippy::useless_conversion)]
     let mode = u32::from(st.st_mode) & 0o7777;
     if mode & 0o700 == 0o700 {
         return None;
     }
-    fchmod(&fd, Mode::from_raw_mode((mode | 0o700) as _)).ok()?;
-    Some(Loosened { fd, mode })
+    set_mode(&fd, mode | 0o700).then_some(mode)
 }
 
 #[cfg(not(unix))]
-fn add_owner_rwx(_: &Dir, _: &str) -> Option<Loosened> {
+fn add_owner_rwx(_: &Dir, _: &str) -> Option<u32> {
     None
+}
+
+/// The directory at `rel` beneath `d`, opened for reading without following
+/// a symlink.
+#[cfg(unix)]
+fn open_dir_fd(d: &Dir, rel: &str) -> Option<rustix::fd::OwnedFd> {
+    use rustix::fs::{openat, Mode, OFlags};
+    let (d, leaf) = parent(d, rel).ok()?;
+    let dir = d.open_dir_nofollow(leaf).ok()?;
+    // As in `set_dir_attrs`: cap-std's directory may be `O_PATH`.
+    openat(
+        &dir,
+        ".",
+        OFlags::RDONLY | OFlags::DIRECTORY | OFlags::CLOEXEC,
+        Mode::empty(),
+    )
+    .ok()
+}
+
+#[cfg(not(unix))]
+fn open_dir_fd(_: &Dir, _: &str) -> Option<()> {
+    None
+}
+
+/// Sets the mode of the directory open at `fd`; whether it did.
+#[cfg(unix)]
+fn set_mode(fd: &rustix::fd::OwnedFd, mode: u32) -> bool {
+    rustix::fs::fchmod(fd, rustix::fs::Mode::from_raw_mode(mode as _)).is_ok()
+}
+
+#[cfg(not(unix))]
+fn set_mode(_: &(), _: u32) -> bool {
+    false
 }
 
 /// Sets a directory's mode and mtime, refusing a symlink at `rel`.

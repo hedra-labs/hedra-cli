@@ -3,10 +3,11 @@
 /// What a failed copy out left in the destination, by its path, escaped.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Left {
-    /// A target this copy created, holding part of the copy.
+    /// A target this copy created, or a file it replaced, holding part of
+    /// the copy.
     Partial(String),
-    /// A target that was there before the copy, which part of the copy was
-    /// written into.
+    /// A directory that was there before the copy, which part of the copy
+    /// was written into.
     Into(String),
 }
 
