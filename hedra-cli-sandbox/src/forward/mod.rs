@@ -224,14 +224,59 @@ const PORT_ZERO_TRIES: usize = 20;
 /// Binds `127.0.0.1:<port>` and `[::1]:<port>`; for port 0, the port the
 /// IPv4 bind chose, retrying when it is taken on IPv6.
 pub async fn bind(port: u16) -> Result<Bound, BindError> {
-    bind_with(port, bind_exclusive)
+    let bound = bind_with(port, bind_exclusive)?;
+    #[cfg(windows)]
+    refuse_a_wildcard_holder(bound.port)?;
+    Ok(bound)
+}
+
+/// Fails when another socket holds `port` on a wildcard address. Windows
+/// lets our `SO_EXCLUSIVEADDRUSE` bind of `127.0.0.1:P` succeed beside a
+/// same-user `0.0.0.0:P` or `[::]:P` bound without that option, and then
+/// sends the connections to the more specific address to us, so that
+/// process's local clients, with their requests and tokens, would reach the
+/// sandbox; Linux and macOS refuse that bind. A plain wildcard bind of our
+/// own, which never listens, fails beside any wildcard holder and succeeds
+/// beside sockets bound only to a specific address, ours included (the
+/// Windows Server 2003 and later table in Microsoft Learn's "Using
+/// SO_REUSEADDR and SO_EXCLUSIVEADDRUSE").
+#[cfg(windows)]
+fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
+    use socket2::{Domain, Protocol, Socket, Type};
+    for family in [Family::V4, Family::V6] {
+        let addr: SocketAddr = match family {
+            Family::V4 => (Ipv4Addr::UNSPECIFIED, port).into(),
+            Family::V6 => (Ipv6Addr::UNSPECIFIED, port).into(),
+        };
+        let probe = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))
+            .and_then(|s| {
+                if addr.is_ipv6() {
+                    s.set_only_v6(true)?;
+                }
+                s.bind(&addr.into())
+            });
+        match probe {
+            Ok(()) => {}
+            // A family the host lacks was already left out with a warning.
+            Err(e) if family_missing(&e) => {}
+            Err(error) => {
+                return Err(BindError {
+                    family,
+                    port,
+                    error,
+                })
+            }
+        }
+    }
+    Ok(())
 }
 
 /// Binds so that another socket on the port fails the bind. std sets
 /// `SO_REUSEADDR` on Unix, which lets macOS bind `127.0.0.1:P` over another
 /// process's `*:P` and take its local traffic; Linux refuses that bind
 /// either way, so keeps the option for a port with connections in
-/// `TIME_WAIT`. Windows needs `SO_EXCLUSIVEADDRUSE`.
+/// `TIME_WAIT`. Windows needs `SO_EXCLUSIVEADDRUSE`, and `bind`
+/// checks for a wildcard holder that option does not refuse.
 fn bind_exclusive(addr: SocketAddr) -> io::Result<std::net::TcpListener> {
     use socket2::{Domain, Protocol, Socket, Type};
     let s = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))?;
