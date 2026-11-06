@@ -242,21 +242,27 @@ pub async fn bind(port: u16) -> Result<Bound, BindError> {
 /// SO_REUSEADDR and SO_EXCLUSIVEADDRUSE": a default wildcard bind after a
 /// specific one with `SO_EXCLUSIVEADDRUSE` succeeds, for the same user or
 /// another). It runs after the loopback binds, since port 0's port is known
-/// only then, and probes `0.0.0.0:P` and `[::]:P` with `IPV6_V6ONLY`: the
-/// first fails beside a `0.0.0.0` or dual-stack `[::]` holder, the second
-/// beside an IPv6-only `[::]` one.
+/// only then, and probes `0.0.0.0:P`, `[::]:P` with `IPV6_V6ONLY`, and a
+/// dual-stack `[::]:P`: the first fails beside a `0.0.0.0` holder, the
+/// second beside an IPv6-only `[::]` one, and the third beside a dual-stack
+/// `[::]` one, which on Windows lets both of the first two bind.
 #[cfg(windows)]
 fn refuse_a_wildcard_holder(port: u16) -> Result<(), BindError> {
     use socket2::{Domain, Protocol, Socket, Type};
-    for family in [Family::V4, Family::V6] {
+    let probes = [
+        (Family::V4, None),
+        (Family::V6, Some(true)),
+        (Family::V6, Some(false)),
+    ];
+    for (family, only_v6) in probes {
         let addr: SocketAddr = match family {
             Family::V4 => (Ipv4Addr::UNSPECIFIED, port).into(),
             Family::V6 => (Ipv6Addr::UNSPECIFIED, port).into(),
         };
         let probe = Socket::new(Domain::for_address(addr), Type::STREAM, Some(Protocol::TCP))
             .and_then(|s| {
-                if addr.is_ipv6() {
-                    s.set_only_v6(true)?;
+                if let Some(only) = only_v6 {
+                    s.set_only_v6(only)?;
                 }
                 s.bind(&addr.into())
             });

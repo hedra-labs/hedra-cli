@@ -744,11 +744,14 @@ async fn a_port_held_by_an_ipv6_wildcard_listener_fails() {
             continue;
         };
         let port = held.local_addr().unwrap().as_socket().unwrap().port();
-        let err = bind(port).await.unwrap_err();
+        let err = match bind(port).await {
+            Ok(b) => panic!("only_v6 {only_v6}: bound beside the holder: {b:?}"),
+            Err(e) => e,
+        };
         assert_eq!(
             err.error.kind(),
             io::ErrorKind::AddrInUse,
-            "{only_v6}: {err}"
+            "only_v6 {only_v6}: {err}"
         );
     }
 }
