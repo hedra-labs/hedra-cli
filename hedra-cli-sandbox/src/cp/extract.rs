@@ -3,9 +3,13 @@
 //! Every write goes through a `cap_std::fs::Dir`, so no entry leaves the
 //! copy through `..`, an absolute path or a symlink. The top entry is written
 //! in the receiving directory, and everything beneath it through a `Dir`
-//! opened at the top itself.
+//! opened at the top itself. `cap_std` keeps a path inside its `Dir` but
+//! follows a symlink that stays inside, so each entry's parent is opened one
+//! component at a time, refusing a symlink, and the entry is written through
+//! that.
 
 use std::collections::{HashMap, HashSet};
+use std::fmt;
 use std::io::{self, Read};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -170,6 +174,7 @@ struct Pending {
     root: Root,
     /// Components in the entry's local name.
     depth: usize,
+    local: String,
     rel: String,
     mode: u32,
     mtime: SystemTime,
@@ -271,11 +276,12 @@ fn extract_from(
         let mtime = mtime_of(entry.header());
         match kind {
             EntryType::Directory => {
-                mkdir_over(x.dir(root), &rel).map_err(|e| format!("{local_shown}: {e}"))?;
+                mkdir_over(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
                 if rel != "." {
                     dirs.push(Pending {
                         root,
                         depth: local.split('/').count(),
+                        local: local.clone(),
                         rel,
                         mode,
                         mtime,
@@ -284,7 +290,7 @@ fn extract_from(
             }
             EntryType::Regular => {
                 write_file(x.dir(root), &rel, mode, mtime, &mut entry)
-                    .map_err(|e| format!("{local_shown}: {e}"))?;
+                    .map_err(|e| failed(&local, &rel, e))?;
                 written.insert(local);
             }
             EntryType::Symlink => {
@@ -314,11 +320,12 @@ fn extract_from(
                     ));
                 }
                 let (troot, trel) = x.at(&target).map_err(|e| format!("{local_shown}: {e}"))?;
-                let d = x.dir(root);
-                replace(d, &rel).map_err(|e| format!("{local_shown}: {e}"))?;
-                x.dir(troot)
-                    .hard_link(&trel, d, &rel)
-                    .map_err(|e| format!("{local_shown}: {e}"))?;
+                let (from, from_leaf) =
+                    parent(x.dir(troot), &trel).map_err(|e| failed(&target, &trel, e))?;
+                let (to, leaf) = parent(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
+                replace(&to, leaf).map_err(|e| failed(&local, &rel, e))?;
+                from.hard_link(from_leaf, &to, leaf)
+                    .map_err(|e| failed(&local, &rel, e))?;
                 written.insert(local);
             }
             _ => {
@@ -349,9 +356,9 @@ fn extract_from(
                 show(via)
             ));
         }
-        let d = x.dir(l.root);
-        replace(d, &l.rel).map_err(|e| format!("{local_shown}: {e}"))?;
-        symlink(d, &l.target, &l.rel).map_err(|e| format!("{local_shown}: {e}"))?;
+        let (d, leaf) = parent(x.dir(l.root), &l.rel).map_err(|e| failed(&l.local, &l.rel, e))?;
+        replace(&d, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
+        symlink(&d, &l.target, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
     }
 
     // Deepest first, so a read-only directory gets its mode only once
@@ -359,9 +366,8 @@ fn extract_from(
     // a path's later entry wins.
     dirs.sort_by_key(|d| std::cmp::Reverse(d.depth));
     for d in &dirs {
-        let shown = show(&d.rel);
         set_dir_attrs(x.dir(d.root), &d.rel, d.mode, d.mtime)
-            .map_err(|e| format!("{shown}: {e}"))?;
+            .map_err(|e| failed(&d.local, &d.rel, e))?;
     }
     Ok(())
 }
@@ -451,9 +457,62 @@ pub(crate) fn probe(d: &Dir) -> Folding {
     }
 }
 
+/// A component of an entry's parent that is a symlink in the destination:
+/// the part of the entry's path, under its root, that ends at the symlink.
+#[derive(Debug)]
+struct BeneathLink(String);
+
+impl fmt::Display for BeneathLink {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "\"{}\" is a symlink", show(&self.0))
+    }
+}
+
+impl std::error::Error for BeneathLink {}
+
+/// The message for an entry `local`, written at `rel` under its root, that
+/// failed with `e`.
+fn failed(local: &str, rel: &str, e: io::Error) -> String {
+    let local_shown = show(local);
+    let Some(link) = e.get_ref().and_then(|i| i.downcast_ref::<BeneathLink>()) else {
+        return format!("{local_shown}: {e}");
+    };
+    // `local` ends with `rel`, so the symlink's own local name is `local`
+    // up to the end of `link.0`.
+    let at = local.len() - rel.len() + link.0.len();
+    format!(
+        "refused \"{local_shown}\": it is beneath \"{}\", a symlink in the destination",
+        show(local.get(..at).unwrap_or(&link.0))
+    )
+}
+
+/// The directory holding `rel`'s last component, opened from `d` one
+/// component at a time without following a symlink, and that component.
+/// A symlink among the parent's components is a [`BeneathLink`] error.
+fn parent<'a>(d: &Dir, rel: &'a str) -> io::Result<(Dir, &'a str)> {
+    let Some((dirs, leaf)) = rel.rsplit_once('/') else {
+        return Ok((d.try_clone()?, rel));
+    };
+    let mut at = d.try_clone()?;
+    let mut end = 0;
+    for c in dirs.split('/') {
+        end += c.len();
+        at = match at.open_dir_nofollow(c) {
+            Ok(next) => next,
+            Err(_) if at.symlink_metadata(c).is_ok_and(|m| m.is_symlink()) => {
+                return Err(io::Error::other(BeneathLink(rel[..end].to_string())));
+            }
+            Err(e) => return Err(e),
+        };
+        end += 1;
+    }
+    Ok((at, leaf))
+}
+
 /// Makes a directory at `rel`, or keeps the one there; anything else there
 /// is an error, since the mode and mtime set later would follow a symlink.
 pub(crate) fn mkdir_over(d: &Dir, rel: &str) -> io::Result<()> {
+    let (d, rel) = parent(d, rel)?;
     match d.create_dir_with(rel, &private_dir()) {
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             if d.symlink_metadata(rel)?.is_dir() {
@@ -466,14 +525,14 @@ pub(crate) fn mkdir_over(d: &Dir, rel: &str) -> io::Result<()> {
     }
 }
 
-/// Removes a file or symlink at `rel` before a file or link is written
-/// there, so the write never goes through an old symlink.
-fn replace(d: &Dir, rel: &str) -> io::Result<()> {
-    match d.symlink_metadata(rel) {
+/// Removes a file or symlink at `leaf`, a name in `d`, before a file or link
+/// is written there, so the write never goes through an old symlink.
+fn replace(d: &Dir, leaf: &str) -> io::Result<()> {
+    match d.symlink_metadata(leaf) {
         Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e),
         Ok(m) if m.is_dir() => Err(io::Error::other("a directory is in the way")),
-        Ok(_) => d.remove_file(rel),
+        Ok(_) => d.remove_file(leaf),
     }
 }
 
@@ -484,7 +543,8 @@ fn write_file(
     mtime: SystemTime,
     body: &mut impl Read,
 ) -> io::Result<()> {
-    replace(d, rel)?;
+    let (d, rel) = parent(d, rel)?;
+    replace(&d, rel)?;
     let mut opts = OpenOptions::new();
     opts.write(true).create_new(true);
     #[cfg(unix)]
@@ -512,6 +572,7 @@ fn symlink(_: &Dir, _: &str, _: &str) -> io::Result<()> {
 
 /// Sets a directory's mode and mtime, refusing a symlink at `rel`.
 pub(crate) fn set_dir_attrs(d: &Dir, rel: &str, mode: u32, mtime: SystemTime) -> io::Result<()> {
+    let (d, rel) = parent(d, rel)?;
     let dir = d.open_dir_nofollow(rel)?;
     #[cfg(unix)]
     {

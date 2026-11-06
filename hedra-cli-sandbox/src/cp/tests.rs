@@ -1624,6 +1624,68 @@ async fn copy_out_refuses_a_symlink_beneath_a_symlink_in_the_stream() {
     assert!(fs::symlink_metadata(dst.path().join("tree/m")).is_err());
 }
 
+/// An entry beneath a symlink already in the destination is refused even
+/// when the symlink points inside the copy, so `tree/alias/report.txt` never
+/// replaces `tree/kept/report.txt` through `tree/alias -> kept`; and so is
+/// each other kind of entry there.
+#[tokio::test(flavor = "multi_thread")]
+async fn copy_out_refuses_an_entry_beneath_a_symlink_in_the_destination() {
+    let cases: Vec<(&str, Vec<E<'_>>)> = vec![
+        (
+            "a file",
+            vec![
+                e("tree/", b'5', 0o755, b"", ""),
+                e("tree/alias/report.txt", b'0', 0o644, b"new", ""),
+            ],
+        ),
+        (
+            "a directory",
+            vec![
+                e("tree/", b'5', 0o755, b"", ""),
+                e("tree/alias/sub/", b'5', 0o700, b"", ""),
+            ],
+        ),
+        (
+            "a symlink",
+            vec![
+                e("tree/", b'5', 0o755, b"", ""),
+                e("tree/alias/report.txt", b'2', 0o777, b"", "elsewhere"),
+            ],
+        ),
+        (
+            "a hard link",
+            vec![
+                e("tree/", b'5', 0o755, b"", ""),
+                e("tree/f", b'0', 0o644, b"new", ""),
+                e("tree/alias/report.txt", b'1', 0o644, b"", "tree/f"),
+            ],
+        ),
+    ];
+    for (name, entries) in cases {
+        let dst = tempfile::tempdir().unwrap();
+        let kept = dst.path().join("tree/kept");
+        fs::create_dir_all(&kept).unwrap();
+        fs::write(kept.join("report.txt"), b"old").unwrap();
+        symlink("kept", dst.path().join("tree/alias")).unwrap();
+        let a = archive(&entries);
+        let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+        let msg = rejected(&r);
+        assert!(
+            msg.contains("refused \"tree/alias/report.txt\"")
+                || msg.contains("refused \"tree/alias/sub\""),
+            "{name}: {msg}"
+        );
+        assert!(
+            msg.contains("beneath \"tree/alias\", a symlink in the destination"),
+            "{name}: {msg}"
+        );
+        let report = kept.join("report.txt");
+        assert!(fs::symlink_metadata(&report).unwrap().is_file(), "{name}");
+        assert_eq!(fs::read(&report).unwrap(), b"old", "{name}");
+        assert!(!kept.join("sub").exists(), "{name}");
+    }
+}
+
 /// Directory modes are set deepest first by path, whatever the stream's
 /// order, and a path's later entry wins.
 #[tokio::test(flavor = "multi_thread")]
