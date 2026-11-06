@@ -734,7 +734,8 @@ async fn copy_out_reports_a_call_cut_off_part_way() {
 }
 
 /// A cancelled copy out begins no other entry and writes nothing more, and
-/// says whether it wrote anything, which beginning an entry is not.
+/// says whether it let a write through, which beginning an entry is not; a
+/// write let through counts as written only once it lands.
 #[test]
 fn a_cancelled_copy_begins_no_other_entry() {
     let p = Progress::default();
@@ -751,8 +752,24 @@ fn a_cancelled_copy_begins_no_other_entry() {
     let p = Progress::default();
     assert!(p.began("out/a"));
     assert!(p.writes());
+    assert!(!p.wrote());
+    p.landed();
+    assert!(p.wrote());
     assert!(p.cancel());
     assert!(!p.writes());
+}
+
+/// A copy out whose first write fails, here over a file of the user's where
+/// its top directory goes, names no partial copy and leaves the file.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_copy_out_whose_first_write_fails_names_no_partial_copy() {
+    let dst = tempfile::tempdir().unwrap();
+    fs::write(dst.path().join("tree"), b"mine").unwrap();
+    let a = tree_archive();
+    let r = copy_out_of("/work/tree", dst.path(), a.clone(), gnu_totals(a.len()), 0).await;
+    assert!(rejected(&r).contains("not a directory"), "{:?}", r.result);
+    assert_eq!(r.partial, None);
+    assert_eq!(fs::read(dst.path().join("tree")).unwrap(), b"mine");
 }
 
 /// A copy out that fails having only met directories already in the
@@ -785,7 +802,7 @@ async fn a_failed_copy_out_that_wrote_nothing_names_no_partial_copy() {
         assert_eq!(r.stopped_at.as_deref(), Some(sub));
         let want = wrote.then(|| dst.path().to_str().unwrap().to_string());
         assert_eq!(r.partial, want, "{sub}");
-        assert_eq!(progress.cancel(), wrote, "{sub}");
+        assert_eq!(progress.wrote(), wrote, "{sub}");
         assert_eq!(fs::read(dst.path().join("kept/mine")).unwrap(), b"mine");
     }
 }
@@ -1813,8 +1830,8 @@ fn a_directory_entry_does_not_keep_a_symlink_at_its_path() {
     let dir = cap_std::fs::Dir::open_ambient_dir(t.path(), cap_std::ambient_authority()).unwrap();
     let err = extract::mkdir_over(&dir, "d").unwrap_err();
     assert!(err.to_string().contains("not a directory"), "{err}");
-    extract::mkdir_over(&dir, "real").unwrap();
-    extract::mkdir_over(&dir, "new").unwrap();
+    assert!(!extract::mkdir_over(&dir, "real").unwrap());
+    assert!(extract::mkdir_over(&dir, "new").unwrap());
     assert!(t.path().join("new").is_dir());
 }
 

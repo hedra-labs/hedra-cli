@@ -216,8 +216,6 @@ impl Harness {
     }
 }
 
-/// Whether the connection was reset, not closed. A loaded runner can take
-/// seconds to drain a stalled socket, so the wait is long.
 /// `task` with a limit, so a forward that never takes or ends what a test
 /// waits on fails the test instead of hanging the suite.
 async fn within<T>(task: impl std::future::Future<Output = T>) -> T {
@@ -226,6 +224,8 @@ async fn within<T>(task: impl std::future::Future<Output = T>) -> T {
         .expect("the task did not end within 30 s")
 }
 
+/// Whether the connection was reset, not closed. A loaded runner can take
+/// seconds to drain a stalled socket, so the wait is long.
 async fn was_reset(s: &mut TcpStream) -> bool {
     let mut got = Vec::new();
     match timeout(Duration::from_secs(20), s.read_to_end(&mut got)).await {
@@ -675,14 +675,17 @@ async fn a_full_budget_resets_the_connection_holding_the_most() {
     }
     // Wait for the big connection's bytes to settle in the buffer.
     let mut last = 0;
-    loop {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let held = h.budget.held(0).unwrap();
-        if held == last {
-            break;
+    within(async {
+        loop {
+            tokio::time::sleep(Duration::from_millis(100)).await;
+            let held = h.budget.held(0).unwrap();
+            if held == last {
+                break;
+            }
+            last = held;
         }
-        last = held;
-    }
+    })
+    .await;
     let small_bytes = 10 << 20;
     let feeder = {
         let chunk = chunk.clone();
@@ -847,7 +850,7 @@ async fn a_port_whose_last_connection_we_closed_binds_again_at_once() {
     let port = first.port;
     let listener = &first.listeners[0];
     let client = std::net::TcpStream::connect(("127.0.0.1", port)).unwrap();
-    let (server, _) = listener.accept().await.unwrap();
+    let (server, _) = within(listener.accept()).await.unwrap();
     // Our side closes first, so our side is the one in `TIME_WAIT`.
     drop(server);
     let mut buf = [0u8; 1];

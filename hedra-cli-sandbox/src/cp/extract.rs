@@ -137,15 +137,20 @@ struct Extraction {
 }
 
 impl Extraction {
-    /// The root an entry's local name is written through, and its name there.
-    fn at(&mut self, local: &str) -> io::Result<(Root, String)> {
+    /// The root an entry's local name is written through, and its name
+    /// there. A top the stream has no entry for is made here.
+    fn at(&mut self, local: &str, progress: &Progress) -> io::Result<(Root, String)> {
         if self.name == "." || local == self.name {
             return Ok((Root::Outer, local.to_string()));
         }
         if self.inner.is_none() {
+            if !is_dir(&self.outer, &self.name) && !progress.writes() {
+                return Err(io::Error::other(CANCELLED));
+            }
             match self.outer.create_dir_with(&self.name, &private_dir()) {
+                Ok(()) => progress.landed(),
                 Err(e) if e.kind() != io::ErrorKind::AlreadyExists => return Err(e),
-                _ => {}
+                Err(_) => {}
             }
             self.inner = Some(self.outer.open_dir_nofollow(&self.name)?);
         }
@@ -289,7 +294,9 @@ fn extract_from(
         if !progress.began(&local) {
             return Err(CANCELLED.into());
         }
-        let (root, rel) = x.at(&local).map_err(|e| format!("{local_shown}: {e}"))?;
+        let (root, rel) = x
+            .at(&local, progress)
+            .map_err(|e| format!("{local_shown}: {e}"))?;
         let mode = entry.header().mode().unwrap_or(0o644) & 0o777 & !mask;
         let mtime = mtime_of(entry.header());
         match kind {
@@ -298,7 +305,9 @@ fn extract_from(
                 if !is_dir(x.dir(root), &rel) {
                     will_write(progress)?;
                 }
-                mkdir_over(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
+                if mkdir_over(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))? {
+                    progress.landed();
+                }
                 if rel != "." {
                     // A directory an earlier copy left read-only takes this
                     // copy's entries; its mode is set again once they are.
@@ -315,7 +324,7 @@ fn extract_from(
             }
             EntryType::Regular => {
                 will_write(progress)?;
-                write_file(x.dir(root), &rel, mode, mtime, &mut entry)
+                write_file(x.dir(root), &rel, mode, mtime, &mut entry, progress)
                     .map_err(|e| failed(&local, &rel, e))?;
                 written.insert(&local);
             }
@@ -345,13 +354,16 @@ fn extract_from(
                     ));
                 }
                 will_write(progress)?;
-                let (troot, trel) = x.at(&target).map_err(|e| format!("{local_shown}: {e}"))?;
+                let (troot, trel) = x
+                    .at(&target, progress)
+                    .map_err(|e| format!("{local_shown}: {e}"))?;
                 let (from, from_leaf) =
                     parent(x.dir(troot), &trel).map_err(|e| failed(&target, &trel, e))?;
                 let (to, leaf) = parent(x.dir(root), &rel).map_err(|e| failed(&local, &rel, e))?;
                 replace(&to, leaf).map_err(|e| failed(&local, &rel, e))?;
                 from.hard_link(from_leaf, &to, leaf)
                     .map_err(|e| failed(&local, &rel, e))?;
+                progress.landed();
                 written.insert(&local);
             }
             _ => {
@@ -386,6 +398,7 @@ fn extract_from(
         let (d, leaf) = parent(x.dir(l.root), &l.rel).map_err(|e| failed(&l.local, &l.rel, e))?;
         replace(&d, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
         symlink(&d, &l.target, leaf).map_err(|e| failed(&l.local, &l.rel, e))?;
+        progress.landed();
     }
 
     // Deepest first, so a read-only directory gets its mode only once
@@ -440,9 +453,9 @@ pub(crate) struct Folding {
 }
 
 /// The files a copy out wrote, by local name, for a hard link to name one.
-/// Each name is held as two independently keyed 64-bit hashes, so a copy of
-/// many small files holds no names: a name the copy did not write reads as
-/// written only when both of its hashes match one name it did.
+/// Each name is held as two 64-bit hashes under separate secret keys, so a
+/// copy of many small files holds no names: a name the copy did not write
+/// reads as written only when both of its hashes match one name it did.
 pub(crate) struct Written<A = RandomState, B = RandomState> {
     first: A,
     second: B,
@@ -615,19 +628,21 @@ fn parent<'a>(d: &Dir, rel: &'a str) -> io::Result<(Dir, &'a str)> {
     Ok((at, leaf))
 }
 
-/// Makes a directory at `rel`, or keeps the one there; anything else there
-/// is an error, since the mode and mtime set later would follow a symlink.
-pub(crate) fn mkdir_over(d: &Dir, rel: &str) -> io::Result<()> {
+/// Makes a directory at `rel`, or keeps the one there, and says whether it
+/// made one; anything else there is an error, since the mode and mtime set
+/// later would follow a symlink.
+pub(crate) fn mkdir_over(d: &Dir, rel: &str) -> io::Result<bool> {
     let (d, rel) = parent(d, rel)?;
     match d.create_dir_with(rel, &private_dir()) {
+        Ok(()) => Ok(true),
         Err(e) if e.kind() == io::ErrorKind::AlreadyExists => {
             if d.symlink_metadata(rel)?.is_dir() {
-                Ok(())
+                Ok(false)
             } else {
                 Err(io::Error::other("it exists and is not a directory"))
             }
         }
-        other => other,
+        Err(e) => Err(e),
     }
 }
 
@@ -648,6 +663,7 @@ fn write_file(
     mode: u32,
     mtime: SystemTime,
     body: &mut impl Read,
+    progress: &Progress,
 ) -> io::Result<()> {
     let (d, rel) = parent(d, rel)?;
     replace(&d, rel)?;
@@ -661,6 +677,7 @@ fn write_file(
     #[cfg(not(unix))]
     let _ = mode;
     let f = d.open_with(rel, &opts)?;
+    progress.landed();
     let mut f = f.into_std();
     io::copy(body, &mut f)?;
     f.set_modified(mtime)

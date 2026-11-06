@@ -127,7 +127,8 @@ impl ExecSource for tonic::Streaming<ExecServerFrame> {
 }
 
 /// The entry a copy began last, which a failure names, whether the copy was
-/// cancelled, and whether a copy out wrote anything to the destination.
+/// cancelled, and whether a copy out began or finished writing anything to
+/// the destination.
 #[derive(Debug, Default)]
 pub struct Progress {
     entry: Mutex<Begun>,
@@ -137,6 +138,9 @@ pub struct Progress {
 struct Begun {
     name: String,
     cancelled: bool,
+    /// A write was let through, and may have landed.
+    writing: bool,
+    /// A write left something in the destination.
     wrote: bool,
 }
 
@@ -151,12 +155,18 @@ impl Progress {
     }
 
     /// Stops a copy out beginning another entry or writing anything more,
-    /// and says whether it wrote anything: when it did not, it never will.
-    /// A write it began may still be landing.
+    /// and says whether it let a write through: when it did not, it has
+    /// written nothing and never will. A write it let through may still be
+    /// landing, or may have failed.
     pub fn cancel(&self) -> bool {
         let mut e = self.lock();
         e.cancelled = true;
-        e.wrote
+        e.writing
+    }
+
+    /// Whether a write of a copy out left something in the destination.
+    fn wrote(&self) -> bool {
+        self.lock().wrote
     }
 
     /// Records that the copy begins `name`; false once it was cancelled.
@@ -176,8 +186,13 @@ impl Progress {
         if e.cancelled {
             return false;
         }
-        e.wrote = true;
+        e.writing = true;
         true
+    }
+
+    /// Records that a write of a copy out left something in the destination.
+    fn landed(&self) {
+        self.lock().wrote = true;
     }
 }
 
@@ -802,7 +817,8 @@ pub async fn copy_out<S: ExecSink, R: ExecSource>(
         return r;
     }
     let target = plan.target();
-    if progress.cancel() && std::fs::symlink_metadata(&target).is_ok() {
+    // The extractor has ended, so what it wrote is settled.
+    if progress.wrote() && std::fs::symlink_metadata(&target).is_ok() {
         r.partial = Some(escape_controls(&target.display().to_string()));
     } else {
         plan.discard();
