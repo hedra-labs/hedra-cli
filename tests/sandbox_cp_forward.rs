@@ -833,20 +833,30 @@ async fn a_connection_closed_before_any_byte_says_nothing_is_listening() {
 
 /// A connection whose local reader stalls is reset once its 8 MiB buffer
 /// fills, over the real transport with its adaptive window, while another
-/// connection on the same broker connection keeps receiving at full speed.
+/// connection on the same broker connection keeps receiving at the rate
+/// its sandbox server sends.
 /// Neither leaves 256 frames unread at the broker, which would end its
 /// session `rate_limited`: port-forward never stops reading a stream.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stalled_connection_is_reset_while_another_keeps_its_throughput() {
-    const LIVE: usize = 48 << 20;
+    // Slow enough for a debug build on a shared runner to keep up with both
+    // streams, so only a client that stops reading meets the broker's rule.
+    const RATE: usize = 8 << 20;
+    const LIVE: usize = 24 << 20;
     let broker = FakeBroker::start();
     broker.push_port(PortScript::admit([
         PortStep::AwaitOpen,
-        PortStep::Flood(512 << 20),
+        PortStep::Flood {
+            bytes: 512 << 20,
+            per_sec: RATE,
+        },
     ]));
     broker.push_port(PortScript::admit([
         PortStep::AwaitOpen,
-        PortStep::Flood(LIVE),
+        PortStep::Flood {
+            bytes: LIVE,
+            per_sec: RATE,
+        },
         PortStep::Eof,
     ]));
     let server = running_sandbox(&broker).await;

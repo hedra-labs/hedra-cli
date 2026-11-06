@@ -293,10 +293,11 @@ pub enum PortStep {
     /// Ends the call with a status, as the broker does when the sandbox's
     /// supervisor goes away under an open call.
     Fail(Status),
-    /// Sends this many bytes in 32 KiB frames at the broker's per-session
-    /// cap of 64 MiB/s, stopping early once the client goes away or the
-    /// session ends `rate_limited`.
-    Flood(usize),
+    /// Sends this many bytes in 32 KiB frames at this many bytes a second,
+    /// as a sandbox server writing at that rate, stopping early once the
+    /// client goes away or the session ends `rate_limited`. The broker ends
+    /// a session past its cap of 64 MiB/s, so the rate is capped there.
+    Flood { bytes: usize, per_sec: usize },
 }
 
 /// What one `Logs` call does.
@@ -759,7 +760,7 @@ async fn run_port(
             }
             PortStep::Data(d) => {
                 if !unwindowed(&state, idx, out, port_data(d)).await {
-                    return;
+                    break;
                 }
             }
             PortStep::Eof => {
@@ -770,22 +771,29 @@ async fn run_port(
                 let _ = out.send(Err(status)).await;
                 return;
             }
-            PortStep::Flood(total) => {
+            PortStep::Flood { bytes, per_sec } => {
+                let rate = per_sec.clamp(1, SESSION_CAP) as f64;
                 let chunk = vec![0x5a; 32 << 10];
                 let began = tokio::time::Instant::now();
-                let mut left = total;
-                while left > 0 {
-                    // Past the cap, the real broker ends the session.
-                    let due = Duration::from_secs_f64((total - left) as f64 / SESSION_CAP as f64);
+                let mut left = bytes;
+                let mut ended = false;
+                while left > 0 && !ended {
+                    let due = Duration::from_secs_f64((bytes - left) as f64 / rate);
                     tokio::time::sleep_until(began + due).await;
                     let n = left.min(chunk.len());
-                    if !unwindowed(&state, idx, out, port_data(chunk[..n].to_vec())).await {
-                        return;
-                    }
+                    ended = !unwindowed(&state, idx, out, port_data(chunk[..n].to_vec())).await;
                     left -= n;
+                }
+                if ended {
+                    break;
                 }
             }
         }
+    }
+    // A session the broker ended `rate_limited` is over; otherwise, as when
+    // the client went away mid-send, the call is held until it goes.
+    if seen(&|c| c.rate_limited) {
+        return;
     }
     std::future::pending::<()>().await
 }
@@ -1482,7 +1490,10 @@ mod tests {
         let broker = FakeBroker::start();
         broker.push_port(PortScript::admit([
             PortStep::AwaitOpen,
-            PortStep::Flood(512 << 20),
+            PortStep::Flood {
+                bytes: 512 << 20,
+                per_sec: SESSION_CAP,
+            },
         ]));
         let m = minter(&broker);
         let s = session(&m);

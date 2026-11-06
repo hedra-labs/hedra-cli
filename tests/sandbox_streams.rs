@@ -104,10 +104,12 @@ async fn exec_relays_output_byte_for_byte_and_passes_the_exit_code_through() {
     assert_eq!(start.env.get("A").map(String::as_str), Some("1"));
 }
 
-/// Text from the `about` of the stream verbs whose names are common words.
-const ABOUTS: [(&str, &str); 2] = [
+/// Text from the `about` of stream verbs, to find them where their names
+/// may be common words.
+const ABOUTS: [(&str, &str); 3] = [
     ("exec", "relaying its stdin"),
     ("cp", "in or out of a sandbox"),
+    ("port-forward", "Forward a local port"),
 ];
 
 /// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are named nowhere,

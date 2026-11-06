@@ -1738,7 +1738,8 @@ async fn a_stalled_extractor_stops_the_copy_reading_at_8_mib() {
     loop {
         tokio::time::sleep(std::time::Duration::from_millis(300)).await;
         let now = sent.load(Ordering::SeqCst);
-        if now == last {
+        // A runner stalled mid-fill can hold the count still for a while.
+        if now == last && now >= 256 * FRAME {
             break;
         }
         assert!(
