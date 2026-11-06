@@ -5,7 +5,8 @@
 
 mod sandbox_stream_support;
 
-use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::Arc;
 use std::time::Duration;
 
 use sandbox_stream_support::*;
@@ -15,6 +16,32 @@ use wiremock::{Mock, MockServer, Request, Respond, ResponseTemplate};
 
 const WAIT: Duration = Duration::from_secs(30);
 const GPU_ID: &str = "sandbox_9b2d5c1e-7a40-4f3b-8e61-2c5d9f0a1b7e";
+
+/// Answers with `answer`, and records that a request arrived, so a test can
+/// signal hedra-cli only once it is waiting on that request.
+struct Noted {
+    answer: ResponseTemplate,
+    arrived: Arc<AtomicBool>,
+}
+
+impl Respond for Noted {
+    fn respond(&self, _: &Request) -> ResponseTemplate {
+        self.arrived.store(true, Ordering::SeqCst);
+        self.answer.clone()
+    }
+}
+
+/// Waits until `arrived` is set, failing the test after `WAIT`.
+fn wait_until(arrived: &AtomicBool) {
+    let deadline = std::time::Instant::now() + WAIT;
+    while !arrived.load(Ordering::SeqCst) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the request never arrived"
+        );
+        std::thread::sleep(Duration::from_millis(20));
+    }
+}
 
 /// Answers each create with the sandbox it names, after `conflicts` 409s.
 struct Create {
@@ -61,6 +88,25 @@ async fn api_stopping_with(
         running(),
     ));
     api_with(broker, conflicts, get, stop).await
+}
+
+/// `api_stopping_with`, also recording when the stop request arrives.
+async fn api_stopping_noted(
+    broker: &FakeBroker,
+    stop: ResponseTemplate,
+) -> (MockServer, Arc<AtomicBool>) {
+    let arrived = Arc::new(AtomicBool::new(false));
+    let get = ResponseTemplate::new(200).set_body_json(sandbox(
+        GPU_ID,
+        "shell-aaaaaa",
+        "active",
+        running(),
+    ));
+    let noted = Noted {
+        answer: stop,
+        arrived: arrived.clone(),
+    };
+    (api_with(broker, 0, get, noted).await, arrived)
 }
 
 /// `api`, with `GET` answering `get` and the stop route `stop`.
@@ -392,18 +438,19 @@ async fn a_first_exec_that_answered_before_its_refusal_keeps_the_sandbox() {
 async fn ctrl_c_during_the_reads_before_the_create_creates_nothing() {
     let broker = FakeBroker::start();
     let server = api(&broker, 0).await;
+    let arrived = Arc::new(AtomicBool::new(false));
     Mock::given(method("GET"))
         .and(path("/v3/sandboxes/gpus"))
-        .respond_with(
-            ResponseTemplate::new(200)
+        .respond_with(Noted {
+            answer: ResponseTemplate::new(200)
                 .set_body_json(json!({"data": []}))
                 .set_delay(Duration::from_secs(4)),
-        )
+            arrived: arrived.clone(),
+        })
         .mount(&server)
         .await;
     let out = on_pty(&Run::new(&server), |child| {
-        child.pid();
-        std::thread::sleep(Duration::from_millis(1500));
+        wait_until(&arrived);
         child.signal(libc::SIGINT);
     });
     assert_eq!(out.code, 130, "{}", out.stderr);
@@ -417,18 +464,19 @@ async fn ctrl_c_during_the_reads_before_the_create_creates_nothing() {
 #[tokio::test]
 async fn a_second_ctrl_c_abandons_the_create_and_stops_nothing() {
     let server = MockServer::start().await;
+    let arrived = Arc::new(AtomicBool::new(false));
     Mock::given(method("POST"))
         .and(path("/v3/sandboxes"))
-        .respond_with(
-            ResponseTemplate::new(201)
+        .respond_with(Noted {
+            answer: ResponseTemplate::new(201)
                 .set_body_json(sandbox(GPU_ID, "shell-aaaaaa", "active", running()))
                 .set_delay(Duration::from_secs(120)),
-        )
+            arrived: arrived.clone(),
+        })
         .mount(&server)
         .await;
     let out = on_pty(&Run::new(&server), |child| {
-        child.pid();
-        std::thread::sleep(Duration::from_millis(1500));
+        wait_until(&arrived);
         child.signal(libc::SIGINT);
         std::thread::sleep(Duration::from_millis(500));
         child.signal(libc::SIGINT);
@@ -455,11 +503,11 @@ async fn ctrl_c_while_the_stop_after_sigterm_is_unanswered_exits_255() {
     let held = ResponseTemplate::new(200)
         .set_body_json(sandbox(GPU_ID, "shell-aaaaaa", "stopping", running()))
         .set_delay(Duration::from_secs(120));
-    let server = api_stopping_with(&broker, 0, held).await;
+    let (server, stop_arrived) = api_stopping_noted(&broker, held).await;
     let out = on_pty(&Run::new(&server), |child| {
         broker.wait_for(WAIT, |c| c.first().is_some_and(|c| c.start.is_some()));
         child.signal(libc::SIGTERM);
-        std::thread::sleep(Duration::from_millis(1500));
+        wait_until(&stop_arrived);
         child.signal(libc::SIGINT);
     });
     assert_eq!(out.code, 255, "{}", out.stderr);
@@ -482,12 +530,12 @@ async fn a_second_sighup_while_the_stop_is_unanswered_does_not_abandon_it() {
     let slow = ResponseTemplate::new(200)
         .set_body_json(sandbox(GPU_ID, "shell-aaaaaa", "stopping", running()))
         .set_delay(Duration::from_secs(2));
-    let server = api_stopping_with(&broker, 0, slow).await;
+    let (server, stop_arrived) = api_stopping_noted(&broker, slow).await;
     // Closing a terminal usually delivers two SIGHUPs.
     let out = on_pty(&Run::new(&server), |child| {
         broker.wait_for(WAIT, |c| c.first().is_some_and(|c| c.start.is_some()));
         child.signal(libc::SIGHUP);
-        std::thread::sleep(Duration::from_millis(300));
+        wait_until(&stop_arrived);
         child.signal(libc::SIGHUP);
     });
     assert_eq!(out.code, 129, "{}", out.stderr);

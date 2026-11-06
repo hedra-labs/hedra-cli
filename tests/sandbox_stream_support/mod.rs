@@ -612,7 +612,12 @@ impl OnPty {
             {
                 return pid;
             }
-            assert!(Instant::now() < deadline, "hedra-cli did not start");
+            let err = String::from_utf8_lossy(&self.err.lock().unwrap()).into_owned();
+            assert!(
+                !err.contains("\n@@exit:"),
+                "hedra-cli had already exited: {err}"
+            );
+            assert!(Instant::now() < deadline, "hedra-cli did not start: {err}");
             std::thread::sleep(Duration::from_millis(20));
         }
     }
