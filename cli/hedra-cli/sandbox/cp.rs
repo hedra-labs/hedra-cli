@@ -83,27 +83,36 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         },
         transport.clone(),
     );
-    let proxy = transport.proxy.clone();
+    // The proxy only when the broker does not bypass it.
+    let proxy = || session.proxy();
     let on_wait = |w: &Waiting| {
         stream::note(escape_controls(&stream::waiting_line(
             w,
             &name,
-            proxy.as_deref(),
+            proxy().as_deref(),
         )));
     };
     let open = Open {
         on_wait: &on_wait,
         ..Default::default()
     };
-    let call = tokio::select! {
-        r = calls::open_exec(&session, &open) => match r {
-            Ok(call) => call,
-            Err(e) => {
-                let f = stream::open_failure(api, &id, &name, Needs::Exec, proxy.as_deref(), e).await;
-                return discard(plan, Ended::Failed(f));
-            }
-        },
+    let opened = tokio::select! {
+        r = calls::open_exec(&session, &open) => r,
         sig = signals.next() => return discard(plan, Ended::Signal(sig)),
+    };
+    let call = match opened {
+        Ok(call) => call,
+        // The read that explains a refusal still answers a signal.
+        Err(e) => {
+            let proxy = proxy();
+            let ended = tokio::select! {
+                f = stream::open_failure(api, &id, &name, Needs::Exec, proxy.as_deref(), e) => {
+                    Ended::Failed(f)
+                }
+                sig = signals.next() => Ended::Signal(sig),
+            };
+            return discard(plan, ended);
+        }
     };
 
     let progress = Arc::new(Progress::default());
@@ -138,25 +147,23 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
     for w in &report.warnings {
         stream::note(w);
     }
-    match report.result {
-        Ok(code) => Ended::Exit(code),
-        Err(CopyError::Rejected(m)) => Ended::Failed(Failure::rejected(m)),
+    let status = match report.result {
+        Ok(code) => return Ended::Exit(code),
+        Err(CopyError::Rejected(m)) => return Ended::Failed(Failure::rejected(m)),
         Err(CopyError::Call(status)) => {
             let s = BrokerStatus::from(&status);
             let f = stream::broker_failure(&s, &name, Needs::Exec, true);
-            if f.class == Class::ConnectionLost {
-                Ended::Failed(stopped_at(
-                    exec::lost(api, &id, Some(&s)).await,
-                    &report.stopped_at,
-                ))
-            } else {
-                Ended::Failed(f)
+            if f.class != Class::ConnectionLost {
+                return Ended::Failed(f);
             }
+            Some(s)
         }
-        Err(CopyError::Ended) => Ended::Failed(stopped_at(
-            exec::lost(api, &id, None).await,
-            &report.stopped_at,
-        )),
+        Err(CopyError::Ended) => None,
+    };
+    // The read that explains the drop still answers a signal.
+    tokio::select! {
+        f = exec::lost(api, &id, status.as_ref()) => Ended::Failed(stopped_at(f, &report.stopped_at)),
+        sig = signals.next() => Ended::Signal(sig),
     }
 }
 

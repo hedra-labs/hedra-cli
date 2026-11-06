@@ -180,7 +180,15 @@ impl Forward {
     }
 
     fn start_with(run: &Run, args: &[&str]) -> Self {
-        let mut child = run.spawn(args);
+        Self::from_command(run.command(args))
+    }
+
+    fn from_command(mut cmd: std::process::Command) -> Self {
+        let mut child = cmd
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
         let mut pipe = child.stderr.take().unwrap();
         let err = Arc::new(Mutex::new(String::new()));
         let into = err.clone();
@@ -608,6 +616,178 @@ async fn a_socks_or_https_proxy_is_refused_before_any_request() {
     }
     assert_eq!(request_count(&server).await, 0);
     assert_eq!(broker.connections(), 0);
+}
+
+/// A proxy that answers every `CONNECT` 407, counting them.
+fn refusing_proxy() -> (u16, Arc<std::sync::atomic::AtomicUsize>) {
+    use std::io::Write;
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let port = listener.local_addr().unwrap().port();
+    let tunnels = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let counted = tunnels.clone();
+    std::thread::spawn(move || {
+        for conn in listener.incoming() {
+            let Ok(mut client) = conn else { continue };
+            counted.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let mut head = Vec::new();
+            let mut b = [0u8; 1];
+            while !head.ends_with(b"\r\n\r\n") {
+                if client.read(&mut b).unwrap_or(0) == 0 {
+                    break;
+                }
+                head.push(b[0]);
+            }
+            let _ = client.write_all(b"HTTP/1.1 407 Proxy Authentication Required\r\n\r\n");
+        }
+    });
+    (port, tunnels)
+}
+
+/// A connection no retry can fix, here a proxy refusing the tunnel, closes
+/// the listener at once and ends the port-forward Rejected request (19).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_proxy_refusing_the_tunnel_ends_the_port_forward_with_19() {
+    let (proxy, tunnels) = refusing_proxy();
+    let broker = FakeBroker::start();
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "port-forward", ID, "0:8888"]);
+    cmd.env("HTTPS_PROXY", format!("http://127.0.0.1:{proxy}"));
+    let fwd = Forward::from_command(cmd);
+    let port = fwd.port();
+    let _ = TcpStream::connect(("127.0.0.1", port));
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 19, "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            "hedra-cli: Rejected request (19): Could not connect to the sandbox broker: the \
+             proxy refused the tunnel to the broker: HTTP/1.1 407 Proxy Authentication Required."
+        ),
+        "{err}"
+    );
+    assert!(
+        TcpStream::connect(("127.0.0.1", port)).is_err(),
+        "still listening"
+    );
+    assert_eq!(tunnels.load(std::sync::atomic::Ordering::SeqCst), 1);
+    assert_eq!(broker.connections(), 0);
+}
+
+/// A broker that `NO_PROXY` bypasses is not said to be reached through the
+/// configured proxy, by `cp` or by `port-forward`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bypassed_proxy_is_not_named_in_a_retry_line() {
+    use std::io::Write;
+    let with_bypass = |cmd: &mut std::process::Command| {
+        cmd.env("HTTPS_PROXY", "http://127.0.0.1:9")
+            .env("NO_PROXY", "127.0.0.1");
+    };
+
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::refuse(Status::unavailable("restarting")));
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Stdout(one_entry("tree")),
+        Step::Exit(0),
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/tree");
+    let mut cmd = run.command(&["sandbox", "cp", &src, "out"]);
+    with_bypass(&mut cmd);
+    let out = cmd.output().unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert!(
+        err.contains("Could not reach the sandbox broker; retrying."),
+        "{err}"
+    );
+    assert!(!err.contains("proxy"), "{err}");
+
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::refuse(Status::unavailable("restarting")));
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitBytes(2),
+        PortStep::Data(b"ok".to_vec()),
+        PortStep::Eof,
+    ]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "port-forward", ID, "0:8888"]);
+    with_bypass(&mut cmd);
+    let fwd = Forward::from_command(cmd);
+    let mut conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    conn.write_all(b"hi").unwrap();
+    assert_eq!(read_all(&mut conn).unwrap(), b"ok");
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+    assert!(
+        err.contains("Could not reach the sandbox broker; retrying."),
+        "{err}"
+    );
+    assert!(!err.contains("proxy"), "{err}");
+}
+
+/// The sandbox read that explains a failed open, or a copy cut off, still
+/// answers a signal: a stalled read never holds `cp` past Ctrl-C or SIGTERM.
+#[tokio::test(flavor = "multi_thread")]
+async fn cp_answers_a_signal_while_it_reads_the_sandbox_after_a_failure() {
+    let stalled_read = || {
+        Mock::given(method("GET"))
+            .and(path(format!("/v3/sandboxes/{ID}")))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .set_body_json(sandbox(ID, "box", "active", running()))
+                    .set_delay(Duration::from_secs(120)),
+            )
+    };
+    let src = format!("{ID}:/work/tree");
+
+    // A mint refused 404 reads the sandbox to say why.
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(404, "NOT_FOUND", "Not Found", None))
+        .mount(&server)
+        .await;
+    stalled_read().mount(&server).await;
+    let run = Run::new(&server);
+    let child = run.spawn(&["sandbox", "cp", &src, "out"]);
+    wait_for_read(&server).await;
+    signal(&child, libc::SIGINT);
+    let started = Instant::now();
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.code(), Some(130), "{}", stderr(&out));
+    assert!(started.elapsed() < Duration::from_secs(10));
+
+    // A call cut off part way reads the sandbox to say whether it stopped.
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Close]));
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    stalled_read().mount(&server).await;
+    let run = Run::new(&server);
+    let child = run.spawn(&["sandbox", "cp", &src, "out"]);
+    wait_for_read(&server).await;
+    signal(&child, libc::SIGTERM);
+    let started = Instant::now();
+    let out = wait(child, WAIT);
+    assert_eq!(out.status.code(), Some(143), "{}", stderr(&out));
+    assert!(started.elapsed() < Duration::from_secs(10));
+}
+
+/// Waits until `server` has seen a read of sandbox `ID`.
+async fn wait_for_read(server: &MockServer) {
+    let deadline = Instant::now() + WAIT;
+    while requests_to(server, "GET", &format!("/v3/sandboxes/{ID}"))
+        .await
+        .is_empty()
+    {
+        assert!(Instant::now() < deadline, "the sandbox was never read");
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
 }
 
 #[tokio::test(flavor = "multi_thread")]

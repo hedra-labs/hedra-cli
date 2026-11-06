@@ -11,7 +11,7 @@ use hedra_cli_sandbox::pb::hedra::sandbox::v1::{PortClientFrame, PortServerFrame
 use hedra_cli_sandbox::session::{Session, SessionError};
 use hedra_cli_sandbox::stream::calls::{self, Open, OpenError, Waiting};
 use hedra_cli_sandbox::stream::status::{reason, BrokerStatus};
-use hedra_cli_sandbox::stream::transport::TransportConfig;
+use hedra_cli_sandbox::stream::transport::{TransportConfig, TransportError};
 
 use super::api::{Api, CallError};
 use super::error::{escape_controls, Class, Failure, SANDBOX_NOT_FOUND};
@@ -71,7 +71,6 @@ struct Opener {
     session: Session<OwnedMinter>,
     id: String,
     name: String,
-    proxy: Option<String>,
     quota_said: AtomicBool,
 }
 
@@ -81,13 +80,12 @@ impl PortOpener for Opener {
     type Source = Source;
 
     async fn open(&self) -> Result<(Self::Sink, Self::Source), ConnectionFailure> {
-        let name = self.name.clone();
-        let proxy = self.proxy.clone();
-        let on_wait = move |w: &Waiting| {
+        // The proxy only when the broker does not bypass it.
+        let on_wait = |w: &Waiting| {
             stream::note(escape_controls(&stream::waiting_line(
                 w,
-                &name,
-                proxy.as_deref(),
+                &self.name,
+                self.session.proxy().as_deref(),
             )));
         };
         let open = Open {
@@ -106,7 +104,17 @@ impl PortOpener for Opener {
                 let permanent = match &e {
                     OpenError::Session(SessionError::Mint(m)) => permanent_mint(m),
                     OpenError::Refused(s) => s.is(reason::PERMISSION_DENIED),
-                    OpenError::Session(SessionError::Transport(_)) => false,
+                    // A proxy's answer to `CONNECT` other than 2xx, 5xx, 408
+                    // or 429, a broker certificate the roots do not trust, a
+                    // peer without HTTP/2, or a configuration that cannot
+                    // work: every later connection would be refused the same
+                    // way.
+                    OpenError::Session(SessionError::Transport(
+                        TransportError::Refused(_) | TransportError::Config(_),
+                    )) => true,
+                    OpenError::Session(SessionError::Transport(TransportError::Connect(_))) => {
+                        false
+                    }
                 };
                 if let OpenError::Refused(s) = &e {
                     if s.is(reason::QUOTA_EXCEEDED) && !self.quota_said.swap(true, Ordering::SeqCst)
@@ -118,12 +126,13 @@ impl PortOpener for Opener {
                         .await;
                     }
                 }
+                let proxy = self.session.proxy();
                 let failure = stream::open_failure(
                     &self.api,
                     &self.id,
                     &self.name,
                     Needs::Write,
-                    self.proxy.as_deref(),
+                    proxy.as_deref(),
                     e,
                 )
                 .await;
@@ -220,7 +229,6 @@ pub(crate) async fn run(
         ),
         id,
         name,
-        proxy: transport.proxy.clone(),
         quota_said: AtomicBool::new(false),
     };
     let (events_tx, mut events) = forward::events::<ConnectionFailure>();
