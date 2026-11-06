@@ -225,6 +225,26 @@ pub enum LogsEnd {
     Close,
 }
 
+/// What one `PortForward` call does.
+#[derive(Clone, Debug)]
+pub struct PortScript {
+    refuse: Option<Status>,
+}
+
+impl PortScript {
+    /// Admits the call and holds it open until the client goes away.
+    pub fn hold() -> Self {
+        Self { refuse: None }
+    }
+
+    /// Refuses the call before admission.
+    pub fn refuse(status: Status) -> Self {
+        Self {
+            refuse: Some(status),
+        }
+    }
+}
+
 /// What one `Logs` call does.
 #[derive(Clone, Debug)]
 pub struct LogsScript {
@@ -290,6 +310,7 @@ pub struct Call {
 struct Inner {
     exec: VecDeque<ExecScript>,
     logs: VecDeque<LogsScript>,
+    port: VecDeque<PortScript>,
     ring: Vec<LogChunk>,
     calls: Vec<Call>,
     conns: HashMap<u64, std::net::TcpStream>,
@@ -353,6 +374,10 @@ impl FakeBroker {
 
     pub fn push_logs(&self, script: LogsScript) {
         self.state.lock().unwrap().logs.push_back(script);
+    }
+
+    pub fn push_port(&self, script: PortScript) {
+        self.state.lock().unwrap().port.push_back(script);
     }
 
     /// Appends a chunk to the ring buffer, stamped after every earlier one.
@@ -957,9 +982,48 @@ impl SessionService for Arc<Broker> {
 
     async fn port_forward(
         &self,
-        _: Request<Streaming<PortClientFrame>>,
+        req: Request<Streaming<PortClientFrame>>,
     ) -> Result<Response<Self::PortForwardStream>, Status> {
-        Err(Status::unimplemented("not faked"))
+        let (idx, _) = self.record("PortForward", &req);
+        let script = self.state.lock().unwrap().port.pop_front();
+        let script = script
+            .unwrap_or_else(|| PortScript::refuse(Status::unimplemented("no PortForward script")));
+        if let Some(status) = script.refuse {
+            return Err(status);
+        }
+        update(&self.state, idx, |c| c.admitted = true);
+        let body_end = req
+            .extensions()
+            .get::<BodyEnd>()
+            .cloned()
+            .unwrap_or_default();
+        let mut inbound = req.into_inner();
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            loop {
+                match inbound.message().await {
+                    Ok(Some(_)) => update(&state, idx, |c| c.frames += 1),
+                    Ok(None) if body_end.get() == Some(true) => {
+                        update(&state, idx, |c| c.half_closed = true);
+                        break;
+                    }
+                    Ok(None) => {
+                        update(&state, idx, |c| c.reset = Some(Code::Cancelled));
+                        break;
+                    }
+                    Err(status) => {
+                        update(&state, idx, |c| c.reset = Some(status.code()));
+                        break;
+                    }
+                }
+            }
+        });
+        let (out, rx) = mpsc::channel(16);
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            supervise(state, idx, &out, std::future::pending::<()>()).await;
+        });
+        Ok(admitted(rx))
     }
 
     async fn invoke(

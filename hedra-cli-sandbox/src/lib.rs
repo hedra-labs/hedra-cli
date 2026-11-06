@@ -42,7 +42,9 @@ pub mod console;
 #[cfg(all(windows, feature = "fake-broker"))]
 pub mod console_host;
 pub mod console_text;
+pub mod cp;
 #[cfg(feature = "fake-broker")]
 pub mod fake_broker;
+pub mod forward;
 pub mod session;
 pub mod stream;
