@@ -113,9 +113,10 @@ fn configure(app: CliApp) -> CliApp {
     media_refs::install();
 
     // `sandbox session` mints a session token, which a developer has no use
-    // for, so it stays out of `--help` in every format. It still runs when
-    // named. `hide` panics on a path the tree lacks, which the command-tree
-    // test in `tests/sandbox_commands.rs` turns into a CI failure.
+    // for, so it stays out of the text `--help`. `--help --format json`,
+    // `--schema`, `generate-skills` and shell completions still list it, and
+    // it still runs when named. `hide` panics on a path the tree lacks, which
+    // every test in `tests/sandbox_commands.rs` turns into a CI failure.
     let app = app
         .login_flow(auth::EnvPkceLoginFlow::new())
         .command(workspaces::command(), Box::new(workspaces::dispatch))

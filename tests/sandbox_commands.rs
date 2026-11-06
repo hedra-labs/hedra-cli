@@ -3,12 +3,14 @@
 //!
 //! The commands are generated from the embedded spec, so these tests pin what
 //! a regeneration could change without anyone noticing: the command paths the
-//! hooks in `cli/hedra-cli/custom.rs` name (a renamed path makes `hide` panic
-//! or the table hook fail validation), the request each flag sends, and the
-//! table a single sandbox renders as.
+//! hooks in `cli/hedra-cli/custom.rs` name (a renamed path makes `hide` panic,
+//! which fails every test here, or makes the table hook fail validation, which
+//! the command-tree test catches), the request each flag sends, and the table
+//! a single sandbox renders as.
 //!
 //! Hand-written and .fernignore-protected (the `tests/` entry).
 
+use std::path::Path;
 use std::process::{Command, Output, Stdio};
 
 use serde_json::{json, Value};
@@ -28,12 +30,7 @@ impl Outcome {
     }
 
     fn output_text(&self) -> String {
-        format!(
-            "exit {:?}\nstdout:\n{}\nstderr:\n{}",
-            self.out.status.code(),
-            self.stdout(),
-            String::from_utf8_lossy(&self.out.stderr)
-        )
+        describe(&self.out)
     }
 
     /// The single request the server received.
@@ -50,10 +47,11 @@ impl Outcome {
 
 /// A sandbox as `GET /sandboxes/{sandbox}` answers it, with every array field
 /// non-empty, which is what made the generic table print only one of them.
+/// `name` is a value no other field contains, so a table that drops it fails.
 fn sandbox() -> Value {
     json!({
         "id": "sandbox_0123456789abcdef",
-        "name": "train",
+        "name": "nightly",
         "status": "active",
         "url": "https://train--acme.example.com",
         "gpu": "h100:1",
@@ -77,6 +75,58 @@ fn sandbox() -> Value {
     })
 }
 
+/// A sandbox as `POST /sandboxes` answers it: still `creating`, with no
+/// `url`, `image` or `started_at` yet.
+fn created_sandbox() -> Value {
+    let mut created = sandbox();
+    created["status"] = json!("creating");
+    created["url"] = Value::Null;
+    created["image"] = Value::Null;
+    created["started_at"] = Value::Null;
+    created["instances"] = json!([]);
+    created
+}
+
+/// Variables a developer's shell may set that would send the binary's
+/// requests somewhere else.
+const PROXY_VARIABLES: [&str; 8] = [
+    "HTTP_PROXY",
+    "HTTPS_PROXY",
+    "ALL_PROXY",
+    "NO_PROXY",
+    "http_proxy",
+    "https_proxy",
+    "all_proxy",
+    "no_proxy",
+];
+
+/// The binary with `home` as its home and working directory, and none of the
+/// environment it would otherwise inherit that could change what a test
+/// sees: every `HEDRA_*` variable in any case, the proxy variables and the
+/// per-user config directories.
+fn hedra_cli(home: &Path) -> Command {
+    let mut cmd = Command::new(env!("CARGO_BIN_EXE_hedra-cli"));
+    for (name, _) in std::env::vars_os() {
+        if name
+            .to_str()
+            .is_some_and(|name| name.to_ascii_uppercase().starts_with("HEDRA_"))
+        {
+            cmd.env_remove(name);
+        }
+    }
+    for name in PROXY_VARIABLES {
+        cmd.env_remove(name);
+    }
+    cmd.current_dir(home)
+        .env("HOME", home)
+        .env("FERN_CLI_CREDENTIAL_STORE", "file")
+        .env("NO_COLOR", "1")
+        .env_remove("XDG_CONFIG_HOME")
+        .env_remove("APPDATA")
+        .stdin(Stdio::null());
+    cmd
+}
+
 /// Run `hedra-cli <args> --base-url <mock>` in an isolated HOME with a key in
 /// the environment. `responses` answer the requests in order; the last one
 /// answers every request after it.
@@ -97,20 +147,10 @@ fn run(args: &[&str], responses: Vec<ResponseTemplate>) -> Outcome {
         }
 
         let uri = server.uri();
-        let out = Command::new(env!("CARGO_BIN_EXE_hedra-cli"))
+        let out = hedra_cli(home.path())
             .args(args)
             .args(["--base-url", &uri])
-            .current_dir(home.path())
-            .env("HOME", home.path())
-            .env("FERN_CLI_CREDENTIAL_STORE", "file")
             .env("HEDRA_API_KEY", "test-key")
-            .env("NO_COLOR", "1")
-            .env_remove("XDG_CONFIG_HOME")
-            .env_remove("APPDATA")
-            .env_remove("HEDRA_ENV")
-            .env_remove("HEDRA_CLI_BASE_URL")
-            .env_remove("HEDRA_CLI_OUTPUT")
-            .stdin(Stdio::null())
             .output()
             .expect("run hedra-cli");
 
@@ -126,48 +166,47 @@ fn ok(body: Value) -> Vec<ResponseTemplate> {
     vec![ResponseTemplate::new(200).set_body_json(body)]
 }
 
-/// `sandbox create` with the required flags plus `extra`, answered 201.
-fn create(extra: &[&str]) -> Outcome {
+/// `sandbox create` with the required flags plus `extra`, answered by
+/// `responses` in order.
+fn create_with(extra: &[&str], responses: Vec<ResponseTemplate>) -> Outcome {
     let mut args = vec![
         "sandbox",
         "create",
         "--name",
-        "train",
+        "nightly",
         "--image",
         "ghcr.io/acme/trainer:1",
         "--gpu",
         "h100:1",
-        "--format",
-        "json",
     ];
     args.extend_from_slice(extra);
-    run(
-        &args,
-        vec![ResponseTemplate::new(201).set_body_json(sandbox())],
+    run(&args, responses)
+}
+
+/// `sandbox create --format json` with the required flags plus `extra`,
+/// answered 201.
+fn create(extra: &[&str]) -> Outcome {
+    let mut extra = extra.to_vec();
+    extra.extend_from_slice(&["--format", "json"]);
+    create_with(
+        &extra,
+        vec![ResponseTemplate::new(201).set_body_json(created_sandbox())],
     )
 }
 
-/// Run the binary with no server, for commands that send nothing.
-fn offline(args: &[&str]) -> Output {
+/// Run the binary with no server and no key, for commands that send
+/// nothing, with `env` set on top of the isolated environment.
+fn offline_with(args: &[&str], env: &[(&str, &str)]) -> Output {
     let home = TempDir::new().expect("temp HOME");
-    Command::new(env!("CARGO_BIN_EXE_hedra-cli"))
-        .args(args)
-        .current_dir(home.path())
-        .env("HOME", home.path())
-        .env("FERN_CLI_CREDENTIAL_STORE", "file")
-        .env("NO_COLOR", "1")
-        .env_remove("HEDRA_API_KEY")
-        .env_remove("XDG_CONFIG_HOME")
-        .env_remove("APPDATA")
-        .env_remove("HEDRA_ENV")
-        .env_remove("HEDRA_CLI_BASE_URL")
-        .env_remove("HEDRA_CLI_OUTPUT")
-        .stdin(Stdio::null())
-        .output()
-        .expect("run hedra-cli")
+    let mut cmd = hedra_cli(home.path());
+    cmd.args(args);
+    for (name, value) in env {
+        cmd.env(name, value);
+    }
+    cmd.output().expect("run hedra-cli")
 }
 
-fn text(out: &Output) -> String {
+fn describe(out: &Output) -> String {
     format!(
         "exit {:?}\nstdout:\n{}\nstderr:\n{}",
         out.status.code(),
@@ -176,42 +215,56 @@ fn text(out: &Output) -> String {
     )
 }
 
+/// A `--help` run reads its format from `HEDRA_CLI_OUTPUT`, then the TTY,
+/// because the format flag is not parsed yet. Piped, that is JSON; on a
+/// terminal it is a table, which `HEDRA_CLI_OUTPUT=table` stands in for here.
+/// A person reads `--help` on a terminal, and a script reads it piped, so
+/// every hook check runs under both.
+const HELP_FORMATS: [(&str, &[(&str, &str)]); 2] = [
+    ("piped", &[]),
+    ("a terminal", &[("HEDRA_CLI_OUTPUT", "table")]),
+];
+
 // ---------------------------------------------------------------------------
 // The command tree the hooks name
 // ---------------------------------------------------------------------------
 
 /// `hide(&["sandbox", "session"])` panics on a path a regeneration renamed,
-/// and the table-only `["sandbox", "*"]` hook fails validation when no leaf
-/// matches it. Building the tree piped and with `--format table` runs both.
+/// and the table-only `["sandbox", "*"]` hook fails validation, exiting
+/// non-zero with "matches no operations", when no leaf matches it. Building
+/// the tree piped and as on a terminal runs both.
 #[test]
 fn the_command_tree_builds_piped_and_as_a_table() {
-    for args in [
-        &["sandbox", "--help"][..],
-        &["--format", "table", "sandbox", "--help"][..],
-        &["sandbox", "session", "--help"][..],
-        &["--format", "table", "sandbox", "get", "--help"][..],
-    ] {
-        let out = offline(args);
-        assert!(out.status.success(), "{args:?}\n{}", text(&out));
-        assert!(
-            !text(&out).contains("matches no operations"),
-            "{args:?}\n{}",
-            text(&out)
-        );
+    for (format, env) in HELP_FORMATS {
+        for args in [
+            &["sandbox", "--help"][..],
+            &["sandbox", "session", "--help"][..],
+            &["sandbox", "get", "--help"][..],
+        ] {
+            let out = offline_with(args, env);
+            assert!(
+                out.status.success(),
+                "{args:?} {format}: the tree failed to build (a renamed path, or a hook \
+                 pattern that matches no operations)\n{}",
+                describe(&out)
+            );
+        }
     }
 }
 
 #[test]
 fn session_is_hidden_from_help_but_still_runs() {
-    let help = offline(&["sandbox", "--help"]);
-    let listed = String::from_utf8_lossy(&help.stdout);
-    assert!(listed.contains("create"), "{}", text(&help));
-    assert!(
-        !listed
-            .lines()
-            .any(|line| line.trim_start().starts_with("session")),
-        "`session` is listed:\n{listed}"
-    );
+    for (format, env) in HELP_FORMATS {
+        let help = offline_with(&["sandbox", "--help"], env);
+        let listed = String::from_utf8_lossy(&help.stdout);
+        assert!(listed.contains("create"), "{format}\n{}", describe(&help));
+        assert!(
+            !listed
+                .lines()
+                .any(|line| line.trim_start().starts_with("session")),
+            "`session` is listed {format}:\n{listed}"
+        );
+    }
 
     let outcome = run(
         &[
@@ -328,49 +381,57 @@ fn create_sends_the_required_fields() {
     let outcome = create(&[]);
     let body = outcome.body();
     assert_eq!(outcome.request().url.path(), "/sandboxes");
-    assert_eq!(body["name"], "train");
+    assert_eq!(body["name"], "nightly");
     assert_eq!(body["image"], "ghcr.io/acme/trainer:1");
     assert_eq!(body["gpu"], "h100:1");
     assert!(body.get("accelerator").is_none(), "{body}");
 }
 
-/// The runtime retries a POST on a 5xx only when the caller supplied the
-/// key, and must send the same key on the retry.
+fn idempotency_key(request: &Request) -> Option<String> {
+    request
+        .headers
+        .get("Idempotency-Key")
+        .and_then(|v| v.to_str().ok())
+        .map(str::to_owned)
+}
+
+/// A 503, then the sandbox created.
+fn unavailable_then_created() -> Vec<ResponseTemplate> {
+    vec![
+        ResponseTemplate::new(503).set_body_json(json!({
+            "error": {"type": "UNAVAILABLE", "message": "try again"}
+        })),
+        ResponseTemplate::new(201).set_body_json(created_sandbox()),
+    ]
+}
+
+/// `POST /sandboxes` is `x-fern-idempotent`, so the runtime retries it on a
+/// 5xx with or without `--idempotency-key`; a key the caller supplies must be
+/// the one sent on every attempt.
 #[test]
 fn create_sends_the_idempotency_key_on_its_first_attempt_and_its_retry() {
-    let outcome = run(
-        &[
-            "sandbox",
-            "create",
-            "--name",
-            "train",
-            "--image",
-            "ghcr.io/acme/trainer:1",
-            "--gpu",
-            "h100:1",
-            "--idempotency-key",
-            "K-1",
-            "--format",
-            "json",
-        ],
-        vec![
-            ResponseTemplate::new(503).set_body_json(json!({
-                "error": {"type": "UNAVAILABLE", "message": "try again"}
-            })),
-            ResponseTemplate::new(201).set_body_json(sandbox()),
-        ],
+    let outcome = create_with(
+        &["--idempotency-key", "K-1", "--format", "json"],
+        unavailable_then_created(),
     );
     assert!(outcome.out.status.success(), "{}", outcome.output_text());
     assert_eq!(outcome.requests.len(), 2, "{}", outcome.output_text());
     for request in &outcome.requests {
-        assert_eq!(
-            request
-                .headers
-                .get("Idempotency-Key")
-                .and_then(|v| v.to_str().ok()),
-            Some("K-1")
-        );
+        assert_eq!(idempotency_key(request).as_deref(), Some("K-1"));
     }
+}
+
+/// Without `--idempotency-key`, the runtime generates one key and sends it on
+/// every attempt. A key per attempt would let one 503 create several billed
+/// sandboxes.
+#[test]
+fn create_without_a_key_retries_with_one_generated_key() {
+    let outcome = create_with(&["--format", "json"], unavailable_then_created());
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    assert_eq!(outcome.requests.len(), 2, "{}", outcome.output_text());
+    let keys: Vec<Option<String>> = outcome.requests.iter().map(idempotency_key).collect();
+    assert!(keys[0].is_some(), "no Idempotency-Key on the first attempt");
+    assert_eq!(keys[0], keys[1], "the retry sent a different key");
 }
 
 // ---------------------------------------------------------------------------
@@ -425,10 +486,10 @@ fn saved_logs_sends_since() {
 #[test]
 fn get_given_a_name_requests_the_name_path() {
     let outcome = run(
-        &["sandbox", "get", "--sandbox", "train", "--format", "json"],
+        &["sandbox", "get", "--sandbox", "nightly", "--format", "json"],
         ok(sandbox()),
     );
-    assert_eq!(outcome.request().url.path(), "/sandboxes/train");
+    assert_eq!(outcome.request().url.path(), "/sandboxes/nightly");
 }
 
 // ---------------------------------------------------------------------------
@@ -440,34 +501,50 @@ fn get_given_a_name_requests_the_name_path() {
 #[test]
 fn get_and_create_print_the_sandboxs_own_fields_as_a_table() {
     let get = run(
-        &["sandbox", "get", "--sandbox", "train", "--format", "table"],
-        ok(sandbox()),
-    );
-    let created = run(
         &[
             "sandbox",
-            "create",
-            "--name",
-            "train",
-            "--image",
-            "ghcr.io/acme/trainer:1",
-            "--gpu",
-            "h100:1",
+            "get",
+            "--sandbox",
+            "nightly",
             "--format",
             "table",
         ],
-        vec![ResponseTemplate::new(201).set_body_json(sandbox())],
+        ok(sandbox()),
     );
-    for outcome in [get, created] {
+    let created = create_with(
+        &["--format", "table"],
+        vec![ResponseTemplate::new(201).set_body_json(created_sandbox())],
+    );
+    for (outcome, rows) in [
+        (
+            get,
+            &[
+                ["id", "sandbox_0123456789abcdef"],
+                ["name", "nightly"],
+                ["status", "active"],
+                ["url", "https://train--acme.example.com"],
+            ][..],
+        ),
+        (
+            created,
+            &[
+                ["id", "sandbox_0123456789abcdef"],
+                ["name", "nightly"],
+                ["status", "creating"],
+            ][..],
+        ),
+    ] {
         assert!(outcome.out.status.success(), "{}", outcome.output_text());
         let table = outcome.stdout();
-        for field in [
-            "sandbox_0123456789abcdef",
-            "train",
-            "active",
-            "https://train--acme.example.com",
-        ] {
-            assert!(table.contains(field), "`{field}` missing:\n{table}");
+        for row in rows {
+            assert!(
+                table
+                    .lines()
+                    .any(|line| line.split_whitespace().eq(row.iter().copied())),
+                "no `{} {}` row:\n{table}",
+                row[0],
+                row[1]
+            );
         }
     }
 }
