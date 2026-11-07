@@ -46,7 +46,7 @@ pub(crate) fn get_command(sandbox: &str) -> String {
     format!("hedra-cli sandbox get --sandbox {sandbox}")
 }
 
-/// The generated command that prints `sandbox`'s output, a name or an id.
+/// The command that prints `sandbox`'s output, a name or an id.
 pub(crate) fn logs_command(sandbox: &str) -> String {
     format!("hedra-cli sandbox logs {sandbox}")
 }

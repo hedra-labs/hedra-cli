@@ -769,6 +769,13 @@ async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_activ
         "active",
         json!([{"replica": 0, "status": "stopped", "failure_reason": "oom"}]),
     );
+    let mut unpaid = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([{"replica": 0, "status": "stopped"}]),
+    );
+    unpaid["end_reason"] = json!("unpaid");
     for (answer, read, line) in [
         (
             envelope(
@@ -795,6 +802,19 @@ async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_activ
                 "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
                  `{ID}`'s instance stopped (oom). Run `hedra-cli sandbox logs {ID}` for its output."
             ),
+        ),
+        (
+            envelope(
+                400,
+                "FAILED_PRECONDITION",
+                "The instance at this replica has stopped.",
+                None,
+            ),
+            unpaid,
+            "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+             Add funds to the workspace, then create another; `hedra-cli sandbox ls` lists the \
+             running ones."
+                .to_string(),
         ),
         (
             envelope(404, "NOT_FOUND", "No replica is serving sessions.", None),
