@@ -225,14 +225,25 @@ async fn within<T>(task: impl std::future::Future<Output = T>) -> T {
 }
 
 /// Whether the connection was reset, not closed. A loaded runner can take
-/// seconds to drain a stalled socket, so the wait is long.
+/// seconds to drain a stalled socket, so the wait is long. A reset sent to
+/// a client at a zero window can be lost, leaving it waiting on a socket
+/// that is gone: past the wait, one byte written draws the reset again.
 async fn was_reset(s: &mut TcpStream) -> bool {
     let mut got = Vec::new();
-    match timeout(Duration::from_secs(20), s.read_to_end(&mut got)).await {
-        Ok(Err(e)) => e.kind() == io::ErrorKind::ConnectionReset,
-        Ok(Ok(_)) => false,
+    if let Ok(read) = timeout(Duration::from_secs(10), s.read_to_end(&mut got)).await {
+        return is_reset(read);
+    }
+    if let Err(e) = s.write_all(&[0]).await {
+        return e.kind() == io::ErrorKind::ConnectionReset;
+    }
+    match timeout(Duration::from_secs(10), s.read_to_end(&mut got)).await {
+        Ok(read) => is_reset(read),
         Err(_) => panic!("the connection stayed open"),
     }
+}
+
+fn is_reset(read: io::Result<usize>) -> bool {
+    matches!(read, Err(e) if e.kind() == io::ErrorKind::ConnectionReset)
 }
 
 #[tokio::test(flavor = "multi_thread")]
