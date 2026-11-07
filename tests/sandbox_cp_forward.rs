@@ -582,6 +582,38 @@ async fn ctrl_c_during_a_copy_out_removes_the_parents_it_made() {
     assert!(!stderr(&out).contains("partial"), "{}", stderr(&out));
 }
 
+/// A second signal while `cp` waits for a stalled extractor that wrote
+/// nothing removes the parents it made, and says the modes it opened up may
+/// not have been put back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_signal_before_any_write_still_says_modes_may_stay_open() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Hold]));
+    let server = running_sandbox(&broker).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/tree");
+    let child = run
+        .command(&["sandbox", "cp", &src, "a/b/out"])
+        .env("HEDRA_CLI_TEST_CP_STALL_EXTRACTOR", "1")
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    broker.wait_for(WAIT, |c| c.len() == 1 && c[0].start.is_some());
+    signal(&child, libc::SIGINT);
+    std::thread::sleep(Duration::from_millis(500));
+    signal(&child, libc::SIGINT);
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(130), "{err}");
+    assert!(!run.home.path().join("a").exists(), "{err}");
+    assert!(
+        err.contains("The modes of directories the copy opened up may not have been put back."),
+        "{err}"
+    );
+    assert!(!err.contains("partial"), "{err}");
+}
+
 /// The first entry's header and body, without the end of the archive.
 fn first_entry_only(name: &str) -> Vec<u8> {
     one_entry(name)[..1024].to_vec()
@@ -612,6 +644,7 @@ async fn ctrl_c_after_a_copy_out_wrote_something_leaves_it_and_says_so() {
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(130), "{err}");
     assert!(err.contains("A partial copy was left at a/b/out."), "{err}");
+    assert!(!err.contains("modes"), "{err}");
     assert_eq!(std::fs::read(&written).unwrap(), b"x");
 }
 
@@ -904,6 +937,61 @@ async fn ctrl_c_mid_file_puts_back_a_read_only_directory_before_exiting() {
         err.contains("Part of the copy was written into ./tree, which already existed."),
         "{err}"
     );
+    assert!(!err.contains("modes"), "{err}");
+}
+
+/// A second signal while `cp` waits for an extractor held up by a stalled
+/// destination ends the wait at once: `cp` exits by the first signal and
+/// says the modes it opened up may not have been put back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_signal_ends_the_wait_for_a_stalled_extractor() {
+    for (first, second, code) in [
+        (libc::SIGINT, libc::SIGINT, 130),
+        (libc::SIGTERM, libc::SIGINT, 143),
+    ] {
+        let broker = FakeBroker::start();
+        let mut stream = header("tree/", b'5', 0o755, 0);
+        stream.extend(first_entry_only("tree/a.txt"));
+        broker.push_exec(ExecScript::admit([
+            Step::Start,
+            Step::Stdout(stream),
+            Step::Hold,
+        ]));
+        let server = running_sandbox(&broker).await;
+        let run = Run::new(&server);
+        std::fs::create_dir(run.home.path().join("tree")).unwrap();
+        let src = format!("{ID}:/work/tree");
+        let child = run
+            .command(&["sandbox", "cp", &src, "."])
+            .env("HEDRA_CLI_TEST_CP_STALL_EXTRACTOR", "1")
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .spawn()
+            .unwrap();
+        let written = run.home.path().join("tree/a.txt");
+        let deadline = Instant::now() + WAIT;
+        while std::fs::read(&written).ok().as_deref() != Some(b"x") {
+            assert!(Instant::now() < deadline, "the entry was never written");
+            std::thread::sleep(Duration::from_millis(20));
+        }
+        signal(&child, first);
+        // Into the wait, which would last the 5 s grace.
+        std::thread::sleep(Duration::from_millis(500));
+        signal(&child, second);
+        let signalled = Instant::now();
+        let out = wait(child, WAIT);
+        let took = signalled.elapsed();
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(code), "{err}");
+        assert!(took < Duration::from_secs(2), "{took:?}: {err}");
+        assert!(
+            err.contains(
+                "Part of the copy was written into ./tree, which already existed; the modes of \
+                 directories the copy opened up may not have been put back."
+            ),
+            "{err}"
+        );
+    }
 }
 
 /// Ctrl-C after a copy out let a write through that never landed, here a

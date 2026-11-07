@@ -17,6 +17,12 @@ use super::stream::{self, Minter, Needs, Out, Sig, Signals, WriteEnd};
 /// How long a signal waits for a copy out's extractor to stop, and to put
 /// back the modes of the user's directories it opened up, before `cp` exits.
 const EXTRACTOR_GRACE: std::time::Duration = std::time::Duration::from_secs(5);
+/// The same wait after Windows' `CTRL_CLOSE_EVENT`, inside the few seconds
+/// Windows gives before it ends the process.
+const CLOSE_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+/// Said when `cp` exits before its extractor ended.
+const MODES_MAY_STAY: &str =
+    "the modes of directories the copy opened up may not have been put back";
 
 /// Whether `part` names a sandbox: a valid name or a `sandbox_` id.
 fn is_sandbox(part: &str) -> bool {
@@ -120,16 +126,35 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
                 // up, before the exit. Once it has, whether a write landed
                 // says whether part of the copy is there; if it has not, a
                 // write it let through may still be landing, so the parents
-                // stay and the line says where.
+                // stay and the line says where. A second signal ends the
+                // wait as its running out does, and the exit is still the
+                // first signal's; either way, a line says the modes it
+                // opened up may not have been put back.
                 let let_through = progress.cancel();
-                let ended = tokio::time::timeout(EXTRACTOR_GRACE, progress.extracted())
-                    .await
-                    .is_ok();
+                let grace = match sig {
+                    Sig::Close => CLOSE_GRACE,
+                    _ => EXTRACTOR_GRACE,
+                };
+                // Biased, so an extractor that has ended is not taken for
+                // one cut short by a signal pending alongside it.
+                let ended = tokio::select! {
+                    biased;
+                    r = tokio::time::timeout(grace, extractor_ended(&progress)) => r.is_ok(),
+                    _ = signals.next() => false,
+                };
                 let wrote = if ended { progress.wrote() } else { let_through };
                 if wrote {
-                    stream::note(p.left().sentence());
+                    let left = p.left();
+                    stream::note(if ended {
+                        left.sentence()
+                    } else {
+                        capitalised(&format!("{}; {MODES_MAY_STAY}", left.clause()))
+                    });
                 } else {
                     p.discard();
+                    if !ended {
+                        stream::note(capitalised(MODES_MAY_STAY));
+                    }
                 }
             }
             return Ended::Signal(sig);
@@ -185,6 +210,26 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
     match exec::lost_unless_signalled(api, &id, status.as_ref(), &mut signals).await {
         Ok(f) => Ended::Failed(with_partial(stopped_at(f, &report.stopped_at))),
         Err(sig) => signalled(sig),
+    }
+}
+
+/// Waits for a copy out's extractor to end. Test hook (debug builds only):
+/// `HEDRA_CLI_TEST_CP_STALL_EXTRACTOR` set makes it never end, as one held
+/// up by a stalled destination.
+async fn extractor_ended(progress: &Progress) {
+    #[cfg(debug_assertions)]
+    if std::env::var_os("HEDRA_CLI_TEST_CP_STALL_EXTRACTOR").is_some() {
+        std::future::pending::<()>().await;
+    }
+    progress.extracted().await;
+}
+
+/// `clause` as a sentence of its own.
+fn capitalised(clause: &str) -> String {
+    let mut chars = clause.chars();
+    match chars.next() {
+        Some(first) => format!("{}{}.", first.to_ascii_uppercase(), chars.as_str()),
+        None => String::new(),
     }
 }
 
