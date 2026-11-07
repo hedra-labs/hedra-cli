@@ -803,10 +803,16 @@ async fn a_copy_over_many_read_only_directories_holds_no_descriptor_for_each() {
     // SAFETY: only async-signal-safe calls between fork and exec.
     unsafe {
         cmd.pre_exec(|| {
-            let limit = libc::rlimit {
-                rlim_cur: 256,
-                rlim_max: libc::RLIM_INFINITY,
+            // Only the soft limit: an unprivileged process cannot raise
+            // the hard one, which Linux runners keep finite.
+            let mut limit = libc::rlimit {
+                rlim_cur: 0,
+                rlim_max: 0,
             };
+            if libc::getrlimit(libc::RLIMIT_NOFILE, &mut limit) != 0 {
+                return Err(std::io::Error::last_os_error());
+            }
+            limit.rlim_cur = 256;
             if libc::setrlimit(libc::RLIMIT_NOFILE, &limit) != 0 {
                 return Err(std::io::Error::last_os_error());
             }
