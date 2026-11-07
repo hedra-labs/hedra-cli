@@ -406,7 +406,7 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
     }
 
     let mints_before = mints(&server, ID).await;
-    let out = run.run(&["sandbox", "port-forward", "box", "0:8888"]);
+    let out = wait(run.spawn(&["sandbox", "port-forward", "box", "0:8888"]), WAIT);
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(13), "{err}");
     assert_eq!(
@@ -455,7 +455,10 @@ async fn port_forward_on_a_stopped_sandbox_exits_13_before_it_starts() {
         let server = MockServer::start().await;
         mount_sandbox(&server, "box", read.clone()).await;
         mount_sandbox(&server, ID, read).await;
-        let out = Run::new(&server).run(&["sandbox", "port-forward", target, "0:8888"]);
+        let out = wait(
+            Run::new(&server).spawn(&["sandbox", "port-forward", target, "0:8888"]),
+            WAIT,
+        );
         let err = stderr(&out);
         assert_eq!(out.status.code(), Some(13), "{target}: {err}");
         assert_eq!(
