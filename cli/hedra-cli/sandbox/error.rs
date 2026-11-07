@@ -351,19 +351,11 @@ fn missing_scope_line_for(scope: &str, api_key_set: bool) -> String {
     )
 }
 
-/// Escapes control characters in text that came from a server, so it cannot
-/// send a terminal escape sequence through a line hedra-cli prints.
-pub(crate) fn escape_controls(text: &str) -> String {
-    let mut out = String::with_capacity(text.len());
-    for c in text.chars() {
-        if c.is_control() {
-            out.extend(c.escape_default());
-        } else {
-            out.push(c);
-        }
-    }
-    out
-}
+// Escapes control characters in text that came from a server, so it cannot
+// send a terminal escape sequence through a line hedra-cli prints. The
+// sandbox crate's own messages, `cp`'s names among them, use the same
+// helper, so every line escapes one way.
+pub(crate) use hedra_cli_sandbox::text::escape_controls;
 
 #[cfg(test)]
 mod tests {

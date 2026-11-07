@@ -75,6 +75,10 @@ pub struct Duplex<In, Out> {
     pub recv: Streaming<Out>,
 }
 
+/// A send on a call that has already ended; the receiving half says why.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CallClosed;
+
 /// A call's request sender; dropping the last clone resets the call.
 pub struct Sender<T> {
     tx: mpsc::Sender<T>,

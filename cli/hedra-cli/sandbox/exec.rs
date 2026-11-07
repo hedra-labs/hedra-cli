@@ -3,10 +3,11 @@
 use std::collections::HashMap;
 
 use hedra_cli_sandbox::pb::hedra::sandbox::v1::{
-    exec_client_frame, exec_server_frame, ExecClientFrame, ExecResize, ExecStart, Stream,
+    exec_client_frame, exec_server_frame, ExecClientFrame, ExecResize, ExecServerFrame, ExecStart,
+    Stream,
 };
 use hedra_cli_sandbox::session::Session;
-use hedra_cli_sandbox::stream::calls::{self, Open, Waiting};
+use hedra_cli_sandbox::stream::calls::{self, Duplex, Open, Waiting};
 use hedra_cli_sandbox::stream::status::BrokerStatus;
 use hedra_cli_sandbox::stream::transport::TransportConfig;
 use tokio::sync::mpsc;
@@ -135,24 +136,27 @@ async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec:
     );
     let driven = drive(api, &session, &id, &name, &exec, &mut signals).await;
     match driven.ended {
-        // The read that explains the drop still answers a signal.
-        Ended::Failed(f) if f.class == Class::ConnectionLost => tokio::select! {
-            f = lost(api, &id, driven.status.as_ref()) => Ended::Failed(f),
-            sig = signals.next() => Ended::Signal(sig),
-        },
+        Ended::Failed(f) if f.class == Class::ConnectionLost => {
+            match lost_unless_signalled(api, &id, driven.status.as_ref(), &mut signals).await {
+                Ok(f) => Ended::Failed(f),
+                Err(sig) => Ended::Signal(sig),
+            }
+        }
         ended => ended,
     }
 }
 
-/// Opens an `Exec` call on `session` and relays it until it ends.
-pub(crate) async fn drive(
+/// Opens an `Exec` call on `session` for `exec`, `shell` and `cp`: the
+/// retry lines and, under `--debug`, the broker's lines on stderr; a
+/// refusal read and classed; and a signal answered throughout, the read
+/// that explains a refusal included.
+pub(crate) async fn open_call(
     api: &Api,
     session: &Session<Minter<'_>>,
     id: &str,
     name: &str,
-    exec: &Exec,
     signals: &mut Signals,
-) -> Driven {
+) -> Result<Duplex<ExecClientFrame, ExecServerFrame>, Ended> {
     // The proxy only when the broker does not bypass it.
     let proxy = || session.proxy();
     let on_wait = |w: &Waiting| {
@@ -170,27 +174,49 @@ pub(crate) async fn drive(
     };
     let opened = tokio::select! {
         r = calls::open_exec(session, &open) => r,
-        sig = signals.next() => return Driven::before_start(Ended::Signal(sig)),
+        sig = signals.next() => return Err(Ended::Signal(sig)),
     };
-    let call = match opened {
-        Ok(call) => call,
-        // The read that explains a refusal still answers a signal.
-        Err(e) => {
-            let proxy = proxy();
-            return Driven::before_start(tokio::select! {
-                f = stream::open_failure(api, id, name, Needs::Exec, proxy.as_deref(), e) => {
-                    Ended::Failed(f)
-                }
-                sig = signals.next() => Ended::Signal(sig),
-            });
+    let e = match opened {
+        Ok(call) => return Ok(call),
+        Err(e) => e,
+    };
+    let proxy = proxy();
+    Err(tokio::select! {
+        f = stream::open_failure(api, id, name, Needs::Exec, proxy.as_deref(), e) => {
+            Ended::Failed(f)
         }
+        sig = signals.next() => Ended::Signal(sig),
+    })
+}
+
+/// The Connection lost failure, after a fresh read of the sandbox, or the
+/// signal that came first: the read never holds a verb past Ctrl-C.
+pub(crate) async fn lost_unless_signalled(
+    api: &Api,
+    id: &str,
+    status: Option<&BrokerStatus>,
+    signals: &mut Signals,
+) -> Result<Failure, Sig> {
+    tokio::select! {
+        f = lost(api, id, status) => Ok(f),
+        sig = signals.next() => Err(sig),
+    }
+}
+
+/// Opens an `Exec` call on `session` and relays it until it ends.
+pub(crate) async fn drive(
+    api: &Api,
+    session: &Session<Minter<'_>>,
+    id: &str,
+    name: &str,
+    exec: &Exec,
+    signals: &mut Signals,
+) -> Driven {
+    let call = match open_call(api, session, id, name, signals).await {
+        Ok(call) => call,
+        Err(ended) => return Driven::before_start(ended),
     };
-    let output_failed = |e: std::io::Error| {
-        Failure::new(
-            Class::OutputFailed,
-            format!("Could not write the output: {e}."),
-        )
-    };
+    let debug = |line: &str| stream::note(escape_controls(line));
     let (mut out, mut err_out) = match (Out::dup(1), Out::dup(2)) {
         (Ok(o), Ok(e)) => (o, e),
         (Err(e), _) | (_, Err(e)) => return Driven::before_start(Ended::Failed(output_failed(e))),
@@ -340,6 +366,14 @@ pub(crate) async fn drive(
     drop(recv);
     drop(raw);
     driven
+}
+
+/// Output failed, for a write to stdout or stderr that failed.
+pub(crate) fn output_failed(e: std::io::Error) -> Failure {
+    Failure::new(
+        Class::OutputFailed,
+        format!("Could not write the output: {e}."),
+    )
 }
 
 /// Resizes, as `SIGWINCH` reports them; Windows polls the console instead.

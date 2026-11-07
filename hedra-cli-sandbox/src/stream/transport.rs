@@ -48,8 +48,8 @@ pub enum TransportError {
     Connect(String),
     /// The connection reached something that refuses it, and every later
     /// attempt would be refused the same way: a proxy answering `CONNECT`
-    /// with a non-2xx status, a broker certificate this client does not
-    /// trust, or a TLS peer that does not offer HTTP/2.
+    /// with a status other than 2xx, 5xx, 408 or 429, a broker certificate
+    /// this client does not trust, or a TLS peer that does not offer HTTP/2.
     Refused(String),
 }
 
@@ -717,6 +717,14 @@ async fn tunnel(proxy: &Proxy, host: &str, port: u16) -> Result<TcpStream, Trans
             status_line.trim()
         )));
     }
+    if code == "408" || code == "429" {
+        // The proxy timed the request out or is limiting its rate: a later
+        // attempt may pass, so it takes the admission retry too.
+        return Err(TransportError::Connect(format!(
+            "the proxy did not open the tunnel just now: {}",
+            status_line.trim()
+        )));
+    }
     if !code.starts_with('2') {
         return Err(TransportError::Refused(format!(
             "the proxy refused the tunnel to the broker: {}",
@@ -906,11 +914,14 @@ mod tests {
         assert!(e.to_string().contains("403 Forbidden"), "{e}");
     }
 
-    /// A proxy that cannot reach the broker just now answers 5xx: transient,
-    /// so the tunnel fails as `Connect` and the call takes the admission retry.
+    /// A proxy that cannot reach the broker just now answers 5xx, and one
+    /// limiting its rate or timing the request out 429 or 408: transient, so
+    /// the tunnel fails as `Connect` and the call takes the admission retry.
     #[tokio::test]
-    async fn a_proxy_5xx_is_transient_and_names_the_proxys_answer() {
+    async fn a_proxy_5xx_408_or_429_is_transient_and_names_the_proxys_answer() {
         for answer in [
+            "HTTP/1.1 408 Request Timeout",
+            "HTTP/1.1 429 Too Many Requests",
             "HTTP/1.1 502 Bad Gateway",
             "HTTP/1.1 503 Service Unavailable",
             "HTTP/1.1 504 Gateway Timeout",

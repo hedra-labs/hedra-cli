@@ -36,6 +36,21 @@ impl SessionMinter for Minter<'_> {
     }
 }
 
+/// A minter that owns its client, for a session that outlives a borrow, such
+/// as `port-forward`'s.
+pub(crate) struct OwnedMinter {
+    pub(crate) api: std::sync::Arc<Api>,
+    pub(crate) id: String,
+}
+
+impl SessionMinter for OwnedMinter {
+    type Error = CallError;
+
+    fn mint(&self) -> MintFuture<'_, CallError> {
+        Box::pin(mint(&self.api, &self.id))
+    }
+}
+
 /// `POST /sandboxes/{id}/session`, retried on 408, 429, 5xx and transport
 /// errors for up to a minute; a second mint is harmless.
 async fn mint(api: &Api, id: &str) -> Result<Minted, CallError> {
@@ -146,6 +161,7 @@ fn unreached(proxy: Option<&str>) -> String {
 pub(crate) enum Needs {
     Exec,
     Read,
+    Write,
 }
 
 impl Needs {
@@ -153,6 +169,7 @@ impl Needs {
         match self {
             Needs::Exec => "sandboxes:exec",
             Needs::Read => "sandboxes:read",
+            Needs::Write => "sandboxes:write",
         }
     }
 }
@@ -199,35 +216,26 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
         Some(reason::INTERNAL) => Class::Internal,
         Some(reason::INVALID_ARGUMENT) => Class::Rejected,
         Some(reason::RATE_LIMITED) if !started => Class::Limit,
-        Some(reason::UNAUTHENTICATED) if !started => Class::Unavailable,
+        // A second refusal of a just-minted token is the broker's key
+        // cache, not the key.
+        Some(reason::UNAUTHENTICATED) if !started => return temporarily_unavailable(s, &message),
         _ if started => Class::ConnectionLost,
-        _ => {
-            match s.code {
-                // A second refusal of a just-minted token is the broker's key
-                // cache, not the key.
-                hedra_cli_sandbox::tonic::Code::Unavailable
-                | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
-                | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
-                    let line = if message.is_empty() {
-                        "Sandbox sessions are temporarily unavailable; retry shortly.".to_string()
-                    } else {
-                        format!("Sandbox sessions are temporarily unavailable ({message}); retry shortly.")
-                    };
-                    let mut f = Failure::new(Class::Unavailable, line);
-                    f.reason = s.reason.clone();
-                    return f;
-                }
-                hedra_cli_sandbox::tonic::Code::PermissionDenied => {
-                    return Failure::new(
-                        Class::MissingScope,
-                        super::error::missing_scope_line(needs.scope()),
-                    )
-                }
-                hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
-                hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
-                _ => Class::Internal,
+        _ => match s.code {
+            hedra_cli_sandbox::tonic::Code::Unavailable
+            | hedra_cli_sandbox::tonic::Code::DeadlineExceeded
+            | hedra_cli_sandbox::tonic::Code::Unauthenticated => {
+                return temporarily_unavailable(s, &message)
             }
-        }
+            hedra_cli_sandbox::tonic::Code::PermissionDenied => {
+                return Failure::new(
+                    Class::MissingScope,
+                    super::error::missing_scope_line(needs.scope()),
+                )
+            }
+            hedra_cli_sandbox::tonic::Code::NotFound => Class::NotReady,
+            hedra_cli_sandbox::tonic::Code::ResourceExhausted => Class::Limit,
+            _ => Class::Internal,
+        },
     };
     let mut f = Failure::new(
         class,
@@ -237,6 +245,18 @@ pub(crate) fn broker_failure(s: &BrokerStatus, name: &str, needs: Needs, started
             message
         },
     );
+    f.reason = s.reason.clone();
+    f
+}
+
+/// Unavailable (17), with the broker's escaped `message` when it gave one.
+fn temporarily_unavailable(s: &BrokerStatus, message: &str) -> Failure {
+    let line = if message.is_empty() {
+        "Sandbox sessions are temporarily unavailable; retry shortly.".to_string()
+    } else {
+        format!("Sandbox sessions are temporarily unavailable ({message}); retry shortly.")
+    };
+    let mut f = Failure::new(Class::Unavailable, line);
     f.reason = s.reason.clone();
     f
 }
@@ -1377,6 +1397,23 @@ mod tests {
         // A refusal the broker explained is not an unreached broker.
         let f = fail(status(Unauthenticated, None, &[]), None).await;
         assert!(!f.message.contains("per-network"), "{}", f.message);
+        // A second `unauthenticated` with its `ErrorInfo` is the broker's
+        // key cache too: the same line, naming the broker's message.
+        let f = fail(
+            status_saying(
+                Unauthenticated,
+                Some("unauthenticated"),
+                &[],
+                "invalid session token",
+            ),
+            None,
+        )
+        .await;
+        assert_eq!(f.class, Class::Unavailable);
+        assert_eq!(
+            f.message,
+            "Sandbox sessions are temporarily unavailable (invalid session token); retry shortly."
+        );
         let f = fail(status(Unavailable, Some("sandbox_disconnected"), &[]), None).await;
         assert!(!f.message.contains("per-network"), "{}", f.message);
     }

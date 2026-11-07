@@ -1,16 +1,18 @@
-//! The sandbox stream verbs: `exec`, `shell` (and `shell --gpu`), `logs` and
-//! `attach`, which hold a stream open to the sandbox through the broker. Each
-//! is grafted into the generated `sandbox` group beside the generated control
-//! commands (`ls`, `get`, `create`, `stop`, …), which this module does not
-//! touch.
+//! The sandbox stream verbs: `exec`, `shell` (and `shell --gpu`), `logs`,
+//! `attach`, `cp` and `port-forward`, which hold a stream open to the sandbox
+//! through the broker. Each is grafted into the generated `sandbox` group
+//! beside the generated control commands (`ls`, `get`, `create`, `stop`, …),
+//! which this module does not touch.
 //!
 //! Unless `HEDRA_CLI_SANDBOX_PREVIEW=1`, the verbs are not grafted at all, so
 //! no help, completion script or typo suggestion names them, and
 //! [`exit_if_unreleased`] refuses a command line that runs one.
 
 mod api;
+mod cp;
 mod error;
 mod exec;
+mod forward;
 mod gpu_shell;
 mod lifecycle;
 mod logs;
@@ -36,7 +38,7 @@ const PREVIEW_ENV: &str = "HEDRA_CLI_SANDBOX_PREVIEW";
 /// The verbs this module grafts into the generated group. A test asserts that
 /// no generated leaf of the group shares one of these names, since a graft
 /// replaces a generated leaf of the same name without a warning.
-pub(crate) const VERBS: [&str; 4] = ["exec", "shell", "logs", "attach"];
+pub(crate) const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
 
 pub(crate) fn preview_enabled() -> bool {
     std::env::var(PREVIEW_ENV).is_ok_and(|v| v == "1")
@@ -44,7 +46,7 @@ pub(crate) fn preview_enabled() -> bool {
 
 const EXIT_CODES: &str = "\
 Exit codes:
-   0  success (exec and shell: the command's own exit code)
+   0  success (exec, shell and cp: the command's own exit code)
    1  Hedra returned an error
    2  not signed in
    3  usage error
@@ -59,10 +61,10 @@ Exit codes:
   18  the connection was lost
   19  the request was refused
  129  hangup
- 130  interrupted
+ 130  interrupted (logs -f, attach and port-forward end on Ctrl-C and exit 0)
  141  the output was closed
  143  terminated
- 255  the output failed, or hedra-cli panicked; exec, shell: any failure of hedra-cli's own, not the command's";
+ 255  the output failed, or hedra-cli panicked; exec, shell, cp: any failure of hedra-cli's own, not the command's";
 
 /// The stream verbs' commands, each grafted under `sandbox` with its handler,
 /// or none without the preview. A hidden clap command still appears in the
@@ -87,14 +89,19 @@ fn stream_commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
             attach_command(),
             Box::new(|m, ctx| dispatch("attach", m, ctx)),
         ),
+        (cp_command(), Box::new(|m, ctx| dispatch("cp", m, ctx))),
+        (
+            port_forward_command(),
+            Box::new(|m, ctx| dispatch("port-forward", m, ctx)),
+        ),
     ]
 }
 
 /// Without the preview, refuses a command line that runs a stream verb,
 /// sending nothing, before the runtime would answer it with an unknown
-/// subcommand. `exec` and `shell` exit 255 under the 255 rule, since their
-/// other codes are the remote command's; `logs` and `attach` exit with the
-/// Rejected request code. `args` is the command line without the program name.
+/// subcommand. `exec`, `shell` and `cp` exit 255 under the 255 rule, since
+/// their other codes are the remote command's; `logs`, `attach` and
+/// `port-forward` exit with the Rejected request code. `args` is the command line without the program name.
 pub(crate) fn exit_if_unreleased(args: &[String]) {
     if preview_enabled() {
         return;
@@ -240,6 +247,58 @@ fn attach_command() -> Command {
         .arg(sandbox_arg())
 }
 
+fn cp_command() -> Command {
+    const EXAMPLES: &str = "Examples:\n  hedra-cli sandbox cp ./data train:/work/data\n  \
+                            hedra-cli sandbox cp train:/work/out ./out";
+    Command::new("cp")
+        .about("Copy files and directories in or out of a sandbox; one side is <SANDBOX>:<PATH>")
+        .long_about(
+            "Copy a file or a directory into or out of a sandbox. One side is <SANDBOX>:<PATH>, \
+             a path in the sandbox, where a relative path is relative to the image's working \
+             directory; the other is a local path. Directories copy without a flag.\n\n\
+             As scp -r and docker cp do, an existing directory receives the source under the \
+             source's own name; otherwise the destination is the new name, and a missing \
+             parent is created.\n\n\
+             A source path that ends in /. copies the directory's contents, and a destination \
+             that ends in / has to be an existing directory. A symlinked source copies what it \
+             links to.\n\n\
+             The copy runs over exec and tar, so the image needs sh and tar; GNU tar also lets \
+             hedra-cli check that a copy out arrived whole. A copy out that fails part way \
+             leaves what it wrote in place and names it.",
+        )
+        .after_help(EXAMPLES)
+        .after_long_help(format!("{EXAMPLES}\n\n{EXIT_CODES}"))
+        .arg(
+            Arg::new("source")
+                .value_name("SOURCE")
+                .required(true)
+                .value_parser(clap::value_parser!(std::ffi::OsString))
+                .help("A local path, or <SANDBOX>:<PATH>"),
+        )
+        .arg(
+            Arg::new("destination")
+                .value_name("DESTINATION")
+                .required(true)
+                .value_parser(clap::value_parser!(std::ffi::OsString))
+                .help("A local path, or <SANDBOX>:<PATH>"),
+        )
+}
+
+fn port_forward_command() -> Command {
+    Command::new("port-forward")
+        .about("Forward a local port to a port in a sandbox until Ctrl-C")
+        .after_long_help(EXIT_CODES)
+        .arg(sandbox_arg())
+        .arg(
+            Arg::new("ports")
+                .value_name("LOCAL:REMOTE")
+                .required(true)
+                .help(
+                    "The local and sandbox ports, or one port for both; local 0 picks a free one",
+                ),
+        )
+}
+
 /// A verb's handler: the preview gate, then the verb, then its exit code.
 /// Every verb exits from here, since its stdout is the sandbox's output and
 /// its errors go to stderr.
@@ -247,7 +306,11 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
     let ctx = ctx
         .downcast_ref::<AppContext>()
         .ok_or_else(|| CliError::Validation("sandbox: unexpected binding context type".into()))?;
-    let args: Vec<String> = std::env::args().collect();
+    // `std::env::args` panics on an argument that is not valid Unicode, such
+    // as a local `cp` path, which clap passes through as bytes.
+    let args: Vec<String> = std::env::args_os()
+        .map(|a| a.to_string_lossy().into_owned())
+        .collect();
     let json_errors = fern_cli_sdk::formatter::explicit_machine_format(&args);
     let flag = |name: &str| {
         m.try_get_one::<bool>(name)
@@ -278,8 +341,38 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
         let code = refusal_code(verb, &f);
         fail(f, code);
     }
-    let api = Api::new(ctx, flag("debug"));
+    let api = std::sync::Arc::new(Api::new(ctx, flag("debug")));
     let code = match verb {
+        "cp" => {
+            let arg = |n: &str| m.get_one::<std::ffi::OsString>(n).expect("required");
+            match stream::transport_config(ctx.http_config()) {
+                Ok(transport) => unwinding(json_errors, || {
+                    run_async(cp::run(
+                        &api,
+                        transport,
+                        arg("source"),
+                        arg("destination"),
+                        json_errors,
+                    ))
+                }),
+                Err(f) => fail(f, 255),
+            }
+        }
+        "port-forward" => {
+            let api = api.clone();
+            let ports = m.get_one::<String>("ports").expect("required").clone();
+            match target(m).and_then(|t| {
+                stream::transport_config(ctx.http_config()).map(|transport| (t, transport))
+            }) {
+                Ok((t, transport)) => unwinding(json_errors, || {
+                    run_async(forward::run(api, transport, &t, &ports, json_errors))
+                }),
+                Err(f) => {
+                    let code = f.class.code();
+                    fail(f, code);
+                }
+            }
+        }
         "logs" | "attach" => {
             let follow = verb == "attach" || m.get_flag("follow");
             match target(m).and_then(|t| {
@@ -312,11 +405,11 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
     std::process::exit(code);
 }
 
-/// The exit code for a refusal before anything is sent: 255 on `exec` and
-/// `shell`, whose other codes are the remote command's, else the class's.
+/// The exit code for a refusal before anything is sent: 255 on `exec`,
+/// `shell` and `cp`, which keep 255 for their own failures, else the class's.
 fn refusal_code(verb: &str, f: &Failure) -> i32 {
     match verb {
-        "exec" | "shell" => 255,
+        "exec" | "shell" | "cp" => 255,
         _ => f.class.code(),
     }
 }
@@ -365,6 +458,13 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
     }
     if verb == "exec" {
         exec_env(m)?;
+    }
+    if verb == "cp" {
+        let arg = |n: &str| m.get_one::<std::ffi::OsString>(n).expect("required");
+        cp::plan(arg("source"), arg("destination"))?;
+    }
+    if verb == "port-forward" {
+        forward::parse_ports(m.get_one::<String>("ports").expect("required"))?;
     }
     eprintln!("Sent no request (--dry-run).");
     Ok(())

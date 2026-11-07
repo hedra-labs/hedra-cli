@@ -13,7 +13,7 @@ use std::time::{Duration, Instant};
 
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::fake_broker::{
-    broker_status, ca_pem, ExecScript, FakeBroker, LogsEnd, LogsScript, Step,
+    broker_status, ca_pem, ExecScript, FakeBroker, LogsEnd, LogsScript, PortScript, PortStep, Step,
 };
 #[allow(unused_imports)]
 pub use hedra_cli_sandbox::tonic::{Code, Status};
@@ -64,6 +64,23 @@ impl Run {
         for key in ["SystemRoot", "TEMP", "TMP", "USERPROFILE"] {
             if let Some(value) = std::env::var_os(key) {
                 cmd.env(key, value);
+            }
+        }
+        // The binary keeps a signal its parent ignored, as `nohup` asks, so
+        // a test runner started with SIGINT ignored (`nohup cargo test`, or
+        // `cargo test &` in a script) would leave every Ctrl-C test waiting.
+        // Each test that wants a signal ignored sets it after this.
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            // SAFETY: only async-signal-safe calls between fork and exec.
+            unsafe {
+                cmd.pre_exec(|| {
+                    for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                        libc::signal(sig, libc::SIG_DFL);
+                    }
+                    Ok(())
+                });
             }
         }
         cmd
@@ -559,6 +576,11 @@ impl Pty {
         // SAFETY: only async-signal-safe calls between fork and exec.
         unsafe {
             sh.pre_exec(move || {
+                // As `Run::command` does, so a runner started with these
+                // ignored does not pass that on; `nohup` asks again below.
+                for sig in [libc::SIGINT, libc::SIGTERM, libc::SIGHUP] {
+                    libc::signal(sig, libc::SIG_DFL);
+                }
                 if ignore_hup {
                     libc::signal(libc::SIGHUP, libc::SIG_IGN);
                 }

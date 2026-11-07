@@ -6,7 +6,8 @@
 //! them, with a few frames of room, as the broker's input window does. Its
 //! output queue toward the client follows the broker's rules: an exec
 //! without `-t` waits while 192 frames sit unsent (the output window), and
-//! one with `-t` ends `rate_limited` once 256 do. `Logs` replays a ring
+//! one with `-t` ends `rate_limited` once 256 do, as does a `PortForward`,
+//! which has no output window either. `Logs` replays a ring
 //! buffer of chunks with strictly increasing stamps, applying `since`
 //! inclusively. Every call is recorded: its
 //! `authorization`, the frames it received, and whether the client went
@@ -32,9 +33,9 @@ use tonic_types::{ErrorDetails, StatusExt};
 
 use crate::pb::hedra::sandbox::v1::session_service_server::{SessionService, SessionServiceServer};
 use crate::pb::hedra::sandbox::v1::{
-    exec_client_frame, exec_server_frame, ExecClientFrame, ExecData, ExecServerFrame, ExecStart,
-    InvokeClientFrame, InvokeServerFrame, LogChunk, LogsRequest, PortClientFrame, PortServerFrame,
-    Stream,
+    exec_client_frame, exec_server_frame, port_client_frame, port_server_frame, ExecClientFrame,
+    ExecData, ExecServerFrame, ExecStart, InvokeClientFrame, InvokeServerFrame, LogChunk,
+    LogsRequest, PortClientFrame, PortServerFrame, Stream,
 };
 use crate::stream::calls::ADMITTED_HEADER;
 
@@ -212,6 +213,8 @@ const INPUT_WINDOW: usize = 4;
 const OUTPUT_WINDOW: usize = 192;
 /// Frames queued toward a client with no output window that end its session.
 const QUEUE_DEPTH: usize = 256;
+/// Bytes a second a session may carry each way.
+const SESSION_CAP: usize = 64 << 20;
 
 /// How an admitted `Logs` call ends once it has replayed the ring buffer.
 #[derive(Clone, Debug)]
@@ -223,6 +226,80 @@ pub enum LogsEnd {
     Hold,
     Fail(Status),
     Close,
+}
+
+/// What one `PortForward` call does.
+#[derive(Clone, Debug)]
+pub struct PortScript {
+    refuse: Option<Status>,
+    drop_connection: bool,
+    steps: Vec<PortStep>,
+}
+
+impl PortScript {
+    /// Admits the call and holds it open until the client goes away.
+    pub fn hold() -> Self {
+        Self::admit([])
+    }
+
+    /// Admits the call, runs `steps`, then holds it open until the client
+    /// goes away, unless a step ended it.
+    pub fn admit(steps: impl IntoIterator<Item = PortStep>) -> Self {
+        Self {
+            refuse: None,
+            drop_connection: false,
+            steps: steps.into_iter().collect(),
+        }
+    }
+
+    /// Refuses the call before admission.
+    pub fn refuse(status: Status) -> Self {
+        Self {
+            refuse: Some(status),
+            drop_connection: false,
+            steps: Vec::new(),
+        }
+    }
+
+    /// Closes the connection without answering: a call that lost the race
+    /// with the close of a channel left idle, or a broker restarting
+    /// mid-open.
+    pub fn drop_connection() -> Self {
+        Self {
+            refuse: None,
+            drop_connection: true,
+            steps: Vec::new(),
+        }
+    }
+}
+
+/// One step of an admitted `PortForward` call, as the sandbox's side of
+/// the forwarded connection.
+#[derive(Clone, Debug)]
+pub enum PortStep {
+    /// Waits for the client's `open`.
+    AwaitOpen,
+    /// Waits until the client has sent this many bytes in all.
+    AwaitBytes(usize),
+    /// Waits for the client's `eof`.
+    AwaitEof,
+    /// Sends one `data` frame.
+    Data(Vec<u8>),
+    /// Sends `eof` and ends the call, as the broker does: the supervisor's
+    /// `eof` says its relay is over, not that one direction closed. Steps
+    /// after it do not run.
+    Eof,
+    /// Closes the call's connection: the broker's side of every call on it
+    /// is gone.
+    Close,
+    /// Ends the call with a status, as the broker does when the sandbox's
+    /// supervisor goes away under an open call.
+    Fail(Status),
+    /// Sends this many bytes in 32 KiB frames at this many bytes a second,
+    /// as a sandbox server writing at that rate, stopping early once the
+    /// client goes away or the session ends `rate_limited`. The broker ends
+    /// a session past its cap of 64 MiB/s, so the rate is capped there.
+    Flood { bytes: usize, per_sec: usize },
 }
 
 /// What one `Logs` call does.
@@ -284,12 +361,22 @@ pub struct Call {
     /// The request stream ended cleanly, which the broker reads as the end
     /// of input.
     pub half_closed: bool,
+    /// A `PortForward`'s `open`, the sandbox port it named.
+    pub port_open: Option<u32>,
+    /// A `PortForward`'s bytes from the client, in order.
+    pub port_data: Vec<u8>,
+    /// A `PortForward`'s client sent `eof`.
+    pub port_eof: bool,
+    /// The broker ended the session `rate_limited`: 256 frames sat unread
+    /// in its queue toward the client.
+    pub rate_limited: bool,
 }
 
 #[derive(Default)]
 struct Inner {
     exec: VecDeque<ExecScript>,
     logs: VecDeque<LogsScript>,
+    port: VecDeque<PortScript>,
     ring: Vec<LogChunk>,
     calls: Vec<Call>,
     conns: HashMap<u64, std::net::TcpStream>,
@@ -353,6 +440,10 @@ impl FakeBroker {
 
     pub fn push_logs(&self, script: LogsScript) {
         self.state.lock().unwrap().logs.push_back(script);
+    }
+
+    pub fn push_port(&self, script: PortScript) {
+        self.state.lock().unwrap().port.push_back(script);
     }
 
     /// Appends a chunk to the ring buffer, stamped after every earlier one.
@@ -641,6 +732,110 @@ fn admitted<T>(
     response
 }
 
+/// A `PortForward`'s steps, then, unless one ended the call, a hold until
+/// the client goes away.
+async fn run_port(
+    broker: Arc<Broker>,
+    idx: usize,
+    conn: Option<u64>,
+    out: &Out<PortServerFrame>,
+    steps: Vec<PortStep>,
+) {
+    let state = broker.state.clone();
+    let seen = |f: &dyn Fn(&Call) -> bool| state.lock().map(|s| f(&s.calls[idx])).unwrap_or(false);
+    let frame = |f| Ok(PortServerFrame { frame: Some(f) });
+    for step in steps {
+        match step {
+            PortStep::AwaitOpen => {
+                while !seen(&|c| c.port_open.is_some()) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::AwaitBytes(n) => {
+                while !seen(&|c| c.port_data.len() >= n) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::AwaitEof => {
+                while !seen(&|c| c.port_eof) {
+                    tokio::time::sleep(Duration::from_millis(5)).await;
+                }
+            }
+            PortStep::Data(d) => {
+                if !unwindowed(&state, idx, out, port_data(d)).await {
+                    break;
+                }
+            }
+            PortStep::Eof => {
+                let _ = out.send(frame(port_server_frame::Frame::Eof(true))).await;
+                return;
+            }
+            PortStep::Close => broker.close(conn),
+            PortStep::Fail(status) => {
+                let _ = out.send(Err(status)).await;
+                return;
+            }
+            PortStep::Flood { bytes, per_sec } => {
+                let rate = per_sec.clamp(1, SESSION_CAP) as f64;
+                let chunk = vec![0x5a; 32 << 10];
+                let began = tokio::time::Instant::now();
+                let mut left = bytes;
+                let mut ended = false;
+                while left > 0 && !ended {
+                    let due = Duration::from_secs_f64((bytes - left) as f64 / rate);
+                    tokio::time::sleep_until(began + due).await;
+                    let n = left.min(chunk.len());
+                    ended = !unwindowed(&state, idx, out, port_data(chunk[..n].to_vec())).await;
+                    left -= n;
+                }
+                if ended {
+                    break;
+                }
+            }
+        }
+    }
+    // A session the broker ended `rate_limited` is over; otherwise, as when
+    // the client went away mid-send, the call is held until it goes.
+    if seen(&|c| c.rate_limited) {
+        return;
+    }
+    std::future::pending::<()>().await
+}
+
+fn port_data(d: Vec<u8>) -> (usize, PortServerFrame) {
+    (
+        d.len(),
+        PortServerFrame {
+            frame: Some(port_server_frame::Frame::Data(d)),
+        },
+    )
+}
+
+/// Queues a data frame of `len` bytes toward a client on a session with no
+/// output window, as the broker does: once 256 frames sit unread, it ends
+/// the session `rate_limited` instead (`sessionQueueDepth`). False once the
+/// session has ended. The queue must hold one slot past `QUEUE_DEPTH`, for
+/// the status.
+async fn unwindowed<T>(state: &State, idx: usize, out: &Out<T>, (len, f): (usize, T)) -> bool {
+    if out.max_capacity() - out.capacity() >= QUEUE_DEPTH {
+        update(state, idx, |c| c.rate_limited = true);
+        let _ = out
+            .send(Err(broker_status(
+                Code::Unavailable,
+                crate::stream::status::reason::RATE_LIMITED,
+                "client fell behind the sandbox's output; reconnect",
+                &[],
+            )))
+            .await;
+        return false;
+    }
+    if out.send(Ok(f)).await.is_err() {
+        return false;
+    }
+    update(state, idx, |c| c.sent += len);
+    true
+}
+
 /// Runs `script` until it ends or the client goes away, and records which.
 async fn supervise<T>(
     state: State,
@@ -654,13 +849,13 @@ async fn supervise<T>(
     }
 }
 
-fn data(stream: Stream, chunk: Vec<u8>) -> Result<ExecServerFrame, Status> {
-    Ok(ExecServerFrame {
+fn data(stream: Stream, chunk: Vec<u8>) -> ExecServerFrame {
+    ExecServerFrame {
         frame: Some(exec_server_frame::Frame::Data(ExecData {
             stream: stream as i32,
             chunk,
         })),
-    })
+    }
 }
 
 /// An exec's output queue toward the client.
@@ -675,29 +870,17 @@ impl Output {
     /// Queues a data frame; false once the session has ended.
     async fn data(&self, stream: Stream, chunk: Vec<u8>) -> bool {
         let len = chunk.len();
-        let queued = || self.out.max_capacity() - self.out.capacity();
         if self.tty {
-            if queued() >= QUEUE_DEPTH {
-                let _ = self
-                    .out
-                    .send(Err(broker_status(
-                        Code::Unavailable,
-                        crate::stream::status::reason::RATE_LIMITED,
-                        "client fell behind the sandbox's output; reconnect",
-                        &[],
-                    )))
-                    .await;
+            return unwindowed(&self.state, self.idx, &self.out, (len, data(stream, chunk))).await;
+        }
+        let queued = || self.out.max_capacity() - self.out.capacity();
+        while queued() >= OUTPUT_WINDOW {
+            if self.out.is_closed() {
                 return false;
             }
-        } else {
-            while queued() >= OUTPUT_WINDOW {
-                if self.out.is_closed() {
-                    return false;
-                }
-                tokio::time::sleep(Duration::from_millis(1)).await;
-            }
+            tokio::time::sleep(Duration::from_millis(1)).await;
         }
-        if self.out.send(data(stream, chunk)).await.is_err() {
+        if self.out.send(Ok(data(stream, chunk))).await.is_err() {
             return false;
         }
         update(&self.state, self.idx, |c| c.sent += len);
@@ -957,9 +1140,87 @@ impl SessionService for Arc<Broker> {
 
     async fn port_forward(
         &self,
-        _: Request<Streaming<PortClientFrame>>,
+        req: Request<Streaming<PortClientFrame>>,
     ) -> Result<Response<Self::PortForwardStream>, Status> {
-        Err(Status::unimplemented("not faked"))
+        let (idx, conn) = self.record("PortForward", &req);
+        let script = self.state.lock().unwrap().port.pop_front();
+        let script = script
+            .unwrap_or_else(|| PortScript::refuse(Status::unimplemented("no PortForward script")));
+        let body_end = req
+            .extensions()
+            .get::<BodyEnd>()
+            .cloned()
+            .unwrap_or_default();
+        let mut inbound = req.into_inner();
+        if script.drop_connection {
+            self.close(conn);
+            std::future::pending::<()>().await;
+        }
+        if let Some(status) = script.refuse {
+            // An `open` sent before admission would arrive in this window.
+            let window = tokio::time::sleep(Duration::from_millis(150));
+            tokio::pin!(window);
+            loop {
+                tokio::select! {
+                    _ = &mut window => break,
+                    m = inbound.message() => match m {
+                        Ok(Some(_)) => update(&self.state, idx, |c| c.frames_before_admission += 1),
+                        _ => break,
+                    },
+                }
+            }
+            return Err(status);
+        }
+        update(&self.state, idx, |c| c.admitted = true);
+        let state = self.state.clone();
+        tokio::spawn(async move {
+            loop {
+                match inbound.message().await {
+                    Ok(Some(f)) => update(&state, idx, |c| {
+                        c.frames += 1;
+                        match f.frame {
+                            Some(port_client_frame::Frame::Open(p)) => c.port_open = Some(p),
+                            Some(port_client_frame::Frame::Data(d)) => {
+                                c.port_data.extend_from_slice(&d)
+                            }
+                            Some(port_client_frame::Frame::Eof(_)) => c.port_eof = true,
+                            None => {}
+                        }
+                    }),
+                    Ok(None) if body_end.get() == Some(true) => {
+                        update(&state, idx, |c| c.half_closed = true);
+                        break;
+                    }
+                    Ok(None) => {
+                        update(&state, idx, |c| {
+                            c.reset = Some(Code::Cancelled);
+                            if !c.finished {
+                                c.client_gone = true;
+                            }
+                        });
+                        break;
+                    }
+                    Err(status) => {
+                        update(&state, idx, |c| {
+                            c.reset = Some(status.code());
+                            if !c.finished {
+                                c.client_gone = true;
+                            }
+                        });
+                        break;
+                    }
+                }
+            }
+        });
+        // One slot past the deepest queue, for the status that ends it.
+        let (out, rx) = mpsc::channel(QUEUE_DEPTH + 1);
+        let broker = self.clone();
+        tokio::spawn(async move {
+            let state = broker.state.clone();
+            let run = run_port(broker, idx, conn, &out, script.steps);
+            supervise(state, idx, &out, run).await;
+        });
+        Ok(admitted(rx))
     }
 
     async fn invoke(
@@ -1233,6 +1494,48 @@ mod tests {
         let seen = broker.wait_for(Duration::from_secs(3), |c| c[0].client_gone);
         assert!(!seen[0].half_closed, "{:?}", seen[0]);
         drop(call.recv);
+    }
+
+    /// A `PortForward` whose client stops reading is ended `rate_limited`
+    /// once 256 frames sit in the queue toward it, after the frames already
+    /// queued, as the broker ends a session with no output window.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_port_forward_left_unread_ends_rate_limited() {
+        let broker = FakeBroker::start();
+        broker.push_port(PortScript::admit([
+            PortStep::AwaitOpen,
+            PortStep::Flood {
+                bytes: 512 << 20,
+                per_sec: SESSION_CAP,
+            },
+        ]));
+        let m = minter(&broker);
+        let s = session(&m);
+        let mut call = calls::open_port_forward(&s, &Open::default())
+            .await
+            .ok()
+            .unwrap();
+        call.send
+            .send(PortClientFrame {
+                frame: Some(port_client_frame::Frame::Open(80)),
+            })
+            .await
+            .unwrap();
+        let seen = broker.wait_for(Duration::from_secs(30), |c| c[0].rate_limited);
+        assert!(seen[0].sent < 512 << 20, "{}", seen[0].sent);
+        let ended = loop {
+            match call.recv.message().await {
+                Ok(Some(_)) => {}
+                Ok(None) => panic!("ended without a status"),
+                Err(status) => break status,
+            }
+        };
+        assert_eq!(
+            crate::stream::status::BrokerStatus::from(&ended)
+                .reason
+                .as_deref(),
+            Some(crate::stream::status::reason::RATE_LIMITED)
+        );
     }
 
     /// Opens an Exec call, sends `start`, and fills its stream's window and

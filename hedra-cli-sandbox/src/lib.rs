@@ -1,9 +1,17 @@
 //! Hand-written support for hedra-cli's sandbox stream verbs (`exec`,
-//! `shell`, `logs`, `attach`):
+//! `shell`, `logs`, `attach`, `cp`, `port-forward`):
 //!
 //! - `session` and `stream`: the gRPC client that reaches a sandbox's
 //!   sessions through the broker's `SessionService`, with its TLS and proxy
 //!   transport, the open's retries and the output spool;
+//! - `cp`: a copy as a tar stream over an `Exec` call, built by a walk that
+//!   opens each entry relative to its parent and checks it is what it saw,
+//!   and extracted with every write confined to the destination;
+//! - `forward`: port-forward's loopback listeners, a `PortForward` call per
+//!   accepted connection, and the buffer budget that resets a connection
+//!   that falls behind;
+//! - `text`: escaping the control characters in text from a server or a
+//!   sandbox;
 //! - `backoff`: the doubling wait every retry loop, the CLI's own included,
 //!   takes;
 //! - `console` and `console_text`: raw-mode input and output on a Windows
@@ -42,7 +50,10 @@ pub mod console;
 #[cfg(all(windows, feature = "fake-broker"))]
 pub mod console_host;
 pub mod console_text;
+pub mod cp;
 #[cfg(feature = "fake-broker")]
 pub mod fake_broker;
+pub mod forward;
 pub mod session;
 pub mod stream;
+pub mod text;
