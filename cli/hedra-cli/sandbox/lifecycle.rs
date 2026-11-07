@@ -290,8 +290,8 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
         return Readiness::Failed(Failure::new(
             Class::NotReady,
             format!(
-                "`{name}`'s command already exited before it was ready. Run \
-                 `hedra-cli sandbox logs {name}` for its output."
+                "`{name}`'s command already exited before it was ready. Run `{}` for its output.",
+                super::render::logs_command(name)
             ),
         ));
     }

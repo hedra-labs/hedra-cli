@@ -744,8 +744,10 @@ async fn a_mint_answered_503_is_retried() {
 
 /// A mint refusal reads the sandbox once. A 404 says only that no replica
 /// answered, and a 400 FAILED_PRECONDITION "The sandbox is not active." only
-/// that it is no longer active, so the sandbox's own state is the line; an
-/// instance stopped under a still-active sandbox keeps the route's message.
+/// that it is no longer active, so the sandbox's own state is the line, then
+/// the next step; an instance stopped under a still-active sandbox keeps the
+/// route's message, then names the instance's failure and the command that
+/// prints its output.
 #[tokio::test]
 async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_active() {
     let mut ended = sandbox(
@@ -776,7 +778,10 @@ async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_activ
                 None,
             ),
             ended,
-            format!("hedra-cli: Not ready or stopped (13): `{ID}` is ended (ttl_expired)."),
+            format!(
+                "hedra-cli: Not ready or stopped (13): `{ID}` is ended (ttl_expired). \
+                 Create another, or run `hedra-cli sandbox ls` for the running ones."
+            ),
         ),
         (
             envelope(
@@ -786,13 +791,18 @@ async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_activ
                 None,
             ),
             still_active,
-            "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped."
-                .to_string(),
+            format!(
+                "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+                 `{ID}`'s instance stopped (oom). Run `hedra-cli sandbox logs {ID}` for its output."
+            ),
         ),
         (
             envelope(404, "NOT_FOUND", "No replica is serving sessions.", None),
             failed_instance,
-            format!("hedra-cli: Not ready or stopped (13): `{ID}`'s instance stopped (oom)."),
+            format!(
+                "hedra-cli: Not ready or stopped (13): `{ID}`'s instance stopped (oom). \
+                 Run `hedra-cli sandbox logs {ID}` for its output."
+            ),
         ),
     ] {
         let server = MockServer::start().await;
@@ -822,7 +832,7 @@ async fn a_mint_refusal_reads_the_sandbox_and_names_its_state_unless_still_activ
 }
 
 /// A mint refused FAILED_PRECONDITION whose sandbox read fails keeps the
-/// route's message.
+/// route's message, then names the command that reads the sandbox.
 #[tokio::test]
 async fn a_precondition_refusal_whose_read_fails_keeps_the_routes_message() {
     let server = MockServer::start().await;
@@ -845,7 +855,13 @@ async fn a_precondition_refusal_whose_read_fails_keeps_the_routes_message() {
     assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
     assert_eq!(
         class_line(&stderr(&out)),
-        Some("hedra-cli: Not ready or stopped (13): The sandbox is not active."),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): The sandbox is not active. \
+                 Check on it with `hedra-cli sandbox get --sandbox {ID}`."
+            )
+            .as_str()
+        ),
         "{}",
         stderr(&out)
     );

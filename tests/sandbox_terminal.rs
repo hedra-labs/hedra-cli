@@ -345,3 +345,46 @@ async fn a_debug_line_written_under_raw_mode_returns_the_carriage() {
     let line = out.stderr[at..].split_inclusive('\n').next().unwrap();
     assert!(line.ends_with("\r\n"), "{line:?}");
 }
+
+/// `shell` on a sandbox whose replica's instance stopped while the sandbox
+/// still reads active exits 255 with the route's message, then that the
+/// command already exited and how to read its output.
+#[tokio::test]
+async fn shell_on_a_stopped_instance_names_the_logs_command() {
+    use wiremock::matchers::{method, path};
+    use wiremock::{Mock, MockServer};
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The instance at this replica has stopped.",
+            None,
+        ))
+        .mount(&server)
+        .await;
+    let exited = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "stopped"}]),
+    );
+    mount_sandbox(&server, "box", exited.clone()).await;
+    mount_sandbox(&server, ID, exited).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let out = pty
+        .spawn(&run.command(&["sandbox", "shell", "box"]))
+        .finish(WAIT);
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert_eq!(
+        class_line(&out.stderr),
+        Some(
+            "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+             `box`'s command already exited. Run `hedra-cli sandbox logs box` for its output."
+        ),
+        "{}",
+        out.stderr
+    );
+}

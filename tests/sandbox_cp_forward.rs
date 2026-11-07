@@ -356,6 +356,57 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
     }
 }
 
+/// A mint refused 400 `FAILED_PRECONDITION` because the replica's instance
+/// stopped, while the sandbox still reads active, keeps the route's message
+/// and says the command already exited and how to read its output: `exec`
+/// and both directions of `cp` exit 255 with the Not ready or stopped (13)
+/// line, and `port-forward` exits 13 with the same line. `shell`, which needs
+/// a terminal, is in `sandbox_terminal.rs`.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
+    let line = "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+                `box`'s command already exited. Run `hedra-cli sandbox logs box` for its output.";
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The instance at this replica has stopped.",
+            None,
+        ))
+        .mount(&server)
+        .await;
+    let exited = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "stopped"}]),
+    );
+    mount_sandbox(&server, "box", exited.clone()).await;
+    mount_sandbox(&server, ID, exited).await;
+    let run = Run::new(&server);
+    std::fs::write(run.home.path().join("a.txt"), b"hello").unwrap();
+    let verbs: [&[&str]; 3] = [
+        &["sandbox", "exec", "box", "-n", "--", "true"],
+        &["sandbox", "cp", "a.txt", "box:/work/a.txt"],
+        &["sandbox", "cp", "box:/work/a.txt", "out.txt"],
+    ];
+    for args in verbs {
+        let out = run.run(args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(255), "{args:?}: {err}");
+        assert_eq!(class_line(&err), Some(line), "{args:?}: {err}");
+    }
+
+    let fwd = Forward::start_with(&run, &["sandbox", "port-forward", "box", "0:8888"]);
+    let port = fwd.port();
+    let _ = TcpStream::connect(("127.0.0.1", port));
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 13, "{err}");
+    assert_eq!(class_line(&err), Some(line), "{err}");
+}
+
 /// A call that fails for want of a scope after its admission, as when the
 /// key loses `sandboxes:write` mid-session, ends the port-forward with
 /// Missing scope (10) and closes the listener, as a refusal at open does.
@@ -2278,7 +2329,7 @@ async fn first_call_lost_then_served(first: PortScript, after_open: bool) {
 /// is refused `sandbox_disconnected`, says the supervisor is not connected,
 /// mints again, and the mint's 400 `FAILED_PRECONDITION` refuses it, closes
 /// the listener and ends the port-forward with Not ready or stopped (13),
-/// naming the sandbox's state.
+/// naming the sandbox's state and the next step.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stop_under_a_port_forward_resets_its_connection_then_exits_13() {
     let broker = FakeBroker::start();
@@ -2326,9 +2377,15 @@ async fn a_stop_under_a_port_forward_resets_its_connection_then_exits_13() {
         )),
         "{err}"
     );
-    assert!(
-        class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Not ready or stopped (13): ")
-            && l.contains("is ended (caller_stopped).")),
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): `{ID}` is ended (caller_stopped). \
+                 Create another, or run `hedra-cli sandbox ls` for the running ones."
+            )
+            .as_str()
+        ),
         "{err}"
     );
     assert_eq!(err.matches("hedra-cli: ").count(), 1, "{err}");
