@@ -339,7 +339,9 @@ impl Logs<'_> {
                         // from the stored copy, after the last printed chunk.
                         if st.is(reason::RATE_LIMITED) {
                             stream::note(format_args!(
-                                "The live read of `{}` ended ({}); reading the stored copy.",
+                                "The live read of `{}` ended ({}); reading the stored copy, \
+                                 which keeps only its newest part, so some output may be \
+                                 missing.",
                                 self.name,
                                 escape_controls(&st.message)
                             ));

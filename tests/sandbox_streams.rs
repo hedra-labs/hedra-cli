@@ -1681,7 +1681,8 @@ async fn plain_logs_ended_rate_limited_finishes_from_the_stored_copy() {
     assert!(
         err.contains(
             "The live read of `sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301` ended (client fell \
-             behind the sandbox's output; reconnect); reading the stored copy."
+             behind the sandbox's output; reconnect); reading the stored copy, which keeps \
+             only its newest part, so some output may be missing."
         ),
         "{err}"
     );
