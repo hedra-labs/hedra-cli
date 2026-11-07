@@ -360,6 +360,16 @@ pub(crate) async fn open_failure(
     }
 }
 
+/// The Not ready or stopped (13) failure for a sandbox read as not running:
+/// not active, active with its lease refused, or active with replica 0
+/// stopped or failed. None while replica 0 is running, starting or unread.
+pub(crate) fn not_running(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<Failure> {
+    if s.status != SandboxStatus::Active || s.end_reason.is_some() {
+        return Some(Failure::new(Class::NotReady, state_line(s, name)).then(next_step(s, name)));
+    }
+    exited_line(s, name).map(|exited| Failure::new(Class::NotReady, exited))
+}
+
 /// What an active sandbox's stopped replica 0 means: that its command
 /// exited, or the instance's failure, then the next step. None unless the
 /// read shows replica 0 stopped or failed: a replica missing, starting or in
@@ -1691,6 +1701,38 @@ mod tests {
             format!("{} {}", state_line(&s, "x"), next_step(&s, "x")),
             "`x` is ended (instance_failed (oom_killed)). \
              Run `hedra-cli sandbox logs x` for its output."
+        );
+    }
+
+    #[test]
+    fn only_a_running_or_starting_replica_reads_as_running() {
+        let stopped = serde_json::json!({"replica": 0, "status": "stopped"});
+        for instance in [
+            serde_json::json!({"replica": 0, "status": "running"}),
+            serde_json::json!({"replica": 0, "status": "starting"}),
+            serde_json::json!(null),
+        ] {
+            assert_eq!(not_running(&active_with(instance), "box"), None);
+        }
+        let f = not_running(&active_with(stopped.clone()), "box").unwrap();
+        assert_eq!(f.class, Class::NotReady);
+        assert_eq!(
+            f.message,
+            "`box`'s command already exited. Run `hedra-cli sandbox logs box` for its output."
+        );
+        let mut unpaid = active_with(serde_json::json!({"replica": 0, "status": "running"}));
+        unpaid.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::Unpaid);
+        assert!(not_running(&unpaid, "box")
+            .unwrap()
+            .message
+            .starts_with("`box` is active (unpaid). Add funds"));
+        let mut ended = active_with(stopped);
+        ended.status = SandboxStatus::Ended;
+        ended.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::CallerStopped);
+        assert_eq!(
+            not_running(&ended, "box").unwrap().message,
+            "`box` is ended (caller_stopped). \
+             Create another, or run `hedra-cli sandbox ls` for the running ones."
         );
     }
 

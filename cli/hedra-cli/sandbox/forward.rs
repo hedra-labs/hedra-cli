@@ -13,7 +13,7 @@ use hedra_cli_sandbox::stream::calls::{self, Open, OpenError, Waiting};
 use hedra_cli_sandbox::stream::status::{reason, BrokerStatus};
 use hedra_cli_sandbox::stream::transport::{TransportConfig, TransportError};
 
-use super::api::{Api, CallError};
+use super::api::{attempt, Api, CallError, ATTEMPT};
 use super::error::{escape_controls, Class, Failure, SANDBOX_NOT_FOUND};
 use super::names::{self, Target};
 use super::stream::{self, Needs, OwnedMinter, Sig, Signals};
@@ -222,12 +222,20 @@ pub(crate) async fn run(
     };
     let name = target.as_str().to_string();
     let mut signals = Signals::new();
-    let id = tokio::select! {
-        r = names::resolve(&api, target) => match r {
-            Ok(id) => id,
-            Err(f) => return fail(f).await,
-        },
+    let read = tokio::select! {
+        r = read_sandbox(&api, target) => r,
         sig = signals.next() => return signal_code(sig),
+    };
+    // A sandbox that is not running fails here, with the line every stream
+    // verb prints, before the start line, instead of at the first
+    // connection's mint. One that stops later still ends at a connection.
+    let id = match read {
+        Read::Sandbox(s) => match stream::not_running(&s, &name) {
+            Some(f) => return fail(f).await,
+            None => s.id,
+        },
+        Read::Unread(id) => id,
+        Read::Failed(f) => return fail(f).await,
     };
     for w in &bound.warnings {
         stream::say_line(w).await;
@@ -278,6 +286,30 @@ pub(crate) async fn run(
         (Some(code), _) => code,
         (None, Some(sig)) => signal_code(sig),
         (None, None) => Class::Internal.code(),
+    }
+}
+
+/// The sandbox as port-forward first reads it.
+enum Read {
+    Sandbox(hedra_cli_sdk::api::Sandbox),
+    /// An id whose read failed in a way a retry may get past: each
+    /// connection's mint finds out instead.
+    Unread(String),
+    Failed(Failure),
+}
+
+/// A name's lookup, which reads the sandbox, or one read of an id.
+async fn read_sandbox(api: &Api, target: &Target) -> Read {
+    match target {
+        Target::Name(name) => match names::resolve_name(api, name).await {
+            Ok(s) => Read::Sandbox(s),
+            Err(f) => Read::Failed(f),
+        },
+        Target::Id(id) => match attempt(ATTEMPT, api.client.get(id, None)).await {
+            Ok(s) => Read::Sandbox(s),
+            Err(e) if e.transient() => Read::Unread(id.clone()),
+            Err(e) => Read::Failed(e.failure(Some(id))),
+        },
     }
 }
 
