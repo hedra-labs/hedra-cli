@@ -329,10 +329,23 @@ impl Logs<'_> {
                             return self.stored_tail(&id, &s).await;
                         }
                         // The ring buffer replayed; the stream ending is the end.
-                        if status.is_none() {
+                        let Some(st) = status else {
                             return Ended::Done;
+                        };
+                        // The broker ends a call whose client fell behind, or
+                        // whose output passed its cap, `rate_limited`: a large
+                        // ring buffer replayed over a slower link does. Another
+                        // read would replay the same burst, so the rest comes
+                        // from the stored copy, after the last printed chunk.
+                        if st.is(reason::RATE_LIMITED) {
+                            stream::note(format_args!(
+                                "The live read of `{}` ended ({}); reading the stored copy.",
+                                self.name,
+                                escape_controls(&st.message)
+                            ));
+                            let s = self.get(&id).await.unwrap_or(s);
+                            return self.stored_tail(&id, &s).await;
                         }
-                        let st = status.expect("checked");
                         let f = stream::broker_failure(&st, &self.name, Needs::Read, true);
                         if f.class == Class::ConnectionLost {
                             return Ended::Failed(

@@ -1657,6 +1657,46 @@ async fn plain_logs_losing_its_stream_says_so_with_the_sandboxs_state() {
     );
 }
 
+/// A plain `logs` whose live read the broker ends `rate_limited`, as when a
+/// large ring buffer replays over a slower link, prints what arrived, then
+/// the stored copy after its last chunk, and exits 0.
+#[tokio::test]
+async fn plain_logs_ended_rate_limited_finishes_from_the_stored_copy() {
+    let broker = FakeBroker::start();
+    broker.log(b"a\n");
+    broker.log(b"b\n");
+    broker.push_logs(LogsScript::admit(LogsEnd::Fail(broker_status(
+        Code::Unavailable,
+        "rate_limited",
+        "client fell behind the sandbox's output; reconnect",
+        &[],
+    ))));
+    let server = running_sandbox(&broker).await;
+    mount_stored(&server, "c\n").await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert_eq!(stdout(&out), "a\nb\nc\n");
+    assert_eq!(class_line(&err), None, "{err}");
+    assert!(
+        err.contains(
+            "The live read of `sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301` ended (client fell \
+             behind the sandbox's output; reconnect); reading the stored copy."
+        ),
+        "{err}"
+    );
+    assert!(err.contains("the rest is from the stored copy"), "{err}");
+    let reads = stored_reads(&server).await;
+    assert_eq!(reads.len(), 1);
+    let since = reads[0]
+        .url
+        .query_pairs()
+        .find(|(k, _)| k == "since")
+        .map(|(_, v)| v.into_owned());
+    assert_eq!(since.as_deref(), Some("2026-11-04T00:00:01.500000002Z"));
+    assert_eq!(broker.calls().len(), 1);
+}
+
 /// A pipe already full, so the next write to it blocks.
 fn full_pipe() -> (std::fs::File, std::fs::File) {
     use std::os::fd::FromRawFd;
