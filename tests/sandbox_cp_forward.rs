@@ -422,8 +422,8 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
 }
 
 /// `port-forward` on a sandbox that is stopping, ended, or stopping because
-/// its lease was refused exits 13 before its start line, with the state and the next step,
-/// and mints nothing; a name and an id both read the sandbox once. The bind
+/// its lease was refused exits 13 before its start line, with the state and
+/// the next step, and mints nothing; a name and an id both read the sandbox once. The bind
 /// still comes first, so a taken port costs no request.
 #[tokio::test(flavor = "multi_thread")]
 async fn port_forward_on_a_stopped_sandbox_exits_13_before_it_starts() {

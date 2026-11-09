@@ -337,16 +337,13 @@ pub(crate) async fn open_failure(
                 }
                 Err(_) => return e.failure(Some(name)),
             };
-            // An active sandbox carries an end reason only while its lease
-            // is refused for funds, which is then the step, ahead of the
-            // replica's state.
-            if s.status != SandboxStatus::Active || s.end_reason.is_some() {
-                let line = if precondition && s.status == SandboxStatus::Active {
-                    e.failure(Some(name))
-                } else {
-                    Failure::new(Class::NotReady, state_line(&s, name))
-                };
-                return line.then(next_step(&s, name));
+            // An active sandbox whose lease was refused (`unpaid`) still runs
+            // until the refusal's grace ends, and a paid lease clears it, so
+            // an active sandbox is judged by its replica, as `not_running`
+            // judges it.
+            if s.status != SandboxStatus::Active {
+                return Failure::new(Class::NotReady, state_line(&s, name))
+                    .then(next_step(&s, name));
             }
             match (exited_line(&s, name), precondition) {
                 (Some(exited), true) => e.failure(Some(name)).then(exited),
@@ -401,10 +398,10 @@ fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<String> {
     Some(escape_controls(&line))
 }
 
-/// The next step for a sandbox that is not active, or whose lease was
-/// refused: funds when it was unpaid, its output when its command exited or
-/// its instance failed after it started, another sandbox when it was stopped
-/// or never started, and a retry when it is still being created.
+/// The next step for a sandbox that is not active: funds when it was stopped
+/// unpaid, its output when its command exited or its instance failed after it
+/// started, another sandbox when it was stopped or never started, and a retry
+/// when it is still being created.
 fn next_step(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> String {
     if s.end_reason == Some(SandboxEndReason::Unpaid) {
         return format!(
@@ -1699,9 +1696,8 @@ mod tests {
             next_step(&read("ended", Some("instance_failed"), no_capacity), "box"),
             another
         );
-        // Unpaid names funds, on an ended sandbox and on an active one whose
-        // lease was refused.
-        for status in ["ended", "active"] {
+        // Unpaid names funds, on a stopping and on an ended sandbox.
+        for status in ["stopping", "ended"] {
             let unpaid = next_step(&read(status, Some("unpaid"), stopped.clone()), "box");
             assert!(unpaid.starts_with("Add funds"), "{status}: {unpaid}");
         }
