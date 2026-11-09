@@ -361,16 +361,17 @@ pub(crate) async fn open_failure(
 }
 
 /// The Not ready or stopped (13) failure for a sandbox read as not running:
-/// stopping, ended, failed, active with its lease refused, or active with
-/// replica 0 stopped or failed. None while it is still being created, or in a
-/// status hedra-cli does not know, or replica 0 is running, starting or
-/// missing: those may yet run.
+/// stopping, ended, failed, or active with replica 0 stopped or failed. None
+/// while it is still being created, or in a status hedra-cli does not know, or
+/// replica 0 is running, starting or missing: those may yet run. An active
+/// sandbox whose lease was refused (`unpaid`) still runs until the refusal's
+/// grace ends, and a paid lease clears it, so it is judged by its replica.
 pub(crate) fn not_running(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<Failure> {
     let stopped = matches!(
         s.status,
         SandboxStatus::Stopping | SandboxStatus::Ended | SandboxStatus::Failed
     );
-    if stopped || s.end_reason == Some(SandboxEndReason::Unpaid) {
+    if stopped {
         return Some(Failure::new(Class::NotReady, state_line(s, name)).then(next_step(s, name)));
     }
     if s.status != SandboxStatus::Active {
@@ -1597,11 +1598,11 @@ mod tests {
             serde_json::json!([instance])
         };
         serde_json::from_value(serde_json::json!({
-            "id": "sandbox_1", "name": "box", "gpu": "h100:1", "gpu_model": "h100",
+            "id": "sandbox_1", "name": "box", "gpu": "rtx4090:1", "gpu_model": "rtx4090",
             "replicas": 1, "status": "active", "created_at": "2026-11-03T12:00:00Z",
             "env_keys": [], "url": null,
             "instances": instances,
-            "billing": {"usd_per_hour": 2.5, "paid_usd": 0.0, "settled": false},
+            "billing": {"usd_per_hour": 1.0, "paid_usd": 0.0, "settled": false},
         }))
         .unwrap()
     }
@@ -1736,12 +1737,16 @@ mod tests {
             s.status = serde_json::from_value(serde_json::json!(status)).unwrap();
             assert_eq!(not_running(&s, "box"), None, "{status}");
         }
+        // An active sandbox whose lease was refused still runs.
         let mut unpaid = active_with(serde_json::json!({"replica": 0, "status": "running"}));
         unpaid.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::Unpaid);
-        assert!(not_running(&unpaid, "box")
+        assert_eq!(not_running(&unpaid, "box"), None);
+        let mut stopped_unpaid = unpaid.clone();
+        stopped_unpaid.status = SandboxStatus::Stopping;
+        assert!(not_running(&stopped_unpaid, "box")
             .unwrap()
             .message
-            .starts_with("`box` is active (unpaid). Add funds"));
+            .starts_with("`box` is stopping (unpaid). Add funds"));
         let mut ended = active_with(stopped);
         ended.status = SandboxStatus::Ended;
         ended.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::CallerStopped);

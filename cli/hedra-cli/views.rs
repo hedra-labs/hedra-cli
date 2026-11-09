@@ -1251,12 +1251,12 @@ mod tests {
     fn listed_sandbox() -> Value {
         json!({
             "id": "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
-            "name": "train", "gpu": "h100:1", "gpu_model": "h100", "replicas": 1,
+            "name": "train", "gpu": "rtx4090:1", "gpu_model": "rtx4090", "replicas": 1,
             "status": "active", "end_reason": null,
             "created_at": "2026-11-03T12:00:00.123456Z", "started_at": null,
             "env_keys": ["HF_TOKEN"], "command": ["python", "train.py"],
             "instances": [{"replica": 0, "status": "running"}], "url": null,
-            "billing": {"usd_per_hour": 2.5, "paid_usd": 0.75, "settled": false},
+            "billing": {"usd_per_hour": 1.0, "paid_usd": 0.75, "settled": false},
         })
     }
 
@@ -1282,11 +1282,11 @@ mod tests {
             row,
             [
                 "2026-11-03 12:00:00 UTC",
-                "h100:1",
+                "rtx4090:1",
                 "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
                 "train",
                 "active",
-                "2.5"
+                "1.0"
             ]
         );
         assert_eq!(lines.next(), None);

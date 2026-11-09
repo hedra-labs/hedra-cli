@@ -421,8 +421,8 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
     assert_eq!(mints(&server, ID).await, mints_before);
 }
 
-/// `port-forward` on a sandbox that is stopping, ended, or whose lease was
-/// refused exits 13 before its start line, with the state and the next step,
+/// `port-forward` on a sandbox that is stopping, ended, or stopping because
+/// its lease was refused exits 13 before its start line, with the state and the next step,
 /// and mints nothing; a name and an id both read the sandbox once. The bind
 /// still comes first, so a taken port costs no request.
 #[tokio::test(flavor = "multi_thread")]
@@ -446,9 +446,9 @@ async fn port_forward_on_a_stopped_sandbox_exits_13_before_it_starts() {
              `hedra-cli sandbox logs sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301` for its output.",
         ),
         (
-            stopped("active", "unpaid"),
+            stopped("stopping", "unpaid"),
             "box",
-            "`box` is active (unpaid). Add funds to the workspace, then create another; \
+            "`box` is stopping (unpaid). Add funds to the workspace, then create another; \
              `hedra-cli sandbox ls` lists the running ones.",
         ),
     ] {
@@ -495,6 +495,32 @@ async fn port_forward_starts_when_its_first_read_is_unavailable() {
     signal(&fwd.child, libc::SIGINT);
     let (code, err) = fwd.finish();
     assert_eq!(code, 0, "{err}");
+}
+
+/// A sandbox that may yet run starts the port-forward, and Ctrl-C ends it
+/// with 0: one still being created, and an active one whose lease was
+/// refused (`unpaid`), which runs until the refusal's grace ends and keeps
+/// running once a lease is paid.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_starts_on_a_sandbox_that_may_yet_run() {
+    let mut unpaid = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "running"}]),
+    );
+    unpaid["end_reason"] = "unpaid".into();
+    for read in [sandbox(ID, "box", "creating", serde_json::json!([])), unpaid] {
+        let server = MockServer::start().await;
+        mount_sandbox(&server, ID, read.clone()).await;
+        let run = Run::new(&server);
+        let fwd = Forward::start(&run);
+        let _ = fwd.port();
+        signal(&fwd.child, libc::SIGINT);
+        let (code, err) = fwd.finish();
+        assert_eq!(code, 0, "{read}: {err}");
+        assert!(class_line(&err).is_none(), "{read}: {err}");
+    }
 }
 
 /// A call that fails for want of a scope after its admission, as when the
