@@ -1402,7 +1402,10 @@ async fn logs_f_prints_the_received_chunks_then_the_stored_tail_when_the_sandbox
         .map(|(_, v)| v.into_owned());
     assert_eq!(since.as_deref(), Some("2026-11-04T00:00:01.500000002Z"));
     assert!(
-        stderr(&out).contains("the rest is from the stored copy"),
+        stderr(&out).contains(
+            "The live output ended; the rest is from the stored copy, which can miss the newest \
+             output."
+        ),
         "{}",
         stderr(&out)
     );
@@ -1686,7 +1689,13 @@ async fn plain_logs_ended_rate_limited_finishes_from_the_stored_copy() {
         ),
         "{err}"
     );
-    assert!(err.contains("the rest is from the stored copy"), "{err}");
+    assert!(
+        err.contains(
+            "The live output ended; the rest is from the stored copy, which can miss the newest \
+             output."
+        ),
+        "{err}"
+    );
     let reads = stored_reads(&server).await;
     assert_eq!(reads.len(), 1);
     let since = reads[0]

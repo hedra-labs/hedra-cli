@@ -470,7 +470,7 @@ impl Logs<'_> {
         if self.printed {
             stream::note(format_args!(
                 "The live output ended; the rest is from the stored copy, which can miss the \
-                 last few seconds."
+                 newest output."
             ));
         }
         if self.follow {
