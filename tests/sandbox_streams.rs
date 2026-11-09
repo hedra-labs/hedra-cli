@@ -1552,6 +1552,18 @@ async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
             ],
             format!("`{ID}`'s instance stopped (no_capacity)."),
         ),
+        (
+            vec![
+                at(&creating),
+                at(&sandbox(
+                    ID,
+                    "box",
+                    "active",
+                    json!([{"replica": 0, "status": "failed"}]),
+                )),
+            ],
+            format!("`{ID}`'s instance stopped."),
+        ),
     ] {
         let broker = FakeBroker::start();
         let server = MockServer::start().await;
@@ -2147,6 +2159,34 @@ async fn plain_logs_whose_sandbox_stops_after_a_reopen_says_output_may_be_missin
             "{how}: {err}"
         );
     }
+}
+
+/// A reopen that then fails for another reason exits with that failure,
+/// after the note that output may be missing.
+#[tokio::test]
+async fn plain_logs_whose_reopen_fails_says_output_may_be_missing_before_the_failure() {
+    let broker = FakeBroker::start();
+    broker.log(b"a\n");
+    broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())).then_append(b"b\n"));
+    broker.push_logs(LogsScript::admit(LogsEnd::Fail(Status::unavailable(
+        "broker restarting",
+    ))));
+    let server = running_sandbox(&broker).await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(18), "{err}");
+    assert_eq!(stdout(&out), "a\nb\n");
+    assert!(
+        err.starts_with(&format!(
+            "The live read of `{ID}` fell behind and was reopened once; output written faster \
+             than it was read may be missing.\n"
+        )),
+        "{err}"
+    );
+    assert!(
+        class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Connection lost (18): ")),
+        "{err}"
+    );
 }
 
 /// `rate_limited` before admission is the Limit class, as for every verb:
