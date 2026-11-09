@@ -1751,6 +1751,13 @@ mod tests {
             "`box` is ended (caller_stopped). \
              Create another, or run `hedra-cli sandbox ls` for the running ones."
         );
+        let mut failed = active_with(serde_json::json!(null));
+        failed.status = SandboxStatus::Failed;
+        assert_eq!(
+            not_running(&failed, "box").unwrap().message,
+            "`box` is failed. \
+             Create another, or run `hedra-cli sandbox ls` for the running ones."
+        );
     }
 
     #[test]

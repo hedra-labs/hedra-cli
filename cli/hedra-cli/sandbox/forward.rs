@@ -226,8 +226,8 @@ pub(crate) async fn run(
         r = read_sandbox(&api, target) => r,
         sig = signals.next() => return signal_code(sig),
     };
-    // A sandbox that is not running fails here, with the line every stream
-    // verb prints, before the start line, instead of at the first
+    // A sandbox that is not running fails here, with the state or exited
+    // line and its next step, before the start line, instead of at the first
     // connection's mint. One that stops later still ends at a connection.
     let id = match read {
         Read::Sandbox(s) => match stream::not_running(&s, &name) {
