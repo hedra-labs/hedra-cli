@@ -2076,10 +2076,11 @@ async fn a_server_that_speaks_first_is_heard_before_the_client_writes() {
 async fn a_local_half_close_sends_eof_and_the_reply_still_arrives() {
     use std::io::Write;
     let broker = FakeBroker::start();
+    // Hold the remote call open after the reply so the no-reset assertion
+    // observes the local half-close, before normal end-of-call cleanup.
     broker.push_port(PortScript::admit([
         PortStep::AwaitEof,
         PortStep::Data(b"reply".to_vec()),
-        PortStep::Eof,
     ]));
     let server = running_sandbox(&broker).await;
     let run = Run::new(&server);
@@ -2087,13 +2088,16 @@ async fn a_local_half_close_sends_eof_and_the_reply_still_arrives() {
     let mut conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
     conn.write_all(b"request").unwrap();
     conn.shutdown(std::net::Shutdown::Write).unwrap();
-    assert_eq!(read_all(&mut conn).unwrap(), b"reply");
-    // The call ends once the server's `eof` arrives, so the client may
-    // cancel it before or after this read. A half-close sent as a reset
-    // would end it before the script finished, which `client_gone` records.
-    let calls = broker.wait_for(WAIT, |c| c[0].finished);
+    conn.set_read_timeout(Some(WAIT)).unwrap();
+    let mut reply = [0u8; 5];
+    conn.read_exact(&mut reply).unwrap();
+    assert_eq!(&reply, b"reply");
+    let calls = broker.calls();
     assert!(
-        calls[0].port_eof && calls[0].port_data == b"request" && !calls[0].client_gone,
+        calls[0].port_eof
+            && calls[0].port_data == b"request"
+            && calls[0].reset.is_none()
+            && !calls[0].finished,
         "{:?}",
         calls[0]
     );
