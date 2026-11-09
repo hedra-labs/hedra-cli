@@ -3,10 +3,6 @@
 //! through the broker. Each is grafted into the generated `sandbox` group
 //! beside the generated control commands (`ls`, `get`, `create`, `stop`, …),
 //! which this module does not touch.
-//!
-//! Unless `HEDRA_CLI_SANDBOX_PREVIEW=1`, the verbs are not grafted at all, so
-//! no help, completion script or typo suggestion names them, and
-//! [`exit_if_unreleased`] refuses a command line that runs one.
 
 mod api;
 mod cp;
@@ -33,16 +29,12 @@ use names::Target;
 
 /// The generated group the verbs are grafted into.
 pub(crate) const GROUP: &str = "sandbox";
-const PREVIEW_ENV: &str = "HEDRA_CLI_SANDBOX_PREVIEW";
 
 /// The verbs this module grafts into the generated group. A test asserts that
 /// no generated leaf of the group shares one of these names, since a graft
 /// replaces a generated leaf of the same name without a warning.
-pub(crate) const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
-
-pub(crate) fn preview_enabled() -> bool {
-    std::env::var(PREVIEW_ENV).is_ok_and(|v| v == "1")
-}
+#[cfg(test)]
+const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
 
 const EXIT_CODES: &str = "\
 Exit codes:
@@ -66,18 +58,8 @@ Exit codes:
  143  terminated
  255  the output failed, or hedra-cli panicked; exec, shell, cp: any failure of hedra-cli's own, not the command's";
 
-/// The stream verbs' commands, each grafted under `sandbox` with its handler,
-/// or none without the preview. A hidden clap command still appears in the
-/// runtime's completion scripts, in clap's "a similar subcommand exists" tip
-/// and in `sandbox help <verb>`, so the verbs are left out of the tree.
+/// The stream verbs' commands, each grafted under `sandbox` with its handler.
 pub(crate) fn commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
-    if !preview_enabled() {
-        return Vec::new();
-    }
-    stream_commands()
-}
-
-fn stream_commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
     vec![
         (exec_command(), Box::new(|m, ctx| dispatch("exec", m, ctx))),
         (
@@ -95,53 +77,6 @@ fn stream_commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
             Box::new(|m, ctx| dispatch("port-forward", m, ctx)),
         ),
     ]
-}
-
-/// Without the preview, refuses a command line that runs a stream verb,
-/// sending nothing, before the runtime would answer it with an unknown
-/// subcommand. `exec`, `shell` and `cp` exit 255 under the 255 rule, since
-/// their other codes are the remote command's; `logs`, `attach` and
-/// `port-forward` exit with the Rejected request code. `args` is the command line without the program name.
-pub(crate) fn exit_if_unreleased(args: &[String]) {
-    if preview_enabled() {
-        return;
-    }
-    let Some(verb) = stream_verb_in(args) else {
-        return;
-    };
-    let f = Failure::rejected(format!(
-        "The sandbox stream commands ({}) are not released yet.",
-        VERBS.join(", ")
-    ));
-    let code = refusal_code(verb, &f);
-    f.write_stderr(fern_cli_sdk::formatter::explicit_machine_format(args));
-    stream::flush_lines();
-    std::process::exit(code);
-}
-
-/// The stream verb `args` runs, when its first two positional arguments are
-/// `sandbox` and one of [`VERBS`]. Global flags before them are skipped, with
-/// their values.
-fn stream_verb_in(args: &[String]) -> Option<&'static str> {
-    let mut positionals: Vec<&str> = Vec::new();
-    let mut args = args.iter().map(String::as_str);
-    while positionals.len() < 2 {
-        let arg = args.next()?;
-        if arg == "--" {
-            return None;
-        }
-        if !arg.starts_with('-') || arg == "-" {
-            positionals.push(arg);
-            continue;
-        }
-        if super::dotenv::takes_separate_value(arg) {
-            let _ = args.next();
-        }
-    }
-    match positionals.as_slice() {
-        [GROUP, verb] => VERBS.iter().copied().find(|v| v == verb),
-        _ => None,
-    }
 }
 
 fn sandbox_arg() -> Arg {
@@ -299,7 +234,7 @@ fn port_forward_command() -> Command {
         )
 }
 
-/// A verb's handler: the preview gate, then the verb, then its exit code.
+/// A verb's handler: the verb, then its exit code.
 /// Every verb exits from here, since its stdout is the sandbox's output and
 /// its errors go to stderr.
 fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), CliError> {
@@ -730,7 +665,7 @@ mod tests {
                 "`sandbox {verb}` is generated too"
             );
         }
-        let grafted: Vec<String> = stream_commands()
+        let grafted: Vec<String> = commands()
             .iter()
             .map(|(c, _)| c.get_name().to_string())
             .collect();
@@ -790,33 +725,6 @@ mod tests {
                 "exit code {code} ({class:?}) is not in the help table"
             );
         }
-    }
-
-    #[test]
-    fn a_stream_verb_is_found_after_global_flags_and_their_values() {
-        let args = |line: &str| {
-            line.split_whitespace()
-                .map(String::from)
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            stream_verb_in(&args("sandbox exec train -- true")),
-            Some("exec")
-        );
-        assert_eq!(
-            stream_verb_in(&args(
-                "--format json -p work --base-url x sandbox logs train"
-            )),
-            Some("logs")
-        );
-        assert_eq!(
-            stream_verb_in(&args("--debug sandbox attach train")),
-            Some("attach")
-        );
-        assert_eq!(stream_verb_in(&args("sandbox get train")), None);
-        assert_eq!(stream_verb_in(&args("sandbox")), None);
-        assert_eq!(stream_verb_in(&args("--format sandbox exec")), None);
-        assert_eq!(stream_verb_in(&args("-- sandbox exec")), None);
     }
 
     #[test]

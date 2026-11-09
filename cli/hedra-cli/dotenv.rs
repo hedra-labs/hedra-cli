@@ -302,10 +302,10 @@ fn sends_request_to_default_target(args: &[String]) -> bool {
 }
 
 /// Whether `arg`, a global flag as written, takes the next argument as its
-/// value: `--base-url` or a value flag, without an attached `=value`. The
-/// argv walkers, [`sends_request_to_default_target`] and the sandbox verbs',
-/// skip global flags' values through this one rule.
-pub(super) fn takes_separate_value(arg: &str) -> bool {
+/// value: `--base-url` or a value flag, without an attached `=value`.
+/// [`sends_request_to_default_target`] skips global flags' values through
+/// this rule.
+fn takes_separate_value(arg: &str) -> bool {
     !arg.contains('=')
         && (arg == "--base-url" || VALUE_FLAGS.contains(&arg) || SHORT_VALUE_FLAGS.contains(&arg))
 }
