@@ -818,6 +818,40 @@ async fn a_failed_ready_wait_stops_the_sandbox() {
     assert!(broker.calls().is_empty());
 }
 
+/// A ready wait that sees the instance stop says so as `logs -f` does, and
+/// names the sandbox's output by id: the stop that follows frees its name.
+#[tokio::test]
+async fn a_ready_wait_that_sees_the_instance_stop_names_its_output_by_id() {
+    let broker = FakeBroker::start();
+    let exited = ResponseTemplate::new(200).set_body_json(sandbox(
+        GPU_ID,
+        "shell-aaaaaa",
+        "active",
+        json!([{"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"}]),
+    ));
+    let stopped = ResponseTemplate::new(200).set_body_json(sandbox(
+        GPU_ID,
+        "shell-aaaaaa",
+        "ended",
+        json!([{"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"}]),
+    ));
+    let server = api_with(&broker, 0, exited, stopped).await;
+    let out = on_pty(&Run::new(&server), |_| {});
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert_eq!(
+        class_line(&out.stderr).unwrap_or_default(),
+        format!(
+            "hedra-cli: Not ready or stopped (13): `shell-aaaaaa`'s instance stopped before it \
+             was ready. Run `hedra-cli sandbox logs {GPU_ID}` for its output."
+        ),
+        "{}",
+        out.stderr
+    );
+    assert!(!out.stderr.contains("already exited"), "{}", out.stderr);
+    assert_eq!(stops(&server).await, 1);
+    assert!(broker.calls().is_empty());
+}
+
 #[tokio::test]
 async fn a_failed_ready_wait_whose_stop_gives_up_keeps_its_own_class_line() {
     let broker = FakeBroker::start();

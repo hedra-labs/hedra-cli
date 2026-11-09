@@ -391,6 +391,9 @@ struct Inner {
     logs: VecDeque<LogsScript>,
     port: VecDeque<PortScript>,
     ring: Vec<LogChunk>,
+    /// The next chunk's stamp, in seconds after the first: kept apart from
+    /// the ring buffer, so stamps keep rising after an eviction empties it.
+    next_stamp: i64,
     calls: Vec<Call>,
     conns: HashMap<u64, std::net::TcpStream>,
     connections: usize,
@@ -462,7 +465,7 @@ impl FakeBroker {
     /// Appends a chunk to the ring buffer, stamped after every earlier one.
     pub fn log(&self, data: &[u8]) -> Timestamp {
         let mut s = self.state.lock().unwrap();
-        append(&mut s.ring, data)
+        append(&mut s, data)
     }
 
     pub fn calls(&self) -> Vec<Call> {
@@ -505,17 +508,14 @@ impl Drop for FakeBroker {
     }
 }
 
-fn append(ring: &mut Vec<LogChunk>, data: &[u8]) -> Timestamp {
-    // After the newest chunk's stamp, which outlives an eviction.
-    let i = ring
-        .last()
-        .and_then(|c| c.at)
-        .map_or(0, |at| at.seconds - 1_793_750_400 + 1);
+fn append(s: &mut Inner, data: &[u8]) -> Timestamp {
+    let i = s.next_stamp;
+    s.next_stamp += 1;
     let at = Timestamp {
         seconds: 1_793_750_400 + i,
         nanos: 500_000_000 + i as i32,
     };
-    ring.push(LogChunk {
+    s.ring.push(LogChunk {
         data: data.to_vec(),
         at: Some(at),
         stream: Stream::Stdout as i32,
@@ -1129,7 +1129,7 @@ impl SessionService for Arc<Broker> {
                 .cloned()
                 .collect();
             for data in &script.append {
-                append(&mut s.ring, data);
+                append(&mut s, data);
             }
             let evict = script.evict.min(s.ring.len());
             s.ring.drain(..evict);
@@ -1675,5 +1675,19 @@ mod tests {
             data.extend(chunk.data);
         }
         assert_eq!(data, b"bc");
+    }
+
+    /// An eviction that empties the ring buffer does not reset the stamps:
+    /// a chunk appended after it still sorts after every earlier one.
+    #[test]
+    fn stamps_keep_rising_after_an_eviction_empties_the_ring() {
+        let mut s = Inner::default();
+        let first = append(&mut s, b"a");
+        let second = append(&mut s, b"b");
+        s.ring.clear();
+        let third = append(&mut s, b"c");
+        let key = |t: Timestamp| (t.seconds, t.nanos);
+        assert!(key(first) < key(second), "{first:?} {second:?}");
+        assert!(key(second) < key(third), "{second:?} {third:?}");
     }
 }

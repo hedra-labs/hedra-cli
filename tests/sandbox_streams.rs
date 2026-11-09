@@ -1519,9 +1519,9 @@ async fn logs_f_prints_the_received_chunks_then_the_stored_tail_when_the_sandbox
 }
 
 /// A follow whose wait ends with replica 0 stopped or failed reads the
-/// sandbox again, riding out a read that fails for now, and ends as for a
-/// stopped sandbox: the stored copy, the state line and exit 0, never the
-/// wait's own line, which would point back at `logs`, nor its class.
+/// sandbox again and ends as for a stopped sandbox: the stored copy, the
+/// state line and exit 0, never the wait's own line, which would point back
+/// at `logs`, nor its class.
 #[tokio::test]
 async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
     let creating = sandbox(ID, "box", "creating", json!(null));
@@ -1537,20 +1537,41 @@ async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
         "active",
         json!([{"replica": 0, "status": "failed", "failure_reason": "no_capacity"}]),
     );
+    let unpaid = |instance: serde_json::Value| {
+        let mut s = sandbox(ID, "box", "ended", json!([instance]));
+        s["end_reason"] = json!("unpaid");
+        s
+    };
+    let funds = "Add funds to the workspace, then create another; `hedra-cli sandbox ls` lists \
+                 the running ones.";
     let at = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
     for (answers, line) in [
+        // Stopped unpaid, started or not: funds, as every next step does.
+        (
+            vec![
+                at(&creating),
+                at(&unpaid(json!({"replica": 0, "status": "stopped"}))),
+            ],
+            format!("`{ID}` is ended (unpaid). {funds}"),
+        ),
+        (
+            vec![
+                at(&creating),
+                at(&unpaid(json!({"replica": 0, "status": "stopped",
+                                   "started_at": "2026-11-03T12:01:00Z"}))),
+            ],
+            format!("`{ID}` is ended (unpaid). {funds}"),
+        ),
         (
             vec![at(&creating), at(&exited)],
             format!("`{ID}`'s instance stopped."),
         ),
         (
-            vec![
-                at(&creating),
-                at(&full),
-                envelope(503, "UNAVAILABLE", "busy", Some(0)),
-                at(&full),
-            ],
-            format!("`{ID}`'s instance stopped (no_capacity)."),
+            vec![at(&creating), at(&full)],
+            format!(
+                "`{ID}`'s instance stopped (no_capacity). No `h100:1` was free. Run `hedra-cli \
+                 sandbox gpus`, then create another."
+            ),
         ),
         (
             vec![
@@ -1562,7 +1583,10 @@ async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
                     json!([{"replica": 0, "status": "failed"}]),
                 )),
             ],
-            format!("`{ID}`'s instance stopped."),
+            format!(
+                "`{ID}`'s instance stopped. Create another, or run `hedra-cli sandbox ls` for the \
+                 running ones."
+            ),
         ),
     ] {
         let broker = FakeBroker::start();
@@ -1583,6 +1607,50 @@ async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
         assert!(!err.contains("already exited"), "{err}");
         assert!(broker.calls().is_empty());
     }
+}
+
+/// After a wait that ends with replica 0 failed, a read of the sandbox that
+/// keeps failing for now is not retried without end: the follow goes on
+/// from the wait's last read and exits 0, after a bounded number of reads.
+#[tokio::test]
+async fn logs_f_whose_wait_ends_failed_does_not_retry_a_failing_read_forever() {
+    let creating = sandbox(ID, "box", "creating", json!(null));
+    let full = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([{"replica": 0, "status": "failed", "failure_reason": "no_capacity"}]),
+    );
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            ResponseTemplate::new(200).set_body_json(creating),
+            ResponseTemplate::new(200).set_body_json(full),
+            envelope(503, "UNAVAILABLE", "busy", Some(0)),
+        ]))
+        .mount(&server)
+        .await;
+    mount_stored(&server, "stored\n").await;
+    let child = Run::new(&server).spawn(&["sandbox", "logs", "-f", ID]);
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert_eq!(stdout(&out), "stored\n");
+    assert!(
+        err.ends_with(&format!(
+            "`{ID}`'s instance stopped (no_capacity). No `h100:1` was free. Run `hedra-cli \
+             sandbox gpus`, then create another.\n"
+        )),
+        "{err}"
+    );
+    assert!(!err.contains("retrying"), "{err}");
+    // The first read, the wait's, and one that failed.
+    let reads = requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}")).await;
+    assert_eq!(reads.len(), 3, "{err}");
+    assert!(broker.calls().is_empty());
 }
 
 #[tokio::test]
@@ -1795,6 +1863,38 @@ async fn logs_f_rides_out_a_failed_read_between_reopens() {
     assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
     assert_eq!(String::from_utf8_lossy(&seen.lock().unwrap()), "a\nb\n");
     assert_eq!(broker.calls().len(), 2);
+    assert!(
+        stderr(&out).contains(&format!("Could not read `{ID}`'s state; retrying.")),
+        "{}",
+        stderr(&out)
+    );
+}
+
+/// A follow whose sandbox is still starting when the wait's budget runs out
+/// exits 13 with the wait's line.
+#[tokio::test]
+async fn logs_f_whose_sandbox_is_still_starting_after_the_budget_exits_13() {
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    mount_sandbox(&server, ID, sandbox(ID, "box", "creating", json!(null))).await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "logs", "-f", ID]);
+    cmd.env("HEDRA_CLI_TEST_START_BUDGET_MS", "300");
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(13), "{err}");
+    assert!(
+        class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Not ready or stopped (13): ")
+            && l.contains("still starting after")),
+        "{err}"
+    );
+    assert!(broker.calls().is_empty());
 }
 
 #[tokio::test]
@@ -1875,7 +1975,7 @@ async fn plain_logs_ended_rate_limited_reopens_after_its_last_chunk() {
     assert_eq!(
         err,
         format!(
-            "The live read of `{ID}` fell behind and was reopened 2 times; output written faster \
+            "The live read of `{ID}` fell behind and reconnected 2 times; output written faster \
              than it was read may be missing.\n"
         ),
         "{err}"
@@ -1923,7 +2023,7 @@ async fn plain_logs_whose_reopen_skipped_dropped_chunks_says_output_may_be_missi
         assert_eq!(
             err,
             format!(
-                "The live read of `{ID}` fell behind and was reopened once; output written \
+                "The live read of `{ID}` fell behind and reconnected once; output written \
                  faster than it was read may be missing.\n"
             ),
             "{end:?}"
@@ -1964,7 +2064,7 @@ async fn plain_logs_stops_reopening_at_its_cap() {
     );
     assert!(
         err.starts_with(&format!(
-            "The live read of `{ID}` kept ending (rate_limited) after 20 reopens; output written \
+            "The live read of `{ID}` kept ending (rate_limited) after 20 reconnects; output written \
              faster than it was read may be missing.\n"
         )),
         "{err}"
@@ -2006,8 +2106,50 @@ async fn plain_logs_stops_reopening_after_its_time() {
     assert_eq!(stored_reads(&server).await.len(), 1);
 }
 
+/// The reopens' time counts from the first read that fell behind, not from
+/// the latest: at 600 ms, with a quarter second before each reopen, a
+/// read that keeps falling behind while printing stops after a few reopens,
+/// well short of the cap.
+#[tokio::test]
+async fn plain_logs_reopening_time_counts_from_the_first_read_that_fell_behind() {
+    let broker = FakeBroker::start();
+    broker.log(b"0\n");
+    for i in 1..=21 {
+        broker.push_logs(
+            LogsScript::admit(LogsEnd::Fail(fell_behind()))
+                .then_append(format!("{i}\n").as_bytes()),
+        );
+    }
+    let server = running_sandbox(&broker).await;
+    mount_stored(&server, "stored\n").await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "logs", ID]);
+    cmd.env("HEDRA_CLI_TEST_CATCH_UP_MS", "600");
+    let out = cmd.output().unwrap();
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    // About three: the first read and the reopens that start inside 600 ms
+    // of it; a time that restarted at each read would reach the cap's 21.
+    let calls = broker.calls().len();
+    assert!((2..=6).contains(&calls), "{calls}: {err}");
+    assert!(stdout(&out).ends_with("stored\n"), "{}", stdout(&out));
+    let reopened = match calls - 1 {
+        1 => "1 reconnect".to_string(),
+        n => format!("{n} reconnects"),
+    };
+    assert!(
+        err.starts_with(&format!(
+            "The live read of `{ID}` kept ending (rate_limited) after {reopened}; output \
+             written faster than it was read may be missing.\n"
+        )),
+        "{err}"
+    );
+}
+
 /// Reopens that keep ending `rate_limited` with nothing new end in the
-/// stored copy after the last printed chunk, with one note naming why.
+/// stored copy after the last printed chunk, with one note naming why. No
+/// reopen printed, so none moved past a chunk the stored copy then misses,
+/// and the note does not say output may be missing.
 #[tokio::test]
 async fn plain_logs_whose_reopens_stall_finishes_from_the_stored_copy() {
     let broker = FakeBroker::start();
@@ -2026,8 +2168,7 @@ async fn plain_logs_whose_reopens_stall_finishes_from_the_stored_copy() {
     assert_eq!(
         err,
         format!(
-            "The live read of `{ID}` kept ending (rate_limited) after 3 reopens; output written \
-             faster than it was read may be missing.\n\
+            "The live read of `{ID}` kept ending (rate_limited) after 3 reconnects.\n\
              The live output ended; the rest is from the stored copy, which can miss the newest \
              output.\n"
         )
@@ -2042,6 +2183,39 @@ async fn plain_logs_whose_reopens_stall_finishes_from_the_stored_copy() {
         .find(|(k, _)| k == "since")
         .map(|(_, v)| v.into_owned());
     assert_eq!(since.as_deref(), Some("2026-11-04T00:00:01.500000002Z"));
+}
+
+/// Reopens that stall after one that printed end in the stored copy too,
+/// but that one may have moved past chunks the ring buffer had dropped,
+/// which the stored copy, read from after the last printed chunk, does not
+/// bring back: the note says output may be missing.
+#[tokio::test]
+async fn plain_logs_whose_reopens_stall_after_one_printed_says_output_may_be_missing() {
+    let broker = FakeBroker::start();
+    broker.log(b"a\n");
+    broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())).then_append(b"b\n"));
+    for _ in 0..4 {
+        broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())));
+    }
+    let server = running_sandbox(&broker).await;
+    mount_stored(&server, "c\n").await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert_eq!(stdout(&out), "a\nb\nc\n");
+    assert_eq!(
+        err,
+        format!(
+            "The live read of `{ID}` kept ending (rate_limited) after 4 reconnects; output written \
+             faster than it was read may be missing.\n\
+             The live output ended; the rest is from the stored copy, which can miss the newest \
+             output.\n"
+        )
+    );
+    // The first read, one reopen that printed, and three in a row that did
+    // not.
+    assert_eq!(broker.calls().len(), 5);
+    assert_eq!(stored_reads(&server).await.len(), 1);
 }
 
 /// A catch-up reopen that is refused ends in the stored copy after the last
@@ -2060,7 +2234,7 @@ async fn plain_logs_whose_reopen_is_refused_finishes_from_the_stored_copy() {
     assert_eq!(stdout(&out), "a\nb\n");
     assert!(
         err.starts_with(&format!(
-            "The live read of `{ID}` ended and could not be reopened.\n"
+            "The live read of `{ID}` ended and could not reconnect.\n"
         )),
         "{err}"
     );
@@ -2081,7 +2255,7 @@ async fn plain_logs_whose_reopen_is_refused_finishes_from_the_stored_copy() {
     assert_eq!(stdout(&out), "a\nb\nc\n");
     assert!(
         err.starts_with(&format!(
-            "The live read of `{ID}` ended and could not be reopened; output written faster than \
+            "The live read of `{ID}` ended and could not reconnect; output written faster than \
              it was read may be missing.\n"
         )),
         "{err}"
@@ -2153,11 +2327,73 @@ async fn plain_logs_whose_sandbox_stops_after_a_reopen_says_output_may_be_missin
         assert_eq!(stdout(&out), "a\nb\nd\ne\n", "{how}");
         assert!(
             err.starts_with(&format!(
-                "The live read of `{ID}` fell behind and was reopened {times}; output written \
+                "The live read of `{ID}` fell behind and reconnected {times}; output written \
                  faster than it was read may be missing.\n"
             )),
             "{how}: {err}"
         );
+    }
+}
+
+/// A read whose only reopen printed nothing ends in the stored copy from
+/// the last chunk the first read printed, which misses nothing a reopen
+/// skipped: however the read ends there, no note says output may be
+/// missing.
+#[tokio::test]
+async fn plain_logs_whose_reopen_printed_nothing_says_nothing_is_missing_before_the_stored_copy() {
+    let stopped = || {
+        envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The sandbox is not active.",
+            None,
+        )
+    };
+    for (how, last) in [
+        ("refused", Some(LogsScript::refuse(disconnected()))),
+        ("mint", None),
+        (
+            "dropped",
+            Some(LogsScript::admit(LogsEnd::Fail(disconnected()))),
+        ),
+        (
+            "unavailable",
+            Some(LogsScript::refuse(Status::unavailable("broker restarting"))),
+        ),
+    ] {
+        let broker = FakeBroker::start();
+        broker.log(b"a\n");
+        broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())));
+        broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())));
+        let server = MockServer::start().await;
+        match last {
+            Some(script) => {
+                broker.push_logs(script);
+                mount_session(&server, ID, &broker).await;
+            }
+            // Tokens that are already stale, so each open mints, and the
+            // third mint is refused: the sandbox stopped.
+            None => {
+                let stale = ResponseTemplate::new(200).set_body_json(json!({
+                    "token": TOKEN, "broker_url": broker.broker_url(),
+                    "expires_at": "2000-01-01T00:00:00Z", "replica": 0,
+                }));
+                Mock::given(method("POST"))
+                    .and(path(format!("/v3/sandboxes/{ID}/session")))
+                    .respond_with(Sequence::new(vec![stale.clone(), stale, stopped()]))
+                    .mount(&server)
+                    .await;
+            }
+        }
+        mount_sandbox(&server, ID, sandbox(ID, "box", "active", running())).await;
+        mount_stored(&server, "b\n").await;
+        let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(0), "{how}: {err}");
+        assert_eq!(stdout(&out), "a\nb\n", "{how}");
+        assert!(!err.contains("may be missing"), "{how}: {err}");
+        assert!(!err.contains("fell behind"), "{how}: {err}");
+        assert_eq!(stored_reads(&server).await.len(), 1, "{how}");
     }
 }
 
@@ -2178,7 +2414,7 @@ async fn plain_logs_whose_reopen_fails_says_output_may_be_missing_before_the_fai
     assert_eq!(stdout(&out), "a\nb\n");
     assert!(
         err.starts_with(&format!(
-            "The live read of `{ID}` fell behind and was reopened once; output written faster \
+            "The live read of `{ID}` fell behind and reconnected once; output written faster \
              than it was read may be missing.\n"
         )),
         "{err}"

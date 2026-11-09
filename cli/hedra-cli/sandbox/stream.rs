@@ -409,7 +409,7 @@ fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<String> {
 /// unpaid, a retry while it is still being created, and otherwise what
 /// `ended_step` names. Commands name the sandbox by id: once it ends, its
 /// name is free for a new sandbox.
-fn next_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
+pub(crate) fn next_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
     if s.end_reason == Some(SandboxEndReason::Unpaid) {
         return format!(
             "Add funds to the workspace, then create another; `{}` lists the running ones.",
@@ -426,7 +426,7 @@ fn next_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
 /// The next step once replica 0 can run nothing more: its output when it
 /// started, whatever ended it, since a started instance's start time is kept
 /// through any later stop or failure; otherwise what its failure calls for.
-fn ended_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
+pub(crate) fn ended_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
     if replica0(s).is_some_and(|i| i.started_at.is_some()) {
         return output_line(&s.id);
     }
