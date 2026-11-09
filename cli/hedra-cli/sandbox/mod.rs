@@ -15,6 +15,7 @@ mod exec;
 mod forward;
 mod gpu_shell;
 mod lifecycle;
+pub(crate) mod lifetime;
 mod logs;
 mod names;
 mod render;
@@ -221,7 +222,7 @@ fn shell_command() -> Command {
                 .long("max-duration")
                 .value_name("DURATION")
                 .requires("gpu")
-                .help("With --gpu: stop the sandbox this long after it is created, such as 8h; 24h by default"),
+                .help("With --gpu: stop after 2m to 24h, such as 8h; 24h by default. Longer reservations require a sales contract: sales@hedra.com"),
         )
         .arg(term_arg())
 }

@@ -610,6 +610,20 @@ pub type ParamTransformFn =
 
 static PARAM_TRANSFORM: std::sync::OnceLock<Box<ParamTransformFn>> = std::sync::OnceLock::new();
 
+/// CLI policy validation after body assembly, including flags, JSON files,
+/// parameter objects and global body parameters. Runs before any request.
+pub type BodyValidatorFn =
+    dyn Fn(&RestMethod, Option<&Value>) -> Result<(), CliError> + Send + Sync;
+
+static BODY_VALIDATOR: std::sync::OnceLock<Box<BodyValidatorFn>> = std::sync::OnceLock::new();
+
+/// Install a request-body validator. The first registration wins.
+pub fn set_body_validator(
+    f: impl Fn(&RestMethod, Option<&Value>) -> Result<(), CliError> + Send + Sync + 'static,
+) -> bool {
+    BODY_VALIDATOR.set(Box::new(f)).is_ok()
+}
+
 /// Install the process-wide [`ParamTransformFn`]. Returns `false` when one is
 /// already installed; the first one wins.
 pub fn set_param_transform(
@@ -918,6 +932,10 @@ fn parse_and_validate_inputs(
     // `config.currency` — is never overwritten (per-op wins, enforced by
     // `set_nested_value_if_absent`, which walks the dotted path).
     let body = merge_global_body_params(body, extra_global_params);
+
+    if let Some(validate) = BODY_VALIDATOR.get() {
+        validate(method, body.as_ref())?;
+    }
 
     // Validate the assembled body against the request schema regardless of
     // how it was built (per-field flags, `--json`, or both). The previous
