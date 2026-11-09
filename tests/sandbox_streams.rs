@@ -941,8 +941,9 @@ async fn a_refusal_by_name_names_the_id_in_its_next_step() {
 #[tokio::test]
 async fn a_mint_refusal_whose_read_fails_keeps_the_routes_message() {
     let get = format!(" Check on it with `hedra-cli sandbox get --sandbox {ID}`.");
-    for (answer, read, line) in [
+    for (target, answer, read, line) in [
         (
+            "box",
             envelope(
                 400,
                 "FAILED_PRECONDITION",
@@ -953,11 +954,13 @@ async fn a_mint_refusal_whose_read_fails_keeps_the_routes_message() {
             format!("Not ready or stopped (13): The sandbox is not active.{get}"),
         ),
         (
+            ID,
             envelope(404, "NOT_FOUND", "No replica is serving sessions.", None),
             envelope(503, "UNAVAILABLE", "busy", Some(0)),
             format!("Rejected request (19): No replica is serving sessions.{get}"),
         ),
         (
+            ID,
             envelope(404, "NOT_FOUND", "Sandbox not found.", None),
             envelope(404, "NOT_FOUND", "Sandbox not found.", None),
             format!("Not found (11): No sandbox `{ID}`. Run `hedra-cli sandbox ls`."),
@@ -974,8 +977,13 @@ async fn a_mint_refusal_whose_read_fails_keeps_the_routes_message() {
             .respond_with(read)
             .mount(&server)
             .await;
+        // By name, the lookup reads the sandbox; the read after the mint
+        // fails all the same, and the step still names the id.
+        if target != ID {
+            mount_sandbox(&server, target, sandbox(ID, "box", "active", running())).await;
+        }
         // `exec` exits 255 for any failure of hedra-cli's own.
-        let out = Run::new(&server).run(&exec_args(&["-n", "--", "x"]));
+        let out = Run::new(&server).run(&["sandbox", "exec", target, "-n", "--", "x"]);
         assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
         assert_eq!(
             class_line(&stderr(&out)),
@@ -1533,7 +1541,7 @@ async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
     for (answers, line) in [
         (
             vec![at(&creating), at(&exited)],
-            format!("`{ID}` is active."),
+            format!("`{ID}`'s instance stopped."),
         ),
         (
             vec![
@@ -2067,6 +2075,78 @@ async fn plain_logs_whose_reopen_is_refused_finishes_from_the_stored_copy() {
         "{err}"
     );
     assert_eq!(broker.calls().len(), 3);
+}
+
+/// A sandbox that stops between reopens ends the read in the stored copy
+/// after the last printed chunk, which cannot bring back a chunk an earlier
+/// reopen skipped, so the read says output may be missing however the
+/// reopen learns of the stop: refused `sandbox_disconnected`, a mint refused
+/// for a stopped sandbox, or the stream ended `sandbox_disconnected`.
+#[tokio::test]
+async fn plain_logs_whose_sandbox_stops_after_a_reopen_says_output_may_be_missing() {
+    let stopped = || {
+        envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The sandbox is not active.",
+            None,
+        )
+    };
+    // The reopens that read: a refused one did not, a dropped one did.
+    for (how, last, times) in [
+        ("refused", Some(LogsScript::refuse(disconnected())), "once"),
+        ("mint", None, "once"),
+        (
+            "dropped",
+            Some(LogsScript::admit(LogsEnd::Fail(disconnected()))),
+            "2 times",
+        ),
+    ] {
+        let broker = FakeBroker::start();
+        broker.log(b"a\n");
+        broker.log(b"b\n");
+        // `c` is dropped before the reopen asks for it.
+        broker.push_logs(
+            LogsScript::admit(LogsEnd::Fail(fell_behind()))
+                .then_append(b"c\n")
+                .then_append(b"d\n")
+                .then_evict(3),
+        );
+        broker.push_logs(LogsScript::admit(LogsEnd::Fail(fell_behind())));
+        let server = MockServer::start().await;
+        match last {
+            Some(script) => {
+                broker.push_logs(script);
+                mount_session(&server, ID, &broker).await;
+            }
+            // Tokens that are already stale, so each open mints, and the
+            // third mint is refused: the sandbox stopped.
+            None => {
+                let stale = ResponseTemplate::new(200).set_body_json(json!({
+                    "token": TOKEN, "broker_url": broker.broker_url(),
+                    "expires_at": "2000-01-01T00:00:00Z", "replica": 0,
+                }));
+                Mock::given(method("POST"))
+                    .and(path(format!("/v3/sandboxes/{ID}/session")))
+                    .respond_with(Sequence::new(vec![stale.clone(), stale, stopped()]))
+                    .mount(&server)
+                    .await;
+            }
+        }
+        mount_sandbox(&server, ID, sandbox(ID, "box", "active", running())).await;
+        mount_stored(&server, "e\n").await;
+        let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(0), "{how}: {err}");
+        assert_eq!(stdout(&out), "a\nb\nd\ne\n", "{how}");
+        assert!(
+            err.starts_with(&format!(
+                "The live read of `{ID}` fell behind and was reopened {times}; output written \
+                 faster than it was read may be missing.\n"
+            )),
+            "{how}: {err}"
+        );
+    }
 }
 
 /// `rate_limited` before admission is the Limit class, as for every verb:

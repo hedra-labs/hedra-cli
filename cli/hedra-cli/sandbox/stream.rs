@@ -498,12 +498,24 @@ pub(crate) fn get_line(id: &str) -> String {
 }
 
 /// "`<name>` is <status>.", with the stop reason or the replica's failure,
-/// the server's text escaped.
+/// or that its instance stopped when an active sandbox's replica 0 has, the
+/// server's text escaped.
 pub(crate) fn state_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> String {
     let line = match render::stop_reason(s) {
         Some(reason) => format!("`{name}` is {} ({reason}).", s.status),
         None => match replica0(s).and_then(|i| i.failure_reason.as_ref()) {
             Some(f) => format!("`{name}`'s instance stopped ({f})."),
+            // An active sandbox reads as running without this.
+            None if s.status == SandboxStatus::Active
+                && replica0(s).is_some_and(|i| {
+                    matches!(
+                        i.status,
+                        SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
+                    )
+                }) =>
+            {
+                format!("`{name}`'s instance stopped.")
+            }
             None => format!("`{name}` is {}.", s.status),
         },
     };

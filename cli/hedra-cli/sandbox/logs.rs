@@ -220,7 +220,7 @@ impl Logs<'_> {
         // A plain read's reopens after `rate_limited`: how many, how many in
         // a row printed nothing, and the read they reuse, since a sandbox
         // that stops meanwhile refuses the reopen and reads the stored copy.
-        let mut catch_ups = 0;
+        let mut catch_ups: u32 = 0;
         let mut stalls = 0;
         let mut catching_up: Option<Sandbox> = None;
         let mut fell_behind_at: Option<Instant> = None;
@@ -234,7 +234,7 @@ impl Logs<'_> {
                     // it does a dropped stream.
                     Err(e) if !first && e.transient() => {
                         stream::note(format_args!(
-                            "Could not read `{}` to reopen its output; retrying.",
+                            "Could not read `{}` to read its output; retrying.",
                             self.name
                         ));
                         tokio::time::sleep(backoff.wait()).await;
@@ -334,12 +334,17 @@ impl Logs<'_> {
                     admitted = true;
                     stream
                 }
+                // A refused reopen read nothing, but the ones before it may
+                // have skipped chunks the stored copy, read from after the
+                // last printed one, does not bring back.
                 Err(OpenError::Refused(st))
                     if !self.follow && st.is(reason::SANDBOX_DISCONNECTED) =>
                 {
+                    self.caught_up(catch_ups.saturating_sub(1));
                     return self.stored_tail(&id, &s).await;
                 }
                 Err(OpenError::Session(SessionError::Mint(e))) if stopped_mint(&e) => {
+                    self.caught_up(catch_ups.saturating_sub(1));
                     let s = self.get(&id).await.unwrap_or(s);
                     return self.stored_tail(&id, &s).await;
                 }
@@ -398,6 +403,7 @@ impl Logs<'_> {
                             .as_ref()
                             .is_some_and(|s| s.is(reason::SANDBOX_DISCONNECTED))
                         {
+                            self.caught_up(catch_ups);
                             let s = self.get(&id).await.unwrap_or(s);
                             return self.stored_tail(&id, &s).await;
                         }
@@ -443,6 +449,7 @@ impl Logs<'_> {
                             ));
                             return self.stored_tail(&id, &s).await;
                         }
+                        self.caught_up(catch_ups);
                         let f = stream::broker_failure(&st, &self.name, Needs::Read, true);
                         if f.class == Class::ConnectionLost {
                             return Ended::Failed(

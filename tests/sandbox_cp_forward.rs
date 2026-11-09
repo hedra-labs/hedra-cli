@@ -822,10 +822,11 @@ async fn a_connection_during_the_wait_is_refused_at_once() {
     let mut conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
     conn.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
     let mut buf = [0u8; 1];
+    // Reset, not closed, so a client reports a refusal rather than an
+    // empty answer.
     match conn.read(&mut buf) {
-        Ok(0) => {}
         Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
-        other => panic!("the connection was not refused: {other:?}"),
+        other => panic!("the connection was not reset: {other:?}"),
     }
     assert!(!fwd.stderr().contains("Forwarding"), "{}", fwd.stderr());
     assert_eq!(mints(&server, ID).await, 0);
