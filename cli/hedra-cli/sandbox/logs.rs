@@ -266,7 +266,7 @@ impl Logs<'_> {
                         ready_budget: START_BUDGET,
                         ..Timing::default()
                     };
-                    if let Err(f) = lifecycle::wait_ready(
+                    if let Err(w) = lifecycle::wait_ready_or_last(
                         self.api,
                         &id,
                         &self.name,
@@ -282,20 +282,20 @@ impl Logs<'_> {
                     )
                     .await
                     {
-                        let s = match self.get(&id).await {
-                            Ok(s) => s,
-                            Err(_) => return Ended::Failed(f),
-                        };
-                        return match phase(&s) {
-                            // Still starting: the budget ran out.
-                            Phase::Starting => Ended::Failed(f),
-                            // Replica 0 runs, whatever another replica did.
-                            Phase::Running => continue,
-                            _ => {
-                                stream::note(format_args!("{}", escape_controls(&f.message)));
-                                continue;
-                            }
-                        };
+                        // Replica 0 still starting in the wait's last read
+                        // ran out the budget, and a wait that read nothing
+                        // ran it out or failed for good: either ends with
+                        // the wait's failure.
+                        // Otherwise the next pass reads the sandbox again,
+                        // riding out a read that may succeed later, and
+                        // follows replica 0 if it runs again, or gives the
+                        // line and exit 0 of a sandbox that stopped or never
+                        // started, rather than the wait's line, which points
+                        // back at `logs`.
+                        let last = w.last.as_deref().map(phase);
+                        if matches!(last, None | Some(Phase::Starting)) {
+                            return Ended::Failed(w.failure);
+                        }
                     }
                     continue;
                 }

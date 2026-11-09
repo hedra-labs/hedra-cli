@@ -249,7 +249,7 @@ pub(crate) async fn run(
                 };
                 // Nothing is forwarded until the start line, so a connection
                 // meanwhile is reset rather than left waiting.
-                let wait = lifecycle::wait_ready(
+                let wait = lifecycle::wait_ready_or_last(
                     &api,
                     &s.id,
                     &name,
@@ -262,27 +262,15 @@ pub(crate) async fn run(
                     r = bound.refuse_until(wait) => r,
                     sig = signals.next() => return signal_code(sig),
                 };
-                if let Err(f) = ready {
-                    // A sandbox that stopped, or whose replica 0 failed,
-                    // gets the line and next step the read above gives.
-                    let now = tokio::select! {
-                        r = attempt(ATTEMPT, api.client.get(&s.id, None)) => r,
-                        sig = signals.next() => return signal_code(sig),
-                    };
-                    let f = match now {
-                        // Still starting: the budget ran out, which the
-                        // wait's own line says.
-                        Ok(now) => stream::not_running(&now, &name).unwrap_or(f),
-                        // The read's own answer, as for the read above.
-                        Err(e) if !e.transient() => e.failure(Some(&name)),
-                        // Neither the wait's verdict nor a fresh read names
-                        // the state, so the id's `get` does.
-                        Err(_) => Failure::new(
-                            Class::NotReady,
-                            format!("`{name}` did not become ready, and could not be read again."),
-                        )
-                        .then(stream::get_line(&s.id)),
-                    };
+                if let Err(w) = ready {
+                    // A sandbox that stopped, or whose replica 0 failed, gets
+                    // the line and next step the read above gives, from the
+                    // wait's last read. One still starting keeps the wait's
+                    // line, as does a wait whose read failed for good.
+                    let f = w
+                        .last
+                        .and_then(|now| stream::not_running(&now, &name))
+                        .unwrap_or(w.failure);
                     return fail(f).await;
                 }
             }

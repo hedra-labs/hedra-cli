@@ -1510,6 +1510,61 @@ async fn logs_f_prints_the_received_chunks_then_the_stored_tail_when_the_sandbox
     );
 }
 
+/// A follow whose wait ends with replica 0 stopped or failed reads the
+/// sandbox again, riding out a read that fails for now, and ends as for a
+/// stopped sandbox: the stored copy, the state line and exit 0, never the
+/// wait's own line, which would point back at `logs`, nor its class.
+#[tokio::test]
+async fn logs_f_whose_wait_ends_stopped_prints_the_stored_copy_and_exits_0() {
+    let creating = sandbox(ID, "box", "creating", json!(null));
+    let exited = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([{"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"}]),
+    );
+    let full = sandbox(
+        ID,
+        "box",
+        "active",
+        json!([{"replica": 0, "status": "failed", "failure_reason": "no_capacity"}]),
+    );
+    let at = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
+    for (answers, line) in [
+        (
+            vec![at(&creating), at(&exited)],
+            format!("`{ID}` is active."),
+        ),
+        (
+            vec![
+                at(&creating),
+                at(&full),
+                envelope(503, "UNAVAILABLE", "busy", Some(0)),
+                at(&full),
+            ],
+            format!("`{ID}`'s instance stopped (no_capacity)."),
+        ),
+    ] {
+        let broker = FakeBroker::start();
+        let server = MockServer::start().await;
+        mount_session(&server, ID, &broker).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v3/sandboxes/{ID}")))
+            .respond_with(Sequence::new(answers))
+            .mount(&server)
+            .await;
+        mount_stored(&server, "stored\n").await;
+        let out = Run::new(&server).run(&["sandbox", "logs", "-f", ID]);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(0), "{err}");
+        assert_eq!(stdout(&out), "stored\n");
+        assert!(err.ends_with(&format!("{line}\n")), "{err}");
+        assert!(!err.contains("hedra-cli sandbox logs"), "{err}");
+        assert!(!err.contains("already exited"), "{err}");
+        assert!(broker.calls().is_empty());
+    }
+}
+
 #[tokio::test]
 async fn logs_and_logs_f_of_a_failed_sandbox_read_no_stored_copy() {
     for follow in [false, true] {

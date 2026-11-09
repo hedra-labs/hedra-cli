@@ -750,12 +750,12 @@ async fn port_forward_wait_ends_on_a_stop_or_ctrl_c() {
     assert_eq!(mints(&server, ID).await, 0);
 }
 
-/// When the wait fails and the read after it fails too, nothing names the
-/// sandbox's state: a read that may succeed later gives the Not ready or
-/// stopped (13) line with the id's `get`, and any other gives the read's
-/// own line.
+/// A wait that fails names the sandbox's state from its own last read, by
+/// the id, without reading it again: there is no second read to fail, and
+/// no gap after the wait. A wait whose read fails for good gives that
+/// read's own line.
 #[tokio::test(flavor = "multi_thread")]
-async fn port_forward_wait_failed_and_unread_names_the_ids_get() {
+async fn port_forward_wait_failure_names_the_state_from_its_last_read() {
     let creating = sandbox(ID, "box", "creating", serde_json::json!([]));
     let stopped = sandbox(
         ID,
@@ -763,15 +763,13 @@ async fn port_forward_wait_failed_and_unread_names_the_ids_get() {
         "active",
         serde_json::json!([{"replica": 0, "status": "stopped"}]),
     );
-    let answer = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
-    for (reread, code, line) in [
+    for (read, code, line) in [
         (
-            envelope(503, "UNAVAILABLE", "busy", Some(0)),
+            ResponseTemplate::new(200).set_body_json(stopped),
             13,
-            format!(
-                "hedra-cli: Not ready or stopped (13): `box` did not become ready, and could not \
-                 be read again. Check on it with `hedra-cli sandbox get --sandbox {ID}`."
-            ),
+            "hedra-cli: Not ready or stopped (13): `box`'s instance stopped. Create another, or \
+             run `hedra-cli sandbox ls` for the running ones."
+                .to_string(),
         ),
         (
             envelope(404, "NOT_FOUND", "Sandbox not found.", None),
@@ -783,7 +781,7 @@ async fn port_forward_wait_failed_and_unread_names_the_ids_get() {
         mount_sandbox(&server, "box", creating.clone()).await;
         Mock::given(method("GET"))
             .and(path(format!("/v3/sandboxes/{ID}")))
-            .respond_with(Sequence::new(vec![answer(&stopped), reread]))
+            .respond_with(read)
             .mount(&server)
             .await;
         let out = wait(
@@ -794,6 +792,12 @@ async fn port_forward_wait_failed_and_unread_names_the_ids_get() {
         assert_eq!(out.status.code(), Some(code), "{err}");
         assert_eq!(class_line(&err), Some(line.as_str()), "{err}");
         assert!(!err.contains("Forwarding"), "{err}");
+        assert_eq!(
+            requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+                .await
+                .len(),
+            1
+        );
         assert_eq!(mints(&server, ID).await, 0);
     }
 }

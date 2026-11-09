@@ -330,7 +330,31 @@ pub(crate) async fn wait_ready(
     waiter: Waiter,
     say: &mut dyn FnMut(&str),
 ) -> Result<Sandbox, Failure> {
+    wait_ready_or_last(api, id, name, started, timing, waiter, say)
+        .await
+        .map_err(|w| w.failure)
+}
+
+/// A failed [`wait_ready`], with the last read of the sandbox it made.
+pub(crate) struct WaitFailed {
+    pub(crate) failure: Failure,
+    /// None when no read succeeded.
+    pub(crate) last: Option<Box<Sandbox>>,
+}
+
+/// [`wait_ready`], handing back the last read on failure, so a caller can
+/// name the sandbox's state without reading it again.
+pub(crate) async fn wait_ready_or_last(
+    api: &Api,
+    id: &str,
+    name: &str,
+    started: Instant,
+    timing: &Timing,
+    waiter: Waiter,
+    say: &mut dyn FnMut(&str),
+) -> Result<Sandbox, WaitFailed> {
     let deadline = started + timing.ready_budget;
+    let mut last: Option<Box<Sandbox>> = None;
     let mut last_line = String::new();
     let mut last_elapsed = Instant::now();
     loop {
@@ -350,8 +374,13 @@ pub(crate) async fn wait_ready(
                         ));
                         return Ok(sandbox);
                     }
-                    Readiness::Failed(f) => return Err(f),
-                    Readiness::Starting => {}
+                    Readiness::Failed(failure) => {
+                        return Err(WaitFailed {
+                            failure,
+                            last: Some(Box::new(sandbox)),
+                        })
+                    }
+                    Readiness::Starting => last = Some(Box::new(sandbox)),
                 }
             }
             Err(e) => match &e {
@@ -360,7 +389,13 @@ pub(crate) async fn wait_ready(
                 }
                 CallError::Http(h) if h.status == 408 || h.status >= 500 => {}
                 CallError::Transport(_) | CallError::Timeout => {}
-                _ => return Err(e.failure(Some(name))),
+                // The read's own failure; an earlier read is stale beside it.
+                _ => {
+                    return Err(WaitFailed {
+                        failure: e.failure(Some(name)),
+                        last: None,
+                    })
+                }
             },
         }
         if Instant::now() >= deadline {
@@ -372,7 +407,10 @@ pub(crate) async fn wait_ready(
                 ),
                 Waiter::Stops => format!("`{name}` is still starting after {took}."),
             };
-            return Err(Failure::new(Class::NotReady, line));
+            return Err(WaitFailed {
+                failure: Failure::new(Class::NotReady, line),
+                last,
+            });
         }
         if last_elapsed.elapsed() >= timing.elapsed_every {
             say(&format!(
