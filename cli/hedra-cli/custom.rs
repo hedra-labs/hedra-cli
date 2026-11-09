@@ -144,12 +144,6 @@ fn configure(app: CliApp) -> CliApp {
     // carries `submit-<model>` leaves for every model in the catalog, and
     // `views::jobs` selects the view from the operation path.
     //
-    // Every matching hook runs, in registration order. `sandbox ls` gets its
-    // narrow row view after the `["sandbox", "*"]` de-hijacker, which passes
-    // the list envelope through unchanged. In the other order, the
-    // de-hijacker would turn the empty array an empty list is reshaped into
-    // into an empty string.
-    //
     // The remaining five groups get the generic array de-hijacker. They
     // are named individually rather than globbed across the whole CLI so
     // that adding a resource is a deliberate choice — `views::dehijack`
@@ -162,6 +156,11 @@ fn configure(app: CliApp) -> CliApp {
         .transform_response(&["log-drains", "*"], views::defuse_arrays)
         .transform_response(&["billing", "*"], views::defuse_arrays)
         .transform_response(&["sandbox", "*"], views::defuse_arrays)
+        // Every matching hook runs, in registration order. `sandbox ls` gets
+        // its narrow row view after the `["sandbox", "*"]` de-hijacker, which
+        // passes the list envelope through unchanged. Registered the other
+        // way round, the de-hijacker would turn the `[]` an empty list
+        // becomes into an empty string.
         .transform_response(&["sandbox", "ls"], views::sandbox_list)
 }
 

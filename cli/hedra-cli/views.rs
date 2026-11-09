@@ -42,7 +42,7 @@
 //!
 //! ## The fix
 //!
-//! Two layers, both applied as `transform_response` hooks registered from
+//! Three layers, each applied as `transform_response` hooks registered from
 //! `custom.rs` and — like `reshape_model_list_table` — only when the
 //! resolved output format is `Table`. JSON/YAML/CSV/JSONL output is
 //! therefore byte-identical to before, so scripts are unaffected.

@@ -12,9 +12,12 @@ use hedra_cli_sandbox::session::{Session, SessionError};
 use hedra_cli_sandbox::stream::calls::{self, Open, OpenError, Waiting};
 use hedra_cli_sandbox::stream::status::{reason, BrokerStatus};
 use hedra_cli_sandbox::stream::transport::{TransportConfig, TransportError};
+use hedra_cli_sdk::api::{SandboxInstanceStatus, SandboxStatus};
+use tokio::time::Instant;
 
 use super::api::{attempt, Api, CallError, ATTEMPT};
 use super::error::{escape_controls, Class, Failure, SANDBOX_NOT_FOUND};
+use super::lifecycle::{self, Timing, Waiter, START_BUDGET};
 use super::names::{self, Target};
 use super::stream::{self, Needs, OwnedMinter, Sig, Signals};
 
@@ -226,14 +229,45 @@ pub(crate) async fn run(
         r = read_sandbox(&api, target) => r,
         sig = signals.next() => return signal_code(sig),
     };
-    // A sandbox that is not running fails here, with the state or exited
-    // line and its next step, before the start line, instead of at the first
-    // connection's mint. One that stops later still ends at a connection.
     let id = match read {
-        Read::Sandbox(s) => match stream::not_running(&s, &name) {
-            Some(f) => return fail(f).await,
-            None => s.id,
-        },
+        Read::Sandbox(s) => {
+            if let Some(f) = stream::not_running(&s, &name) {
+                return fail(f).await;
+            }
+            // A session is refused until replica 0 runs, so the start line
+            // waits for it, as `shell --gpu` does.
+            if starting(&s) {
+                let timing = Timing {
+                    ready_budget: START_BUDGET,
+                    ..Timing::default()
+                };
+                // The create's seconds-to-ready line does not apply here.
+                let mut say = |line: &str| {
+                    if !line.contains("after the create") {
+                        stream::note(line);
+                    }
+                };
+                let ready = tokio::select! {
+                    r = lifecycle::wait_ready(
+                        &api, &s.id, &name, Instant::now(), &timing, Waiter::Reader, &mut say,
+                    ) => r,
+                    sig = signals.next() => return signal_code(sig),
+                };
+                if let Err(f) = ready {
+                    // A sandbox that stopped, or whose replica 0 failed,
+                    // gets the line and next step the read above gives.
+                    let now = tokio::select! {
+                        r = attempt(ATTEMPT, api.client.get(&s.id, None)) => r.ok(),
+                        sig = signals.next() => return signal_code(sig),
+                    };
+                    let f = now
+                        .and_then(|now| stream::not_running(&now, &name))
+                        .unwrap_or(f);
+                    return fail(f).await;
+                }
+            }
+            s.id
+        }
         Read::Unread(id) => id,
         Read::Failed(f) => return fail(f).await,
     };
@@ -292,8 +326,8 @@ pub(crate) async fn run(
 /// The sandbox as port-forward first reads it.
 enum Read {
     Sandbox(hedra_cli_sdk::api::Sandbox),
-    /// An id whose read failed in a way a retry may get past: each
-    /// connection's mint finds out instead.
+    /// An id whose read failed in a way a retry may get past, or whose
+    /// answer could not be read: each connection's mint finds out instead.
     Unread(String),
     Failed(Failure),
 }
@@ -307,9 +341,25 @@ async fn read_sandbox(api: &Api, target: &Target) -> Read {
         },
         Target::Id(id) => match attempt(ATTEMPT, api.client.get(id, None)).await {
             Ok(s) => Read::Sandbox(s),
-            Err(e) if e.transient() => Read::Unread(id.clone()),
+            // An answer this build cannot parse says nothing about the
+            // sandbox either: the read is advisory, so it starts.
+            Err(e) if e.transient() || matches!(e, CallError::Unreadable(_)) => {
+                Read::Unread(id.clone())
+            }
             Err(e) => Read::Failed(e.failure(Some(id))),
         },
+    }
+}
+
+/// Created, or active with replica 0 not yet running: it may yet run.
+fn starting(s: &hedra_cli_sdk::api::Sandbox) -> bool {
+    match s.status {
+        SandboxStatus::Creating => true,
+        SandboxStatus::Active => matches!(
+            stream::replica0(s).map(|i| &i.status),
+            None | Some(SandboxInstanceStatus::Starting)
+        ),
+        _ => false,
     }
 }
 

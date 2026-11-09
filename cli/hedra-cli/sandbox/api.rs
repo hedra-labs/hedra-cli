@@ -17,6 +17,9 @@ use super::error::{Class, Failure, HttpError};
 
 /// Each call's attempt timeout, unless a verb sets its own.
 pub(crate) const ATTEMPT: Duration = Duration::from_secs(15);
+/// The stored copy's read: up to 8 MiB, which takes some 70 s at 1 Mbit/s,
+/// often over the slow link that sent `logs` to it.
+const STORED_READ: Duration = Duration::from_secs(120);
 
 /// How a v3 call failed.
 #[derive(Debug)]
@@ -181,7 +184,11 @@ impl Api {
             replica: Some(0),
             since: since.map(str::to_string),
         };
-        let logs = attempt(ATTEMPT, self.client.saved_logs(sandbox_id, &request, None)).await?;
+        let logs = attempt(
+            STORED_READ,
+            self.client.saved_logs(sandbox_id, &request, None),
+        )
+        .await?;
         Ok(StoredLogs {
             body: logs.content.into_bytes(),
             truncated: logs.truncated,

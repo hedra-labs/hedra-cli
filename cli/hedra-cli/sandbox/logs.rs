@@ -1,6 +1,7 @@
 //! `logs`, `logs -f` and `attach`: the main process's output, live from the
 //! broker's ring buffer while the instance runs, and from the stored copy
-//! once it has stopped.
+//! once it has stopped, or when a plain `logs` keeps falling behind a
+//! running one.
 
 use std::time::Duration;
 
@@ -20,7 +21,7 @@ use tokio::time::Instant;
 
 use super::api::{attempt, Api, CallError, ATTEMPT};
 use super::error::{escape_controls, Class, Failure};
-use super::lifecycle::{self, Timing};
+use super::lifecycle::{self, Timing, START_BUDGET};
 use super::names::{self, Target};
 use super::render;
 use super::stream::{self, Minter, Needs, Out, Sig, Signals, WriteEnd};
@@ -43,11 +44,17 @@ fn spool_limits() -> (usize, u64) {
     }
     (MEMORY, TOTAL)
 }
-/// A starting sandbox's wait: the pool's 15 minutes.
-const START_BUDGET: Duration = Duration::from_secs(15 * 60);
 /// Between a follow's reopens: a follow outlasts a broker outage of any
 /// length, so the cap keeps it trying twice a minute.
 const REOPEN_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
+/// The reopens a plain `logs` makes after the broker ends a read that fell
+/// behind (`rate_limited`). Each resumes after the last printed chunk, and
+/// a measured read over a slow link printed about 160 KB, so the
+/// broker's 8 MiB ring buffer takes some 50; the cap stops a read chasing a
+/// sandbox that writes faster than the link carries.
+const CATCH_UP_REOPENS: u32 = 100;
+/// Reopens in a row that print nothing before the stored copy is read.
+const CATCH_UP_STALLS: u32 = 3;
 
 enum Ended {
     Done,
@@ -173,22 +180,31 @@ impl Logs<'_> {
         let mut admitted = false;
         let mut backoff = REOPEN_BACKOFF;
         let mut first = true;
+        // A plain read's reopens after `rate_limited`: how many, how many in
+        // a row printed nothing, and the read they reuse, since a sandbox
+        // that stops meanwhile refuses the reopen and reads the stored copy.
+        let mut catch_ups = 0;
+        let mut stalls = 0;
+        let mut catching_up: Option<Sandbox> = None;
         loop {
-            let read = attempt(ATTEMPT, self.api.client.get(&id, None)).await;
-            let s = match read {
-                Ok(s) => s,
-                // A reopen rides out a read that may succeed later, as it
-                // does a dropped stream.
-                Err(e) if !first && e.transient() => {
-                    stream::note(format_args!(
-                        "Could not read `{}` to reopen its output; retrying.",
-                        self.name
-                    ));
-                    tokio::time::sleep(backoff.wait()).await;
-                    backoff.grow();
-                    continue;
+            let s = if let Some(s) = catching_up.take() {
+                s
+            } else {
+                match attempt(ATTEMPT, self.api.client.get(&id, None)).await {
+                    Ok(s) => s,
+                    // A reopen rides out a read that may succeed later, as
+                    // it does a dropped stream.
+                    Err(e) if !first && e.transient() => {
+                        stream::note(format_args!(
+                            "Could not read `{}` to reopen its output; retrying.",
+                            self.name
+                        ));
+                        tokio::time::sleep(backoff.wait()).await;
+                        backoff.grow();
+                        continue;
+                    }
+                    Err(e) => return Ended::Failed(e.failure(Some(&self.name))),
                 }
-                Err(e) => return Ended::Failed(e.failure(Some(&self.name))),
             };
             first = false;
             match phase(&s) {
@@ -248,6 +264,7 @@ impl Logs<'_> {
                 Phase::Running => {}
             }
 
+            let resumed_from = self.since;
             let request = LogsRequest {
                 since: self.since,
                 follow: self.follow,
@@ -298,6 +315,15 @@ impl Logs<'_> {
                     backoff.grow();
                     continue;
                 }
+                // A catch-up reopen that fails ends in the stored copy, as
+                // the first read would have before reopens.
+                Err(_) if catch_ups > 0 => {
+                    stream::note(format_args!(
+                        "The live read of `{}` ended and could not be reopened.",
+                        self.name
+                    ));
+                    return self.stored_tail(&id, &s).await;
+                }
                 Err(e) => {
                     return Ended::Failed(
                         stream::open_failure(
@@ -332,20 +358,30 @@ impl Logs<'_> {
                         let Some(st) = status else {
                             return Ended::Done;
                         };
-                        // The broker ends a call whose client fell behind, or
-                        // whose output passed its cap, `rate_limited`: a large
-                        // ring buffer replayed over a slower link does. Another
-                        // read would replay the same burst, so the rest comes
-                        // from the stored copy, after the last printed chunk.
+                        // The broker ends a call whose client fell behind,
+                        // `rate_limited`: a large ring buffer replayed over a
+                        // slower link does. A reopen replays only what came
+                        // after the last printed chunk, so reads converge once
+                        // output stops; the stored copy, which lags the ring
+                        // buffer, is the fallback.
                         if st.is(reason::RATE_LIMITED) {
+                            catch_ups += 1;
+                            stalls = if self.since == resumed_from {
+                                stalls + 1
+                            } else {
+                                0
+                            };
+                            if catch_ups <= CATCH_UP_REOPENS && stalls < CATCH_UP_STALLS {
+                                if self.api.debug {
+                                    debug(&format!("reopening the output ({catch_ups})"));
+                                }
+                                catching_up = Some(s);
+                                continue;
+                            }
                             stream::note(format_args!(
-                                "The live read of `{}` ended ({}); reading the stored copy, \
-                                 which keeps only its newest part, so some output may be \
-                                 missing.",
-                                self.name,
-                                escape_controls(&st.message)
+                                "The live read of `{}` kept ending (rate_limited).",
+                                self.name
                             ));
-                            let s = self.get(&id).await.unwrap_or(s);
                             return self.stored_tail(&id, &s).await;
                         }
                         let f = stream::broker_failure(&st, &self.name, Needs::Read, true);

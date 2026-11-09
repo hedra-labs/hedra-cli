@@ -363,15 +363,18 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
 
 /// A mint refused 400 `FAILED_PRECONDITION` because the replica's instance
 /// stopped, while the sandbox still reads active, keeps the route's message
-/// and says the command already exited and how to read its output: `exec`
+/// and says the instance stopped and how to read its output: `exec`
 /// and both directions of `cp` exit 255 with the Not ready or stopped (13)
 /// line. `port-forward` reads the sandbox before its start line, so it exits
 /// 13 with the same next step, before it starts and before any mint.
 /// `shell`, which needs a terminal, is in `sandbox_terminal.rs`.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
-    let line = "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
-                `box`'s command already exited. Run `hedra-cli sandbox logs box` for its output.";
+    let line = format!(
+        "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+         `box`'s instance stopped. Run `hedra-cli sandbox logs {ID}` for its output."
+    );
+    let line = line.as_str();
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path(format!("/v3/sandboxes/{ID}/session")))
@@ -387,7 +390,8 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
         ID,
         "box",
         "active",
-        serde_json::json!([{"replica": 0, "status": "stopped"}]),
+        serde_json::json!([{"replica": 0, "status": "stopped",
+                             "started_at": "2026-11-03T12:01:00Z"}]),
     );
     mount_sandbox(&server, "box", exited.clone()).await;
     mount_sandbox(&server, ID, exited).await;
@@ -406,14 +410,20 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
     }
 
     let mints_before = mints(&server, ID).await;
-    let out = wait(run.spawn(&["sandbox", "port-forward", "box", "0:8888"]), WAIT);
+    let out = wait(
+        run.spawn(&["sandbox", "port-forward", "box", "0:8888"]),
+        WAIT,
+    );
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(13), "{err}");
     assert_eq!(
         class_line(&err),
         Some(
-            "hedra-cli: Not ready or stopped (13): `box`'s command already exited. \
-             Run `hedra-cli sandbox logs box` for its output."
+            format!(
+                "hedra-cli: Not ready or stopped (13): `box`'s instance stopped. \
+                 Run `hedra-cli sandbox logs {ID}` for its output."
+            )
+            .as_str()
         ),
         "{err}"
     );
@@ -423,58 +433,140 @@ async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
 
 /// `port-forward` on a sandbox that is stopping, ended, or stopping because
 /// its lease was refused exits 13 before its start line, with the state and
-/// the next step, and mints nothing; a name and an id both read the sandbox once. The bind
-/// still comes first, so a taken port costs no request.
+/// the next step, and mints nothing. Each state is read by name and by id,
+/// and either reads the sandbox once: a name's lookup already returns it. The
+/// bind still comes first, so a taken port costs no request.
 #[tokio::test(flavor = "multi_thread")]
 async fn port_forward_on_a_stopped_sandbox_exits_13_before_it_starts() {
-    let stopped = |status: &str, end_reason: &str| {
-        let mut s = sandbox(ID, "box", status, serde_json::json!([{"replica": 0, "status": "stopped"}]));
+    let stopped = |status: &str, end_reason: &str, started: bool| {
+        let mut instance = serde_json::json!({"replica": 0, "status": "stopped"});
+        if started {
+            instance["started_at"] = "2026-11-03T12:01:00Z".into();
+        }
+        let mut s = sandbox(ID, "box", status, serde_json::json!([instance]));
         s["end_reason"] = end_reason.into();
         s
     };
-    for (read, target, line) in [
+    let cases = [
         (
-            stopped("stopping", "caller_stopped"),
-            "box",
-            "`box` is stopping (caller_stopped). Create another, or run `hedra-cli sandbox ls` \
-             for the running ones.",
+            stopped("stopping", "caller_stopped", false),
+            "is stopping (caller_stopped). Create another, or run `hedra-cli sandbox ls` for the \
+             running ones."
+                .to_string(),
         ),
         (
-            stopped("ended", "exited"),
-            ID,
-            "`sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301` is ended (exited). Run \
-             `hedra-cli sandbox logs sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301` for its output.",
+            stopped("ended", "exited", true),
+            format!("is ended (exited). Run `hedra-cli sandbox logs {ID}` for its output."),
         ),
         (
-            stopped("stopping", "unpaid"),
-            "box",
-            "`box` is stopping (unpaid). Add funds to the workspace, then create another; \
-             `hedra-cli sandbox ls` lists the running ones.",
+            stopped("stopping", "unpaid", true),
+            "is stopping (unpaid). Add funds to the workspace, then create another; \
+             `hedra-cli sandbox ls` lists the running ones."
+                .to_string(),
+        ),
+    ];
+    for (read, rest) in cases {
+        for target in ["box", ID] {
+            let server = MockServer::start().await;
+            mount_sandbox(&server, "box", read.clone()).await;
+            mount_sandbox(&server, ID, read.clone()).await;
+            let out = wait(
+                Run::new(&server).spawn(&["sandbox", "port-forward", target, "0:8888"]),
+                WAIT,
+            );
+            let err = stderr(&out);
+            assert_eq!(out.status.code(), Some(13), "{target}: {err}");
+            assert_eq!(
+                class_line(&err),
+                Some(format!("hedra-cli: Not ready or stopped (13): `{target}` {rest}").as_str()),
+                "{err}"
+            );
+            assert!(!err.contains("Forwarding"), "{err}");
+            assert_eq!(mints(&server, ID).await, 0);
+            let gets = server
+                .received_requests()
+                .await
+                .unwrap_or_default()
+                .into_iter()
+                .filter(|r| r.method.as_str() == "GET")
+                .count();
+            assert_eq!(gets, 1, "{target}");
+            assert_eq!(
+                requests_to(&server, "GET", &format!("/v3/sandboxes/{target}"))
+                    .await
+                    .len(),
+                1
+            );
+        }
+    }
+}
+
+/// An id whose first read is refused for good (404, 401 or 403) exits with
+/// that refusal's class before the start line, and mints nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_on_an_id_whose_read_is_refused_exits_before_it_starts() {
+    for (status, code, message, exit, class) in [
+        (
+            404,
+            "NOT_FOUND",
+            "Sandbox not found.",
+            11,
+            "hedra-cli: Not found (11): ",
+        ),
+        (
+            401,
+            "UNAUTHENTICATED",
+            "Invalid API key.",
+            2,
+            "hedra-cli: Not signed in (2): ",
+        ),
+        (
+            403,
+            "PERMISSION_DENIED",
+            "No.",
+            19,
+            "hedra-cli: Rejected request (19): ",
         ),
     ] {
         let server = MockServer::start().await;
-        mount_sandbox(&server, "box", read.clone()).await;
-        mount_sandbox(&server, ID, read).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v3/sandboxes/{ID}")))
+            .respond_with(envelope(status, code, message, None))
+            .mount(&server)
+            .await;
         let out = wait(
-            Run::new(&server).spawn(&["sandbox", "port-forward", target, "0:8888"]),
+            Run::new(&server).spawn(&["sandbox", "port-forward", ID, "0:8888"]),
             WAIT,
         );
         let err = stderr(&out);
-        assert_eq!(out.status.code(), Some(13), "{target}: {err}");
-        assert_eq!(
-            class_line(&err),
-            Some(format!("hedra-cli: Not ready or stopped (13): {line}").as_str()),
-            "{err}"
+        assert_eq!(out.status.code(), Some(exit), "{status}: {err}");
+        assert!(
+            class_line(&err).is_some_and(|l| l.starts_with(class)),
+            "{status}: {err}"
         );
-        assert!(!err.contains("Forwarding"), "{err}");
-        assert_eq!(mints(&server, ID).await, 0);
-        assert_eq!(
-            requests_to(&server, "GET", &format!("/v3/sandboxes/{target}"))
-                .await
-                .len(),
-            1
-        );
+        assert!(!err.contains("Forwarding"), "{status}: {err}");
+        assert_eq!(mints(&server, ID).await, 0, "{status}");
     }
+}
+
+/// An id whose read answers something this build cannot parse still starts:
+/// the read is advisory, and each connection's mint finds out.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_starts_when_its_first_read_is_unreadable() {
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(ResponseTemplate::new(200).set_body_string("{\"id\": 7}"))
+        .mount(&server)
+        .await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let _ = fwd.port();
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
 }
 
 /// An id whose first read fails with a status a retry may get past still
@@ -497,12 +589,11 @@ async fn port_forward_starts_when_its_first_read_is_unavailable() {
     assert_eq!(code, 0, "{err}");
 }
 
-/// A sandbox that may yet run starts the port-forward, and Ctrl-C ends it
-/// with 0: one still being created, and an active one whose lease was
-/// refused (`unpaid`), which runs until the refusal's grace ends and keeps
-/// running once a lease is paid.
+/// An active sandbox whose lease was refused (`unpaid`) runs until the
+/// refusal's grace ends, and keeps running once a lease is paid, so it starts
+/// the port-forward, and Ctrl-C ends it with 0.
 #[tokio::test(flavor = "multi_thread")]
-async fn port_forward_starts_on_a_sandbox_that_may_yet_run() {
+async fn port_forward_starts_on_an_unpaid_sandbox_still_running() {
     let mut unpaid = sandbox(
         ID,
         "box",
@@ -510,17 +601,153 @@ async fn port_forward_starts_on_a_sandbox_that_may_yet_run() {
         serde_json::json!([{"replica": 0, "status": "running"}]),
     );
     unpaid["end_reason"] = "unpaid".into();
-    for read in [sandbox(ID, "box", "creating", serde_json::json!([])), unpaid] {
+    let server = MockServer::start().await;
+    mount_sandbox(&server, ID, unpaid).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let _ = fwd.port();
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+    assert!(class_line(&err).is_none(), "{err}");
+}
+
+/// A sandbox still being created, or active with replica 0 starting or
+/// missing, is
+/// waited for before the start line, with the wait's progress on stderr,
+/// and no mint until it runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_waits_for_a_starting_sandbox_before_it_starts() {
+    let running = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "running"}]),
+    );
+    for starting in [
+        sandbox(ID, "box", "creating", serde_json::json!([])),
+        sandbox(
+            ID,
+            "box",
+            "active",
+            serde_json::json!([{"replica": 0, "status": "starting"}]),
+        ),
+        sandbox(ID, "box", "active", serde_json::json!([])),
+    ] {
+        let broker = FakeBroker::start();
         let server = MockServer::start().await;
-        mount_sandbox(&server, ID, read.clone()).await;
+        mount_session(&server, ID, &broker).await;
+        let answer = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
+        Mock::given(method("GET"))
+            .and(path(format!("/v3/sandboxes/{ID}")))
+            .respond_with(Sequence::new(vec![
+                answer(&starting),
+                answer(&starting),
+                answer(&running),
+            ]))
+            .mount(&server)
+            .await;
         let run = Run::new(&server);
         let fwd = Forward::start(&run);
         let _ = fwd.port();
+        let err = fwd.stderr();
+        let progress = err.find("box is ").expect("a progress line");
+        assert!(progress < err.find("Forwarding").unwrap(), "{err}");
+        assert!(!err.contains("after the create"), "{err}");
+        assert_eq!(
+            requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+                .await
+                .len(),
+            3,
+            "{err}"
+        );
+        assert_eq!(mints(&server, ID).await, 0);
         signal(&fwd.child, libc::SIGINT);
         let (code, err) = fwd.finish();
-        assert_eq!(code, 0, "{read}: {err}");
-        assert!(class_line(&err).is_none(), "{read}: {err}");
+        assert_eq!(code, 0, "{starting}: {err}");
+        assert!(class_line(&err).is_none(), "{err}");
     }
+}
+
+/// A sandbox that stops while port-forward waits for it, or whose first
+/// instance cannot be placed, fails before the start line; Ctrl-C during the
+/// wait ends it with 0, unstarted.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_wait_ends_on_a_stop_or_ctrl_c() {
+    let creating = sandbox(ID, "box", "creating", serde_json::json!([]));
+    let mut ended = sandbox(ID, "box", "ended", serde_json::json!([]));
+    ended["end_reason"] = "caller_stopped".into();
+    let server = MockServer::start().await;
+    let answer = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![answer(&creating), answer(&ended)]))
+        .mount(&server)
+        .await;
+    let out = wait(
+        Run::new(&server).spawn(&["sandbox", "port-forward", ID, "0:8888"]),
+        WAIT,
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(13), "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): `{ID}` is ended (caller_stopped). \
+                 Create another, or run `hedra-cli sandbox ls` for the running ones."
+            )
+            .as_str()
+        ),
+        "{err}"
+    );
+    assert!(!err.contains("Forwarding"), "{err}");
+    assert_eq!(mints(&server, ID).await, 0);
+
+    // A first instance the pool could not place gets the same line as the
+    // read before the wait, with the GPUs step.
+    let full = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "failed", "failure_reason": "no_capacity"}]),
+    );
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![answer(&creating), answer(&full)]))
+        .mount(&server)
+        .await;
+    let out = wait(
+        Run::new(&server).spawn(&["sandbox", "port-forward", ID, "0:8888"]),
+        WAIT,
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(13), "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): `{ID}`'s instance stopped (no_capacity). \
+                 No `h100:1` was free. Run `hedra-cli sandbox gpus`, then create another."
+            )
+            .as_str()
+        ),
+        "{err}"
+    );
+    assert!(!err.contains("Forwarding"), "{err}");
+    assert_eq!(mints(&server, ID).await, 0);
+
+    let server = MockServer::start().await;
+    mount_sandbox(&server, ID, creating).await;
+    let run = Run::new(&server);
+    let fwd = Forward::start(&run);
+    let _ = fwd.wait_for("box is creating.");
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+    assert!(!err.contains("Forwarding"), "{err}");
+    assert_eq!(mints(&server, ID).await, 0);
 }
 
 /// A call that fails for want of a scope after its admission, as when the

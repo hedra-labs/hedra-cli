@@ -18,6 +18,8 @@ use super::render::{human_duration, stop_reason};
 pub(crate) const CREATE_LOOP: Duration = Duration::from_secs(5 * 60);
 /// The create loop's five minutes plus a full pool's fifteen.
 pub(crate) const READY_BUDGET: Duration = Duration::from_secs(20 * 60);
+/// A wait for a sandbox someone else created: the pool's 15 minutes.
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(15 * 60);
 pub(crate) const CREATE_ATTEMPT: Duration = Duration::from_secs(45);
 const STOP_DEADLINE: Duration = Duration::from_secs(5 * 60);
 /// Between the create's and the stop's retries, whose deadlines run to
