@@ -48,13 +48,50 @@ fn spool_limits() -> (usize, u64) {
 /// length, so the cap keeps it trying twice a minute.
 const REOPEN_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
 /// The reopens a plain `logs` makes after the broker ends a read that fell
-/// behind (`rate_limited`). Each resumes after the last printed chunk, and
-/// a measured read over a slow link printed about 160 KB, so the
-/// broker's 8 MiB ring buffer takes some 50; the cap stops a read chasing a
-/// sandbox that writes faster than the link carries.
-const CATCH_UP_REOPENS: u32 = 100;
+/// behind (`rate_limited`), each resuming after the last printed chunk.
+/// Every reopen makes the sandbox replay what its 8 MiB ring buffer holds
+/// after that chunk onto the one output stream its `exec`, `shell` and
+/// `port-forward` sessions share, so the cap holds a read to some 160 MiB
+/// of replay. A measured read over a slow link printed about 160 KB a pass,
+/// so a link that slow reads the rest from the stored copy, as it did
+/// before reopens.
+const CATCH_UP_REOPENS: u32 = 20;
+/// How long reopens may go on, from the first read that fell behind: about
+/// a full ring buffer's replay at 1 Mbit/s. Past it the stored copy is
+/// read, so a sandbox that writes faster than the link carries is not
+/// chased.
+const CATCH_UP_TIME: Duration = Duration::from_secs(60);
+/// Between reopens, so their replays do not follow one another on the
+/// shared stream back to back.
+const CATCH_UP_PAUSE: Duration = Duration::from_millis(250);
 /// Reopens in a row that print nothing before the stored copy is read.
 const CATCH_UP_STALLS: u32 = 3;
+
+/// [`CATCH_UP_TIME`]. Test hook (debug builds only):
+/// `HEDRA_CLI_TEST_CATCH_UP_MS` sets it in milliseconds.
+fn catch_up_time() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("HEDRA_CLI_TEST_CATCH_UP_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    CATCH_UP_TIME
+}
+
+/// Said after a reopen's `since` may have pointed at chunks the ring buffer
+/// had already dropped: it replays only what it still holds, and nothing
+/// marks the gap.
+const MAY_BE_MISSING: &str = "output written faster than it was read may be missing";
+
+/// "1 reopen", "2 reopens".
+fn reopens(n: u32) -> String {
+    match n {
+        1 => "1 reopen".to_string(),
+        n => format!("{n} reopens"),
+    }
+}
 
 enum Ended {
     Done,
@@ -186,6 +223,7 @@ impl Logs<'_> {
         let mut catch_ups = 0;
         let mut stalls = 0;
         let mut catching_up: Option<Sandbox> = None;
+        let mut fell_behind_at: Option<Instant> = None;
         loop {
             let s = if let Some(s) = catching_up.take() {
                 s
@@ -316,10 +354,16 @@ impl Logs<'_> {
                     continue;
                 }
                 // A catch-up reopen that fails ends in the stored copy, as
-                // the first read would have before reopens.
+                // the first read would have before reopens. This one is
+                // counted, but it read nothing.
                 Err(_) if catch_ups > 0 => {
+                    let missing = if catch_ups > 1 {
+                        format!("; {MAY_BE_MISSING}")
+                    } else {
+                        String::new()
+                    };
                     stream::note(format_args!(
-                        "The live read of `{}` ended and could not be reopened.",
+                        "The live read of `{}` ended and could not be reopened{missing}.",
                         self.name
                     ));
                     return self.stored_tail(&id, &s).await;
@@ -340,7 +384,10 @@ impl Logs<'_> {
             };
 
             match self.pump(&mut stream, &mut backoff).await {
-                Pumped::Eof => return Ended::Done,
+                Pumped::Eof => {
+                    self.caught_up(catch_ups);
+                    return Ended::Done;
+                }
                 Pumped::End(e) => return e,
                 Pumped::Dropped(status) => {
                     if let (true, Some(s)) = (self.api.debug, &status) {
@@ -356,6 +403,7 @@ impl Logs<'_> {
                         }
                         // The ring buffer replayed; the stream ending is the end.
                         let Some(st) = status else {
+                            self.caught_up(catch_ups);
                             return Ended::Done;
                         };
                         // The broker ends a call whose client fell behind,
@@ -365,21 +413,32 @@ impl Logs<'_> {
                         // output stops; the stored copy, which lags the ring
                         // buffer, is the fallback.
                         if st.is(reason::RATE_LIMITED) {
+                            let reopened = catch_ups;
                             catch_ups += 1;
                             stalls = if self.since == resumed_from {
                                 stalls + 1
                             } else {
                                 0
                             };
-                            if catch_ups <= CATCH_UP_REOPENS && stalls < CATCH_UP_STALLS {
+                            let behind_since = *fell_behind_at.get_or_insert_with(Instant::now);
+                            if catch_ups <= CATCH_UP_REOPENS
+                                && stalls < CATCH_UP_STALLS
+                                && behind_since.elapsed() < catch_up_time()
+                            {
                                 if self.api.debug {
                                     debug(&format!("reopening the output ({catch_ups})"));
                                 }
+                                tokio::time::sleep(CATCH_UP_PAUSE).await;
                                 catching_up = Some(s);
                                 continue;
                             }
+                            let missing = if reopened > 0 {
+                                format!(" after {}; {MAY_BE_MISSING}", reopens(reopened))
+                            } else {
+                                String::new()
+                            };
                             stream::note(format_args!(
-                                "The live read of `{}` kept ending (rate_limited).",
+                                "The live read of `{}` kept ending (rate_limited){missing}.",
                                 self.name
                             ));
                             return self.stored_tail(&id, &s).await;
@@ -399,6 +458,23 @@ impl Logs<'_> {
                 }
             }
         }
+    }
+
+    /// The note a plain read that ended after `reopened` catch-up reopens
+    /// gives, since each may have resumed past chunks the ring buffer had
+    /// dropped.
+    fn caught_up(&self, reopened: u32) {
+        if reopened == 0 {
+            return;
+        }
+        let times = match reopened {
+            1 => "once".to_string(),
+            n => format!("{n} times"),
+        };
+        stream::note(format_args!(
+            "The live read of `{}` fell behind and was reopened {times}; {MAY_BE_MISSING}.",
+            self.name
+        ));
     }
 
     /// Prints a stream's chunks. Reading runs ahead of a slow stdout into

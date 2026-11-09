@@ -226,6 +226,8 @@ pub enum LogsEnd {
     Hold,
     Fail(Status),
     Close,
+    /// Sends the buffer's eof marker as a chunk, then OK trailers.
+    Eof,
 }
 
 /// What one `PortForward` call does.
@@ -307,6 +309,7 @@ pub enum PortStep {
 pub struct LogsScript {
     refuse: Option<Status>,
     append: Vec<Vec<u8>>,
+    evict: usize,
     end: LogsEnd,
 }
 
@@ -315,6 +318,7 @@ impl LogsScript {
         Self {
             refuse: None,
             append: Vec::new(),
+            evict: 0,
             end,
         }
     }
@@ -323,6 +327,7 @@ impl LogsScript {
         Self {
             refuse: Some(status),
             append: Vec::new(),
+            evict: 0,
             end: LogsEnd::Default,
         }
     }
@@ -330,6 +335,14 @@ impl LogsScript {
     /// Adds chunks to the ring buffer after the replay, without sending them.
     pub fn then_append(mut self, data: &[u8]) -> Self {
         self.append.push(data.to_vec());
+        self
+    }
+
+    /// Drops the `n` oldest chunks from the ring buffer after the replay
+    /// and any `then_append`, as a full ring buffer does; a later `since`
+    /// that names a dropped chunk replays only what is left, with no mark.
+    pub fn then_evict(mut self, n: usize) -> Self {
+        self.evict = n;
         self
     }
 }
@@ -493,7 +506,11 @@ impl Drop for FakeBroker {
 }
 
 fn append(ring: &mut Vec<LogChunk>, data: &[u8]) -> Timestamp {
-    let i = ring.len() as i64;
+    // After the newest chunk's stamp, which outlives an eviction.
+    let i = ring
+        .last()
+        .and_then(|c| c.at)
+        .map_or(0, |at| at.seconds - 1_793_750_400 + 1);
     let at = Timestamp {
         seconds: 1_793_750_400 + i,
         nanos: 500_000_000 + i as i32,
@@ -1114,6 +1131,8 @@ impl SessionService for Arc<Broker> {
             for data in &script.append {
                 append(&mut s.ring, data);
             }
+            let evict = script.evict.min(s.ring.len());
+            s.ring.drain(..evict);
             replay
         };
         let (out, rx) = mpsc::channel(16);
@@ -1131,6 +1150,14 @@ impl SessionService for Arc<Broker> {
                         let _ = out.send(Err(status)).await;
                     }
                     LogsEnd::Close => broker.close(conn),
+                    LogsEnd::Eof => {
+                        let _ = out
+                            .send(Ok(LogChunk {
+                                eof: true,
+                                ..Default::default()
+                            }))
+                            .await;
+                    }
                 }
             };
             supervise(broker.state.clone(), idx, &out, run).await;

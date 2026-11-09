@@ -322,7 +322,8 @@ pub(crate) async fn open_failure(
             // reason name why, or that the replica's instance has stopped while
             // the sandbox is still active, where the route's message is the
             // line. Either way the line is Not ready or stopped (13) and ends
-            // with the next step, and a failed read keeps the route's message.
+            // with the next step. A failed read keeps the route's message,
+            // unless the read answers 404 too.
             let Some(h) = e.http() else {
                 return e.failure(Some(name));
             };
@@ -330,10 +331,16 @@ pub(crate) async fn open_failure(
             if h.status != 404 && !precondition {
                 return e.failure(Some(name));
             }
-            // A failed read gives both a step: the route's message alone
+            // A read that also answers 404 is the line: the sandbox is gone,
+            // and a `get` would say so too. Any other failed read keeps the
+            // route's message and adds a step, since the message alone
             // names nothing to do.
-            let Ok(s) = attempt(ATTEMPT, api.client.get(id, None)).await else {
-                return e.failure(Some(name)).then(get_line(id));
+            let s = match attempt(ATTEMPT, api.client.get(id, None)).await {
+                Ok(s) => s,
+                Err(r) if r.http().is_some_and(|h| h.status == 404) => {
+                    return r.failure(Some(name));
+                }
+                Err(_) => return e.failure(Some(name)).then(get_line(id)),
             };
             // An active sandbox whose lease was refused (`unpaid`) still runs
             // until the refusal's grace ends, and a paid lease clears it, so
@@ -343,6 +350,11 @@ pub(crate) async fn open_failure(
                 return Failure::new(Class::NotReady, state_line(&s, name)).then(next_step(&s));
             }
             match (exited_line(&s, name), precondition) {
+                // The route's message already says the instance stopped, so
+                // only a failure reason adds to it.
+                (Some(_), true) if replica0(&s).is_some_and(|i| i.failure_reason.is_none()) => {
+                    e.failure(Some(name)).then(ended_step(&s))
+                }
                 (Some(exited), true) => e.failure(Some(name)).then(exited),
                 (Some(exited), false) => Failure::new(Class::NotReady, exited),
                 (None, true) => e.failure(Some(name)).then(get_line(id)),

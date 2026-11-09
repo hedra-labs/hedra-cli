@@ -347,8 +347,8 @@ async fn a_debug_line_written_under_raw_mode_returns_the_carriage() {
 }
 
 /// `shell` on a sandbox whose replica's instance stopped while the sandbox
-/// still reads active exits 255 with the route's message, then that the
-/// instance stopped and how to read its output, naming the sandbox's id.
+/// still reads active exits 255 with the route's message, which says the
+/// instance stopped, then how to read its output, naming the sandbox's id.
 #[tokio::test]
 async fn shell_on_a_stopped_instance_names_the_logs_command() {
     use wiremock::matchers::{method, path};
@@ -384,7 +384,7 @@ async fn shell_on_a_stopped_instance_names_the_logs_command() {
         Some(
             format!(
                 "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
-                 `box`'s instance stopped. Run `hedra-cli sandbox logs {ID}` for its output."
+                 Run `hedra-cli sandbox logs {ID}` for its output."
             )
             .as_str()
         ),

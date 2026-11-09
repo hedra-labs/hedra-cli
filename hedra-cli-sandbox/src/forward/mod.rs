@@ -189,6 +189,26 @@ impl Bound {
             .filter(|f| !self.warnings.iter().any(|w| w.family == *f))
             .collect()
     }
+
+    /// Runs `until`, meanwhile resetting each connection as it is accepted,
+    /// so a client that connects before [`serve`] runs, as while the
+    /// sandbox is still starting, is refused at once instead of waiting in
+    /// the listen queue with nothing reading it.
+    pub async fn refuse_until<F: Future>(&self, until: F) -> F::Output {
+        let mut until = std::pin::pin!(until);
+        loop {
+            tokio::select! {
+                biased;
+                out = &mut until => return out,
+                accepted = accept_any(&self.listeners) => match accepted {
+                    Ok(stream) => {
+                        let _ = stream.set_zero_linger();
+                    }
+                    Err(_) => tokio::time::sleep(Duration::from_millis(100)).await,
+                },
+            }
+        }
+    }
 }
 
 /// Whether a bind error means the family is missing, which is a warning

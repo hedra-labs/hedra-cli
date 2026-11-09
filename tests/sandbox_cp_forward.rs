@@ -362,8 +362,8 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
 }
 
 /// A mint refused 400 `FAILED_PRECONDITION` because the replica's instance
-/// stopped, while the sandbox still reads active, keeps the route's message
-/// and says the instance stopped and how to read its output: `exec`
+/// stopped, while the sandbox still reads active, keeps the route's message,
+/// which says the instance stopped, and names how to read its output: `exec`
 /// and both directions of `cp` exit 255 with the Not ready or stopped (13)
 /// line. `port-forward` reads the sandbox before its start line, so it exits
 /// 13 with the same next step, before it starts and before any mint.
@@ -372,7 +372,7 @@ async fn a_permanent_refusal_ends_the_port_forward_with_its_class() {
 async fn a_stopped_instance_on_an_active_sandbox_names_the_logs_command() {
     let line = format!(
         "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
-         `box`'s instance stopped. Run `hedra-cli sandbox logs {ID}` for its output."
+         Run `hedra-cli sandbox logs {ID}` for its output."
     );
     let line = line.as_str();
     let server = MockServer::start().await;
@@ -748,6 +748,86 @@ async fn port_forward_wait_ends_on_a_stop_or_ctrl_c() {
     assert_eq!(code, 0, "{err}");
     assert!(!err.contains("Forwarding"), "{err}");
     assert_eq!(mints(&server, ID).await, 0);
+}
+
+/// When the wait fails and the read after it fails too, nothing names the
+/// sandbox's state: a read that may succeed later gives the Not ready or
+/// stopped (13) line with the id's `get`, and any other gives the read's
+/// own line.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_wait_failed_and_unread_names_the_ids_get() {
+    let creating = sandbox(ID, "box", "creating", serde_json::json!([]));
+    let stopped = sandbox(
+        ID,
+        "box",
+        "active",
+        serde_json::json!([{"replica": 0, "status": "stopped"}]),
+    );
+    let answer = |b: &serde_json::Value| ResponseTemplate::new(200).set_body_json(b.clone());
+    for (reread, code, line) in [
+        (
+            envelope(503, "UNAVAILABLE", "busy", Some(0)),
+            13,
+            format!(
+                "hedra-cli: Not ready or stopped (13): `box` did not become ready, and could not \
+                 be read again. Check on it with `hedra-cli sandbox get --sandbox {ID}`."
+            ),
+        ),
+        (
+            envelope(404, "NOT_FOUND", "Sandbox not found.", None),
+            11,
+            "hedra-cli: Not found (11): No sandbox `box`. Run `hedra-cli sandbox ls`.".to_string(),
+        ),
+    ] {
+        let server = MockServer::start().await;
+        mount_sandbox(&server, "box", creating.clone()).await;
+        Mock::given(method("GET"))
+            .and(path(format!("/v3/sandboxes/{ID}")))
+            .respond_with(Sequence::new(vec![answer(&stopped), reread]))
+            .mount(&server)
+            .await;
+        let out = wait(
+            Run::new(&server).spawn(&["sandbox", "port-forward", "box", "0:8888"]),
+            WAIT,
+        );
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(code), "{err}");
+        assert_eq!(class_line(&err), Some(line.as_str()), "{err}");
+        assert!(!err.contains("Forwarding"), "{err}");
+        assert_eq!(mints(&server, ID).await, 0);
+    }
+}
+
+/// A connection made while port-forward waits for a starting sandbox is
+/// reset at once rather than left queued with nothing reading it, so a
+/// client fails fast instead of hanging until the start line.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_connection_during_the_wait_is_refused_at_once() {
+    let creating = sandbox(ID, "box", "creating", serde_json::json!([]));
+    let server = MockServer::start().await;
+    mount_sandbox(&server, ID, creating).await;
+    let port = std::net::TcpListener::bind("127.0.0.1:0")
+        .unwrap()
+        .local_addr()
+        .unwrap()
+        .port();
+    let run = Run::new(&server);
+    let spec = format!("{port}:8888");
+    let fwd = Forward::start_with(&run, &["sandbox", "port-forward", ID, &spec]);
+    let _ = fwd.wait_for("box is creating.");
+    let mut conn = TcpStream::connect(("127.0.0.1", port)).unwrap();
+    conn.set_read_timeout(Some(Duration::from_secs(5))).unwrap();
+    let mut buf = [0u8; 1];
+    match conn.read(&mut buf) {
+        Ok(0) => {}
+        Err(e) if e.kind() == std::io::ErrorKind::ConnectionReset => {}
+        other => panic!("the connection was not refused: {other:?}"),
+    }
+    assert!(!fwd.stderr().contains("Forwarding"), "{}", fwd.stderr());
+    assert_eq!(mints(&server, ID).await, 0);
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
 }
 
 /// A call that fails for want of a scope after its admission, as when the
@@ -2003,9 +2083,12 @@ async fn a_local_half_close_sends_eof_and_the_reply_still_arrives() {
     conn.write_all(b"request").unwrap();
     conn.shutdown(std::net::Shutdown::Write).unwrap();
     assert_eq!(read_all(&mut conn).unwrap(), b"reply");
-    let calls = broker.calls();
+    // The call ends once the server's `eof` arrives, so the client may
+    // cancel it before or after this read. A half-close sent as a reset
+    // would end it before the script finished, which `client_gone` records.
+    let calls = broker.wait_for(WAIT, |c| c[0].finished);
     assert!(
-        calls[0].port_eof && calls[0].port_data == b"request" && calls[0].reset.is_none(),
+        calls[0].port_eof && calls[0].port_data == b"request" && !calls[0].client_gone,
         "{:?}",
         calls[0]
     );
