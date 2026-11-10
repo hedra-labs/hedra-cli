@@ -69,3 +69,6 @@ install-updater = false
 [dist.github-action-commits]
 "actions/checkout" = "v7"
 "actions/setup-node" = "v7"
+
+[dist.github-custom-runners]
+aarch64-apple-darwin = "macos-15"
