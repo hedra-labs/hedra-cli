@@ -114,7 +114,6 @@ fn configure(app: CliApp) -> CliApp {
     // `--input.source-image asset_…` / `https://…` as shorthand for the
     // MediaRef object. Request-side, so it applies in every output format.
     media_refs::install();
-    sandbox::lifetime::install();
 
     // `sandbox session` mints a session token, which a developer has no use
     // for, so it stays out of the text `--help`. `--help --format json`,

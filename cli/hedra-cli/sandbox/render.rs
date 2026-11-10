@@ -73,17 +73,16 @@ pub(crate) fn parse_duration(raw: &str) -> Result<i64, String> {
     };
     let n: i64 = digits
         .parse()
-        .map_err(|_| format!("`{raw}` is not a duration such as 90m, 8h or 1d"))?;
+        .map_err(|_| format!("`{raw}` is not a duration such as 90m, 8h or 2d"))?;
     let scale = match unit {
         "s" => 1,
         "m" => 60,
         "h" => 3_600,
         "d" => 86_400,
-        _ => return Err(format!("`{raw}` is not a duration such as 90m, 8h or 1d")),
+        _ => return Err(format!("`{raw}` is not a duration such as 90m, 8h or 2d")),
     };
     n.checked_mul(scale)
         .ok_or_else(|| format!("`{raw}` is too long"))
-        .and_then(super::lifetime::check)
 }
 
 #[cfg(test)]
@@ -92,13 +91,10 @@ mod tests {
 
     #[test]
     fn durations_parse_with_and_without_units() {
-        assert_eq!(parse_duration("120"), Ok(120));
+        assert_eq!(parse_duration("90"), Ok(90));
         assert_eq!(parse_duration("90m"), Ok(5_400));
         assert_eq!(parse_duration("8h"), Ok(28_800));
-        assert_eq!(parse_duration("1d"), Ok(86_400));
-        for value in ["0", "119", "86401", "2d", "9999999999999999999d"] {
-            assert!(parse_duration(value).is_err(), "{value}");
-        }
+        assert_eq!(parse_duration("2d"), Ok(172_800));
         assert!(parse_duration("2w").is_err());
         assert!(parse_duration("h").is_err());
         assert!(parse_duration("1.5h").is_err());

@@ -290,15 +290,8 @@ fn session_is_hidden_from_help_but_still_runs() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn create_rejects_invalid_lifetimes_from_every_input_without_sending() {
-    for lifetime in [
-        Value::Null,
-        json!(0),
-        json!(119),
-        json!(86401),
-        json!(31536000),
-        json!(120.5),
-    ] {
+fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
+    for lifetime in [Value::Null, json!(120.5)] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
         for input in ["--json", "--params"] {
             let outcome = run(
@@ -390,12 +383,33 @@ fn create_accepts_both_lifetime_boundaries() {
 }
 
 #[test]
+fn create_leaves_lifetime_range_validation_to_the_api() {
+    let message = "Lifetime refused by the API; contact sales@hedra.com.";
+    for seconds in [0, 119, 86401, 31536000] {
+        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
+        let outcome = run(
+            &["sandbox", "create", "--json", &body.to_string()],
+            vec![ResponseTemplate::new(400).set_body_json(json!({
+                "error": {"type": "INVALID_ARGUMENT", "message": message, "param": "ttl_seconds"}
+            }))],
+        );
+        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], seconds);
+        assert!(
+            outcome.output_text().contains(message),
+            "{}",
+            outcome.output_text()
+        );
+    }
+}
+
+#[test]
 fn create_validates_a_body_read_from_stdin() {
     let home = TempDir::new().unwrap();
     let file = home.path().join("sandbox.json");
     std::fs::write(
         &file,
-        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":86401}"#,
+        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":null}"#,
     )
     .unwrap();
     let out = hedra_cli(home.path())
@@ -406,14 +420,14 @@ fn create_validates_a_body_read_from_stdin() {
         .unwrap();
     assert!(!out.status.success(), "{}", describe(&out));
     assert!(
-        describe(&out).contains("sales@hedra.com"),
+        describe(&out).contains("ttl_seconds"),
         "{}",
         describe(&out)
     );
 }
 
 #[test]
-fn gpu_shell_dry_run_enforces_the_reservation_limit() {
+fn gpu_shell_dry_run_leaves_lifetime_range_validation_to_the_api() {
     for duration in ["119s", "86401s", "2d"] {
         let out = offline_with(
             &[
@@ -429,12 +443,7 @@ fn gpu_shell_dry_run_enforces_the_reservation_limit() {
             ],
             &[("HEDRA_CLI_SANDBOX_PREVIEW", "1")],
         );
-        assert!(!out.status.success(), "{}", describe(&out));
-        assert!(
-            describe(&out).contains("sales@hedra.com"),
-            "{}",
-            describe(&out)
-        );
+        assert!(out.status.success(), "{}", describe(&out));
     }
 }
 
