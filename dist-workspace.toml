@@ -69,6 +69,7 @@ install-updater = false
 [dist.github-action-commits]
 "actions/checkout" = "v7"
 "actions/setup-node" = "v7"
+
 # GitHub retired the macos-14 runner image on 2026-11-02, and cargo-dist 0.32.0
 # still defaults aarch64-apple-darwin to it, so that build was cancelled before
 # a runner picked it up. macos-15 is Apple Silicon, so it builds the target
