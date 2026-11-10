@@ -195,6 +195,30 @@ async fn stops(server: &MockServer) -> usize {
 }
 
 #[tokio::test]
+async fn gpu_shell_leaves_lifetime_range_validation_to_the_api() {
+    let message = "Lifetime refused by the API; contact sales@hedra.com.";
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path("/v3/sandboxes"))
+        .respond_with(envelope(400, "INVALID_ARGUMENT", message, None))
+        .mount(&server)
+        .await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let mut args = ARGS.to_vec();
+    args.push("2d");
+    let child = pty.spawn(&run.command(&args));
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert!(out.stderr.contains(message), "{}", out.stderr);
+    let sent = creates(&server).await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["ttl_seconds"], 172800);
+    assert_eq!(stops(&server).await, 0);
+    assert!(pty.cooked(), "the terminal was left raw");
+}
+
+#[tokio::test]
 async fn it_creates_an_idle_sandbox_and_stops_it_when_the_shell_exits() {
     let broker = FakeBroker::start();
     broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(3)]));

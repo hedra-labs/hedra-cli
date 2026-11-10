@@ -178,6 +178,8 @@ fn create_with(extra: &[&str], responses: Vec<ResponseTemplate>) -> Outcome {
         "ghcr.io/acme/trainer:1",
         "--gpu",
         "h100:1",
+        "--ttl-seconds",
+        "900",
     ];
     args.extend_from_slice(extra);
     run(&args, responses)
@@ -286,6 +288,164 @@ fn session_is_hidden_from_help_but_still_runs() {
 // ---------------------------------------------------------------------------
 // create: each request field as JSON
 // ---------------------------------------------------------------------------
+
+#[test]
+fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
+    for lifetime in [Value::Null, json!(120.5)] {
+        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
+        for input in ["--json", "--params"] {
+            let outcome = run(
+                &[
+                    "sandbox",
+                    "create",
+                    input,
+                    &body.to_string(),
+                    "--format",
+                    "json",
+                ],
+                ok(created_sandbox()),
+            );
+            assert!(
+                !outcome.out.status.success(),
+                "{input} {lifetime}: {}",
+                outcome.output_text()
+            );
+            assert!(
+                outcome.requests.is_empty(),
+                "{input} {lifetime}: {}",
+                outcome.output_text()
+            );
+            assert!(
+                outcome.output_text().contains("ttl_seconds"),
+                "{}",
+                outcome.output_text()
+            );
+        }
+        let outcome = run(
+            &[
+                "sandbox",
+                "create",
+                "--name",
+                "nightly",
+                "--image",
+                "python:3.12",
+                "--gpu",
+                "h100:1",
+                "--ttl-seconds",
+                &lifetime.to_string(),
+            ],
+            ok(created_sandbox()),
+        );
+        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+    }
+}
+
+#[test]
+fn create_requires_a_lifetime_including_dry_runs() {
+    let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1"}).to_string();
+    for args in [
+        vec!["--json", body.as_str()],
+        vec!["--json", body.as_str(), "--dry-run"],
+        vec![
+            "--name",
+            "nightly",
+            "--image",
+            "python:3.12",
+            "--gpu",
+            "h100:1",
+        ],
+    ] {
+        let mut command = vec!["sandbox", "create"];
+        command.extend(args);
+        let outcome = run(&command, ok(created_sandbox()));
+        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+        assert!(
+            outcome.output_text().contains("ttl_seconds"),
+            "{}",
+            outcome.output_text()
+        );
+    }
+}
+
+#[test]
+fn create_accepts_both_lifetime_boundaries() {
+    for seconds in [120, 86400] {
+        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
+        let outcome = run(
+            &["sandbox", "create", "--json", &body.to_string()],
+            ok(created_sandbox()),
+        );
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], seconds);
+    }
+}
+
+#[test]
+fn create_leaves_lifetime_range_validation_to_the_api() {
+    let message = "Lifetime refused by the API; contact sales@hedra.com.";
+    for seconds in [0, 119, 86401, 31536000] {
+        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
+        let outcome = run(
+            &["sandbox", "create", "--json", &body.to_string()],
+            vec![ResponseTemplate::new(400).set_body_json(json!({
+                "error": {"type": "INVALID_ARGUMENT", "message": message, "param": "ttl_seconds"}
+            }))],
+        );
+        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], seconds);
+        assert!(
+            outcome.output_text().contains(message),
+            "{}",
+            outcome.output_text()
+        );
+    }
+}
+
+#[test]
+fn create_validates_a_body_read_from_stdin() {
+    let home = TempDir::new().unwrap();
+    let file = home.path().join("sandbox.json");
+    std::fs::write(
+        &file,
+        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":null}"#,
+    )
+    .unwrap();
+    let out = hedra_cli(home.path())
+        .args(["sandbox", "create", "--json", "-", "--dry-run"])
+        .env("HEDRA_API_KEY", "test-key")
+        .stdin(std::fs::File::open(file).unwrap())
+        .output()
+        .unwrap();
+    assert!(!out.status.success(), "{}", describe(&out));
+    assert!(
+        describe(&out).contains("ttl_seconds"),
+        "{}",
+        describe(&out)
+    );
+}
+
+#[test]
+fn gpu_shell_dry_run_leaves_lifetime_range_validation_to_the_api() {
+    for duration in ["119s", "86401s", "2d"] {
+        let out = offline_with(
+            &[
+                "sandbox",
+                "shell",
+                "--gpu",
+                "h100:1",
+                "--image",
+                "python:3.12",
+                "--max-duration",
+                duration,
+                "--dry-run",
+            ],
+            &[("HEDRA_CLI_SANDBOX_PREVIEW", "1")],
+        );
+        assert!(out.status.success(), "{}", describe(&out));
+    }
+}
 
 #[test]
 fn create_sends_command_as_a_list_of_strings() {
