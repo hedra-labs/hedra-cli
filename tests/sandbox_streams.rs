@@ -112,107 +112,52 @@ const ABOUTS: [(&str, &str); 3] = [
     ("port-forward", "Forward a local port"),
 ];
 
-/// Without `HEDRA_CLI_SANDBOX_PREVIEW=1` the stream verbs are named nowhere,
-/// in the `sandbox` group's help, a completion script, a typo suggestion or
-/// `sandbox help <verb>`, and refuse to run, sending nothing: `exec` exits 255
-/// under the 255 rule and `logs` exits 19. The generated commands beside them
-/// are not gated.
+/// The stream verbs are listed and run with no environment variable of their
+/// own: `Run` clears the environment, and with only its variables set,
+/// `sandbox --help`, the completion scripts and typo suggestions name the
+/// verbs beside the generated commands, and `exec` reaches the API.
 #[tokio::test]
-async fn without_the_preview_variable_the_stream_verbs_are_hidden_and_refuse() {
+async fn the_stream_verbs_are_listed_and_run_with_no_environment_variable() {
     let server = MockServer::start().await;
     let run = Run::new(&server);
-    let help = run
-        .command(&["sandbox", "--help"])
-        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-        .output()
-        .unwrap();
-    let help = stdout(&help);
+    let help = stdout(&run.run(&["sandbox", "--help"]));
     for verb in ["exec", "shell", "logs", "attach", "cp", "port-forward"] {
         assert!(
-            !help
-                .lines()
+            help.lines()
                 .any(|l| l.trim_start().starts_with(&format!("{verb} "))),
-            "{verb} is listed: {help}"
+            "{verb} is not listed: {help}"
         );
     }
-    assert!(
-        help.lines().any(|l| l.trim_start().starts_with("get ")),
-        "{help}"
-    );
 
-    for shell in ["zsh", "bash"] {
-        let script = run
-            .command(&["completion", shell])
-            .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-            .output()
-            .unwrap();
-        let script = stdout(&script);
-        assert!(
-            script.contains("gpus"),
-            "{shell}: the generated commands are missing"
-        );
-        for (verb, about) in ABOUTS {
-            assert!(!script.contains(about), "{shell} names {verb}");
-        }
-        assert!(
-            !script.contains("port-forward"),
-            "{shell} names port-forward"
-        );
+    let script = stdout(&run.run(&["completion", "zsh"]));
+    for (verb, about) in ABOUTS {
+        assert!(script.contains(about), "zsh does not name {verb}");
     }
-    // Each typo is one the preview answers with its verb, so its absence
-    // here is the gate's doing.
+    let script = stdout(&run.run(&["completion", "bash"]));
+    assert!(
+        script.contains("port-forward"),
+        "bash does not name port-forward"
+    );
+    assert!(
+        script.contains("gpus"),
+        "bash: the generated commands are missing"
+    );
     for (typo, verb) in [
         ("exe", "exec"),
         ("cpp", "cp"),
         ("port-forwar", "port-forward"),
     ] {
-        let suggestion = format!("a similar subcommand exists: '{verb}'");
-        let with = run.run(&["sandbox", typo]);
-        let text = format!("{}{}", stdout(&with), stderr(&with));
+        let out = run.run(&["sandbox", typo]);
+        let text = format!("{}{}", stdout(&out), stderr(&out));
         assert!(
-            text.contains(&suggestion),
-            "{typo} with the preview: {text}"
+            text.contains(&format!("a similar subcommand exists: '{verb}'")),
+            "{typo}: {text}"
         );
-        for args in [&["sandbox", typo][..], &["sandbox", "help", verb][..]] {
-            let out = run
-                .command(args)
-                .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-                .output()
-                .unwrap();
-            let text = format!("{}{}", stdout(&out), stderr(&out));
-            assert!(!text.contains("similar subcommand"), "{args:?}: {text}");
-            for (verb, about) in ABOUTS {
-                assert!(!text.contains(about), "{args:?} names {verb}: {text}");
-            }
-        }
     }
 
-    let out = run
-        .command(&["sandbox", "exec", ID, "-n", "--", "true"])
-        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(255), "{}", stderr(&out));
-    assert!(
-        stderr(&out).contains("(exec, shell, logs, attach, cp, port-forward) are not released yet"),
-        "{}",
-        stderr(&out)
-    );
-    let out = run
-        .command(&["sandbox", "logs", ID])
-        .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-        .output()
-        .unwrap();
-    assert_eq!(out.status.code(), Some(19), "{}", stderr(&out));
-    assert!(server.received_requests().await.unwrap().is_empty());
-
-    let with_preview = stdout(&run.run(&["sandbox", "--help"]));
-    assert!(
-        with_preview
-            .lines()
-            .any(|l| l.trim_start().starts_with("exec ")),
-        "{with_preview}"
-    );
+    // No mock answers, so `exec` fails on its first request, after sending it.
+    let _ = run.run(&["sandbox", "exec", "x", "--", "true"]);
+    assert!(!server.received_requests().await.unwrap().is_empty());
 }
 
 /// Each stream verb's `--help` lists the exit codes, and says Ctrl-C ends

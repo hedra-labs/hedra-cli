@@ -77,7 +77,6 @@ pub fn register(app: CliApp) -> CliApp {
     if let Some(message) = refusal {
         exit_with_validation_error(message, &args);
     }
-    sandbox::exit_if_unreleased(&args);
 
     let code = configure(app).try_run_from(std::env::args_os());
     std::process::exit(code)

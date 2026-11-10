@@ -37,8 +37,7 @@ impl Run {
         }
     }
 
-    /// The binary with an isolated home, the API key, the preview gate and
-    /// the fake broker's CA.
+    /// The binary with an isolated home, the API key and the fake broker's CA.
     pub fn command(&self, args: &[&str]) -> Command {
         // Before any `--`, after which everything is the remote command.
         let split = args.iter().position(|a| *a == "--").unwrap_or(args.len());
@@ -54,7 +53,6 @@ impl Run {
             .env("FERN_CLI_CREDENTIAL_STORE", "file")
             .env("NO_COLOR", "1")
             .env("HEDRA_API_KEY", "key_test:secret")
-            .env("HEDRA_CLI_SANDBOX_PREVIEW", "1")
             .env("HEDRA_CLI_CA_BUNDLE", ca_bundle())
             .stdin(Stdio::null());
         // Windows cannot create a socket without `SystemRoot` (WSAEPROVIDERFAILEDINIT,

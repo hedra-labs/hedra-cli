@@ -87,31 +87,6 @@ async fn cp_refusing_an_entry_exits_255_and_escapes_the_sandbox_stderr() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn the_preview_gate_sends_nothing() {
-    let broker = FakeBroker::start();
-    let server = running_sandbox(&broker).await;
-    let run = Run::new(&server);
-    let cp_src = format!("{ID}:/work/tree");
-    // `cp` runs a command, so it exits 255 under the 255 rule;
-    // `port-forward` exits with the Rejected request code.
-    for (args, code) in [
-        (vec!["sandbox", "cp", cp_src.as_str(), "out"], 255),
-        (vec!["sandbox", "port-forward", ID, "0:80"], 19),
-    ] {
-        let out = run
-            .command(&args)
-            .env_remove("HEDRA_CLI_SANDBOX_PREVIEW")
-            .output()
-            .unwrap();
-        let err = stderr(&out);
-        assert_eq!(out.status.code(), Some(code), "{args:?}: {err}");
-        assert!(err.contains("not released yet"), "{err}");
-    }
-    assert_eq!(request_count(&server).await, 0);
-    assert!(broker.calls().is_empty());
-}
-
-#[tokio::test(flavor = "multi_thread")]
 async fn bad_cp_arguments_exit_255_with_no_request() {
     let broker = FakeBroker::start();
     let server = running_sandbox(&broker).await;
