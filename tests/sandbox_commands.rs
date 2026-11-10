@@ -594,6 +594,75 @@ fn create_without_a_key_retries_with_one_generated_key() {
     assert_eq!(keys[0], keys[1], "the retry sent a different key");
 }
 
+/// A 429 with `message` as its error message and `headers` set.
+fn too_many_requests(headers: &[(&str, &str)], message: &str) -> ResponseTemplate {
+    let mut response = ResponseTemplate::new(429).set_body_json(json!({
+        "error": {"code": "RESOURCE_EXHAUSTED", "message": message}
+    }));
+    for (name, value) in headers {
+        response = response.insert_header(*name, *value);
+    }
+    response
+}
+
+fn created() -> ResponseTemplate {
+    ResponseTemplate::new(201).set_body_json(created_sandbox())
+}
+
+/// The create was sent `sends` times under one key, and the 201 ended it.
+fn assert_retried_to_success(outcome: &Outcome, sends: usize) {
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    assert_eq!(outcome.requests.len(), sends, "{}", outcome.output_text());
+    let keys: Vec<Option<String>> = outcome.requests.iter().map(idempotency_key).collect();
+    assert!(keys[0].is_some(), "no Idempotency-Key on the first attempt");
+    assert!(keys.iter().all(|key| key == &keys[0]), "{keys:?}");
+}
+
+/// A 429 the server marks `x-should-retry: false`, with no `Retry-After`, is
+/// final: sent once, and its error is what the user sees.
+#[test]
+fn create_sends_a_429_marked_should_not_retry_once() {
+    let outcome = create_with(
+        &["--format", "json"],
+        vec![
+            too_many_requests(
+                &[("x-should-retry", "false")],
+                "Your workspace is at its sandbox limit.",
+            ),
+            created(),
+        ],
+    );
+    assert_eq!(outcome.requests.len(), 1, "{}", outcome.output_text());
+    assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    let shown = outcome.output_text();
+    assert!(shown.contains("RESOURCE_EXHAUSTED"), "{shown}");
+    assert!(shown.contains("sandbox limit"), "{shown}");
+}
+
+#[test]
+fn create_retries_a_429_marked_should_retry_under_one_key() {
+    let transient = || {
+        too_many_requests(
+            &[("x-should-retry", "true"), ("Retry-After", "0")],
+            "Request rate limit exceeded.",
+        )
+    };
+    let outcome = create_with(
+        &["--format", "json"],
+        vec![transient(), transient(), created()],
+    );
+    assert_retried_to_success(&outcome, 3);
+}
+
+#[test]
+fn create_retries_an_unmarked_429_under_one_key() {
+    let outcome = create_with(
+        &["--format", "json"],
+        vec![too_many_requests(&[], "Too many requests."), created()],
+    );
+    assert_retried_to_success(&outcome, 2);
+}
+
 // ---------------------------------------------------------------------------
 // Filters and paths
 // ---------------------------------------------------------------------------
