@@ -30,12 +30,6 @@ use names::Target;
 /// The generated group the verbs are grafted into.
 pub(crate) const GROUP: &str = "sandbox";
 
-/// The verbs this module grafts into the generated group. A test asserts that
-/// no generated leaf of the group shares one of these names, since a graft
-/// replaces a generated leaf of the same name without a warning.
-#[cfg(test)]
-const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
-
 const EXIT_CODES: &str = "\
 Exit codes:
    0  success (exec, shell and cp: the command's own exit code)
@@ -632,6 +626,10 @@ async fn warnings_before_create(api: &Api, gpu: &str, read: std::time::Duration)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The verbs this module grafts into the generated group, in
+    /// [`commands`]'s order.
+    const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
 
     /// `SSL_CERT_FILE` feeds the trust store the client is built with, so a
     /// bad one is among the settings the refusal names.

@@ -112,10 +112,10 @@ const ABOUTS: [(&str, &str); 3] = [
     ("port-forward", "Forward a local port"),
 ];
 
-/// The stream verbs need no environment variable to be listed or to run.
-/// `Run` clears the environment before setting its own variables, none of
-/// which turns the verbs on, so `sandbox --help`, the completion scripts and
-/// typo suggestions name the verbs, and `exec` goes on to send its request.
+/// The stream verbs are listed and run with no environment variable of their
+/// own: `Run` clears the environment, and with only its variables set,
+/// `sandbox --help`, the completion scripts and typo suggestions name the
+/// verbs beside the generated commands, and `exec` reaches the API.
 #[tokio::test]
 async fn the_stream_verbs_are_listed_and_run_with_no_environment_variable() {
     let server = MockServer::start().await;
@@ -138,6 +138,10 @@ async fn the_stream_verbs_are_listed_and_run_with_no_environment_variable() {
         script.contains("port-forward"),
         "bash does not name port-forward"
     );
+    assert!(
+        script.contains("gpus"),
+        "bash: the generated commands are missing"
+    );
     for (typo, verb) in [
         ("exe", "exec"),
         ("cpp", "cp"),
@@ -151,10 +155,8 @@ async fn the_stream_verbs_are_listed_and_run_with_no_environment_variable() {
         );
     }
 
-    // No mock answers, so `exec` fails on its first request: past the point
-    // where the refusal used to stop it, sending nothing.
-    let out = run.run(&["sandbox", "exec", "x", "--", "true"]);
-    assert!(!stderr(&out).contains("not released"), "{}", stderr(&out));
+    // No mock answers, so `exec` fails on its first request, after sending it.
+    let _ = run.run(&["sandbox", "exec", "x", "--", "true"]);
     assert!(!server.received_requests().await.unwrap().is_empty());
 }
 
