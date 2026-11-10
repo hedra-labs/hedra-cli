@@ -601,3 +601,50 @@ fn ls_as_a_table_prints_a_row_per_sandbox() {
         .collect();
     assert_eq!(rows.len(), 2, "{table}");
 }
+
+/// `sandbox ls` as a table is one narrow row per sandbox, its columns the
+/// ones a person scans for, not every field of the sandbox flattened; an
+/// empty list says so; `--format json` is the server's answer unchanged.
+#[test]
+fn ls_as_a_table_shows_only_the_scanned_columns() {
+    let list = json!({"data": [sandbox()], "next_cursor": null});
+    let outcome = run(&["sandbox", "ls", "--format", "table"], ok(list.clone()));
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    let table = outcome.stdout();
+    let lines: Vec<&str> = table.trim_end().lines().collect();
+    assert_eq!(lines.len(), 3, "{table}");
+    assert_eq!(
+        lines[0].split_whitespace().collect::<Vec<_>>(),
+        ["created_at", "gpu", "id", "name", "status", "usd_per_hour"],
+        "{table}"
+    );
+    let row: Vec<&str> = lines[2]
+        .split("  ")
+        .map(str::trim)
+        .filter(|cell| !cell.is_empty())
+        .collect();
+    assert_eq!(
+        row,
+        [
+            "2026-11-05 00:00:00 UTC",
+            "h100:1",
+            "sandbox_0123456789abcdef",
+            "nightly",
+            "active",
+            "2.5"
+        ],
+        "{table}"
+    );
+
+    let empty = run(
+        &["sandbox", "ls", "--format", "table"],
+        ok(json!({"data": [], "next_cursor": null})),
+    );
+    assert!(empty.out.status.success(), "{}", empty.output_text());
+    assert_eq!(empty.stdout().trim(), "(empty)");
+
+    let raw = run(&["sandbox", "ls", "--format", "json"], ok(list.clone()));
+    assert!(raw.out.status.success(), "{}", raw.output_text());
+    let printed: Value = serde_json::from_str(&raw.stdout()).expect("JSON on stdout");
+    assert_eq!(printed, list);
+}

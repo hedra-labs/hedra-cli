@@ -427,6 +427,13 @@ impl Stopper<'_> {
     /// and exits 255. A stop that gives up adds the stop command and the
     /// idle TTL without a second class line.
     async fn stop_after(&self, f: &Failure, signals: &mut impl NextSig) -> i32 {
+        // A refused first session ends with "Check on it with `get`", but
+        // the stop lines that follow are the next step here.
+        let check = format!(" {}", stream::get_line(self.id));
+        let mut f = f.clone();
+        if let Some(kept) = f.message.strip_suffix(&check) {
+            f.message = kept.to_string();
+        }
         f.say(self.json).await;
         self.stop_with(255, false, true, signals).await
     }

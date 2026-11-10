@@ -5,7 +5,8 @@ use std::time::Duration;
 
 use hedra_cli_sandbox::backoff::Backoff;
 use hedra_cli_sdk::api::{
-    CreateSandboxRequest, Sandbox, SandboxFailureReason, SandboxInstanceStatus, SandboxStatus,
+    CreateSandboxRequest, Sandbox, SandboxFailureReason, SandboxInstance, SandboxInstanceStatus,
+    SandboxStatus,
 };
 use hedra_cli_sdk::RequestOptions;
 use tokio::time::Instant;
@@ -18,6 +19,21 @@ use super::render::{human_duration, stop_reason};
 pub(crate) const CREATE_LOOP: Duration = Duration::from_secs(5 * 60);
 /// The create loop's five minutes plus a full pool's fifteen.
 pub(crate) const READY_BUDGET: Duration = Duration::from_secs(20 * 60);
+/// A wait for a sandbox someone else created: the pool's 15 minutes.
+pub(crate) const START_BUDGET: Duration = Duration::from_secs(15 * 60);
+
+/// [`START_BUDGET`] for `logs -f`'s wait. Test hook (debug builds only):
+/// `HEDRA_CLI_TEST_START_BUDGET_MS` sets it in milliseconds.
+pub(crate) fn start_budget() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("HEDRA_CLI_TEST_START_BUDGET_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    START_BUDGET
+}
 pub(crate) const CREATE_ATTEMPT: Duration = Duration::from_secs(45);
 const STOP_DEADLINE: Duration = Duration::from_secs(5 * 60);
 /// Between the create's and the stop's retries, whose deadlines run to
@@ -283,17 +299,13 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
             ),
         ));
     }
-    if instances
+    // Replica 0 first, whose output `logs` reads.
+    if let Some(stopped) = instances
         .iter()
-        .any(|i| matches!(i.status, SandboxInstanceStatus::Stopped))
+        .filter(|i| matches!(i.status, SandboxInstanceStatus::Stopped))
+        .min_by_key(|i| i.replica)
     {
-        return Readiness::Failed(Failure::new(
-            Class::NotReady,
-            format!(
-                "`{name}`'s command already exited before it was ready. Run \
-                 `hedra-cli sandbox logs {name}` for its output."
-            ),
-        ));
+        return Readiness::Failed(Failure::new(Class::NotReady, stopped_line(s, stopped)));
     }
     let running = instances
         .iter()
@@ -304,6 +316,31 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
     } else {
         Readiness::Starting
     }
+}
+
+/// What a stopped instance means to a wait for it to run, then the next
+/// step, which names the sandbox by id when it names it at all: a sandbox
+/// whose wait fails may be stopped, and its name is then free for a new
+/// one. A stopped instance is not always a command that exited: an idle or
+/// TTL stop reads the same.
+fn stopped_line(s: &Sandbox, stopped: &SandboxInstance) -> String {
+    let name = &s.name;
+    // `logs` reads replica 0 alone, so another replica's stop names `get`.
+    let (whose, step) = match stopped.replica {
+        0 => (format!("`{name}`'s instance"), super::stream::ended_step(s)),
+        n => (
+            format!("Replica {n} of `{name}`"),
+            super::stream::get_line(&s.id),
+        ),
+    };
+    let reason = stopped
+        .failure_reason
+        .as_ref()
+        .map(|f| format!(" ({f})"))
+        .unwrap_or_default();
+    escape_controls(&format!(
+        "{whose} stopped before it was ready{reason}. {step}"
+    ))
 }
 
 /// Who waits for a sandbox to be ready, which sets the next step a failed
@@ -328,7 +365,31 @@ pub(crate) async fn wait_ready(
     waiter: Waiter,
     say: &mut dyn FnMut(&str),
 ) -> Result<Sandbox, Failure> {
+    wait_ready_or_last(api, id, name, started, timing, waiter, say)
+        .await
+        .map_err(|w| w.failure)
+}
+
+/// A failed [`wait_ready`], with the last read of the sandbox it made.
+pub(crate) struct WaitFailed {
+    pub(crate) failure: Failure,
+    /// None when no read succeeded.
+    pub(crate) last: Option<Box<Sandbox>>,
+}
+
+/// [`wait_ready`], handing back the last read on failure, so a caller can
+/// name the sandbox's state without reading it again.
+pub(crate) async fn wait_ready_or_last(
+    api: &Api,
+    id: &str,
+    name: &str,
+    started: Instant,
+    timing: &Timing,
+    waiter: Waiter,
+    say: &mut dyn FnMut(&str),
+) -> Result<Sandbox, WaitFailed> {
     let deadline = started + timing.ready_budget;
+    let mut last: Option<Box<Sandbox>> = None;
     let mut last_line = String::new();
     let mut last_elapsed = Instant::now();
     loop {
@@ -348,8 +409,13 @@ pub(crate) async fn wait_ready(
                         ));
                         return Ok(sandbox);
                     }
-                    Readiness::Failed(f) => return Err(f),
-                    Readiness::Starting => {}
+                    Readiness::Failed(failure) => {
+                        return Err(WaitFailed {
+                            failure,
+                            last: Some(Box::new(sandbox)),
+                        })
+                    }
+                    Readiness::Starting => last = Some(Box::new(sandbox)),
                 }
             }
             Err(e) => match &e {
@@ -358,7 +424,13 @@ pub(crate) async fn wait_ready(
                 }
                 CallError::Http(h) if h.status == 408 || h.status >= 500 => {}
                 CallError::Transport(_) | CallError::Timeout => {}
-                _ => return Err(e.failure(Some(name))),
+                // The read's own failure; an earlier read is stale beside it.
+                _ => {
+                    return Err(WaitFailed {
+                        failure: e.failure(Some(name)),
+                        last: None,
+                    })
+                }
             },
         }
         if Instant::now() >= deadline {
@@ -370,7 +442,10 @@ pub(crate) async fn wait_ready(
                 ),
                 Waiter::Stops => format!("`{name}` is still starting after {took}."),
             };
-            return Err(Failure::new(Class::NotReady, line));
+            return Err(WaitFailed {
+                failure: Failure::new(Class::NotReady, line),
+                last,
+            });
         }
         if last_elapsed.elapsed() >= timing.elapsed_every {
             say(&format!(
@@ -593,6 +668,66 @@ mod tests {
             class(&sandbox("failed", json!(null), None)),
             Some(Class::NotReady)
         );
+    }
+
+    /// A stopped instance reads as the state line reads it, and the next
+    /// step names the sandbox by id, whose name a stop frees: its output
+    /// once it started, otherwise what its failure calls for.
+    #[test]
+    fn a_stopped_instance_names_the_sandbox_by_id() {
+        let started = sandbox(
+            "active",
+            json!([{"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"}]),
+            None,
+        );
+        let never = sandbox("active", instance("stopped", Some("start_failed")), None);
+        let mut second = sandbox(
+            "active",
+            json!([
+                {"replica": 0, "status": "running", "started_at": "2026-11-03T12:01:00Z"},
+                {"replica": 1, "status": "stopped"},
+            ]),
+            None,
+        );
+        second.replicas = 2;
+        // Both stopped, replica 1 listed first: replica 0 is named.
+        let mut both = sandbox(
+            "active",
+            json!([
+                {"replica": 1, "status": "stopped"},
+                {"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+            ]),
+            None,
+        );
+        both.replicas = 2;
+        for (s, line) in [
+            (
+                started,
+                "`train`'s instance stopped before it was ready. Run `hedra-cli sandbox logs \
+                 sandbox_1` for its output.",
+            ),
+            (
+                never,
+                "`train`'s instance stopped before it was ready (start_failed). Create another, \
+                 or run `hedra-cli sandbox ls` for the running ones.",
+            ),
+            (
+                both,
+                "`train`'s instance stopped before it was ready. Run `hedra-cli sandbox logs \
+                 sandbox_1` for its output.",
+            ),
+            (
+                second,
+                "Replica 1 of `train` stopped before it was ready. Check on it with `hedra-cli \
+                 sandbox get --sandbox sandbox_1`.",
+            ),
+        ] {
+            let Readiness::Failed(f) = readiness(&s, Waiter::Stops) else {
+                panic!("not a failure")
+            };
+            assert_eq!(f.class, Class::NotReady);
+            assert_eq!(f.message, line);
+        }
     }
 
     #[test]

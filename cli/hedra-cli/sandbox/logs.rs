@@ -1,6 +1,7 @@
 //! `logs`, `logs -f` and `attach`: the main process's output, live from the
 //! broker's ring buffer while the instance runs, and from the stored copy
-//! once it has stopped.
+//! once it has stopped, or when a plain `logs` keeps falling behind a
+//! running one.
 
 use std::time::Duration;
 
@@ -13,7 +14,7 @@ use hedra_cli_sandbox::stream::spool::Spool;
 use hedra_cli_sandbox::stream::status::{reason, BrokerStatus};
 use hedra_cli_sandbox::stream::transport::TransportConfig;
 use hedra_cli_sdk::api::prelude::{DateTime, Utc};
-use hedra_cli_sdk::api::{Sandbox, SandboxInstanceStatus, SandboxStatus};
+use hedra_cli_sdk::api::{Sandbox, SandboxEndReason, SandboxInstanceStatus, SandboxStatus};
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::Instant;
@@ -43,11 +44,56 @@ fn spool_limits() -> (usize, u64) {
     }
     (MEMORY, TOTAL)
 }
-/// A starting sandbox's wait: the pool's 15 minutes.
-const START_BUDGET: Duration = Duration::from_secs(15 * 60);
 /// Between a follow's reopens: a follow outlasts a broker outage of any
 /// length, so the cap keeps it trying twice a minute.
 const REOPEN_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(30));
+/// The reopens a plain `logs` makes after the broker ends a read that fell
+/// behind (`rate_limited`), each resuming after the last printed chunk.
+/// Every reopen makes the sandbox replay what its 8 MiB ring buffer holds
+/// after that chunk onto the one output stream its `exec`, `shell` and
+/// `port-forward` sessions share, so the cap holds a read to some 160 MiB
+/// of replay. A measured read over a slow link printed about 160 KB a pass,
+/// so a link that slow reads the rest from the stored copy, as it did
+/// before reopens.
+const CATCH_UP_REOPENS: u32 = 20;
+/// How long reopens may go on, from the first read that fell behind: about
+/// a full ring buffer's replay at 1 Mbit/s. Past it the stored copy is
+/// read, so a sandbox that writes faster than the link carries is not
+/// chased.
+const CATCH_UP_TIME: Duration = Duration::from_secs(60);
+/// Between reopens, so their replays do not follow one another on the
+/// shared stream back to back.
+const CATCH_UP_PAUSE: Duration = Duration::from_millis(250);
+/// Reopens in a row that print nothing before the stored copy is read.
+const CATCH_UP_STALLS: u32 = 3;
+
+/// [`CATCH_UP_TIME`]. Test hook (debug builds only):
+/// `HEDRA_CLI_TEST_CATCH_UP_MS` sets it in milliseconds.
+fn catch_up_time() -> Duration {
+    #[cfg(debug_assertions)]
+    if let Some(ms) = std::env::var("HEDRA_CLI_TEST_CATCH_UP_MS")
+        .ok()
+        .and_then(|v| v.parse::<u64>().ok())
+    {
+        return Duration::from_millis(ms);
+    }
+    CATCH_UP_TIME
+}
+
+/// Said after a reopen's `since` may have pointed at chunks the ring buffer
+/// had already dropped: it replays only what it still holds, and nothing
+/// marks the gap. Before the stored copy, only once a reopen has printed:
+/// the stored copy reads from after the last printed chunk, so a reopen
+/// that printed nothing left no gap for it to miss.
+const MAY_BE_MISSING: &str = "output written faster than it was read may be missing";
+
+/// "1 reconnect", "2 reconnects".
+fn reopens(n: u32) -> String {
+    match n {
+        1 => "1 reconnect".to_string(),
+        n => format!("{n} reconnects"),
+    }
+}
 
 enum Ended {
     Done,
@@ -173,22 +219,44 @@ impl Logs<'_> {
         let mut admitted = false;
         let mut backoff = REOPEN_BACKOFF;
         let mut first = true;
+        // A plain read's reopens after `rate_limited`: how many, how many in
+        // a row printed nothing, and the read they reuse, since a sandbox
+        // that stops meanwhile refuses the reopen and reads the stored copy.
+        let mut catch_ups: u32 = 0;
+        let mut stalls = 0;
+        let mut catching_up: Option<Sandbox> = None;
+        let mut fell_behind_at: Option<Instant> = None;
+        // Whether a catch-up reopen printed anything, moving `since` past
+        // chunks the ring buffer may have dropped.
+        let mut reopen_printed = false;
+        // A failed start wait's last read, for the next pass when its own
+        // read fails.
+        let mut waited: Option<Box<Sandbox>> = None;
         loop {
-            let read = attempt(ATTEMPT, self.api.client.get(&id, None)).await;
-            let s = match read {
-                Ok(s) => s,
-                // A reopen rides out a read that may succeed later, as it
-                // does a dropped stream.
-                Err(e) if !first && e.transient() => {
-                    stream::note(format_args!(
-                        "Could not read `{}` to reopen its output; retrying.",
-                        self.name
-                    ));
-                    tokio::time::sleep(backoff.wait()).await;
-                    backoff.grow();
-                    continue;
+            let s = if let Some(s) = catching_up.take() {
+                s
+            } else {
+                let read = attempt(ATTEMPT, self.api.client.get(&id, None)).await;
+                match (read, waited.take()) {
+                    (Ok(s), _) => s,
+                    // After a failed start wait, a read that fails goes on
+                    // from the wait's last one, which saw replica 0 stop or
+                    // never start, so a broken API does not hold the follow
+                    // open.
+                    (Err(e), Some(last)) if e.transient() => *last,
+                    // A reopen rides out a read that may succeed later, as
+                    // it does a dropped stream.
+                    (Err(e), _) if !first && e.transient() => {
+                        stream::note(format_args!(
+                            "Could not read `{}`'s state; retrying.",
+                            self.name
+                        ));
+                        tokio::time::sleep(backoff.wait()).await;
+                        backoff.grow();
+                        continue;
+                    }
+                    (Err(e), _) => return Ended::Failed(e.failure(Some(&self.name))),
                 }
-                Err(e) => return Ended::Failed(e.failure(Some(&self.name))),
             };
             first = false;
             match phase(&s) {
@@ -209,10 +277,10 @@ impl Logs<'_> {
                 }
                 Phase::Starting => {
                     let timing = Timing {
-                        ready_budget: START_BUDGET,
+                        ready_budget: lifecycle::start_budget(),
                         ..Timing::default()
                     };
-                    if let Err(f) = lifecycle::wait_ready(
+                    if let Err(w) = lifecycle::wait_ready_or_last(
                         self.api,
                         &id,
                         &self.name,
@@ -228,26 +296,28 @@ impl Logs<'_> {
                     )
                     .await
                     {
-                        let s = match self.get(&id).await {
-                            Ok(s) => s,
-                            Err(_) => return Ended::Failed(f),
-                        };
-                        return match phase(&s) {
-                            // Still starting: the budget ran out.
-                            Phase::Starting => Ended::Failed(f),
-                            // Replica 0 runs, whatever another replica did.
-                            Phase::Running => continue,
-                            _ => {
-                                stream::note(format_args!("{}", escape_controls(&f.message)));
-                                continue;
-                            }
-                        };
+                        // Replica 0 still starting in the wait's last read
+                        // ran out the budget, and a wait that read nothing
+                        // ran it out or failed for good: either ends with
+                        // the wait's failure.
+                        // Otherwise the next pass reads the sandbox again,
+                        // or goes on from the wait's last read when that
+                        // read fails for now, and follows replica 0 if it
+                        // runs again, or gives the line and exit 0 of a
+                        // sandbox that stopped or never started, rather than
+                        // the wait's line, which points back at `logs`.
+                        let last = w.last.as_deref().map(phase);
+                        if matches!(last, None | Some(Phase::Starting)) {
+                            return Ended::Failed(w.failure);
+                        }
+                        waited = w.last;
                     }
                     continue;
                 }
                 Phase::Running => {}
             }
 
+            let resumed_from = self.since;
             let request = LogsRequest {
                 since: self.since,
                 follow: self.follow,
@@ -279,12 +349,21 @@ impl Logs<'_> {
                     admitted = true;
                     stream
                 }
+                // A refused reopen read nothing, but the ones before it may
+                // have skipped chunks the stored copy, read from after the
+                // last printed one, does not bring back.
                 Err(OpenError::Refused(st))
                     if !self.follow && st.is(reason::SANDBOX_DISCONNECTED) =>
                 {
+                    if reopen_printed {
+                        self.caught_up(catch_ups.saturating_sub(1));
+                    }
                     return self.stored_tail(&id, &s).await;
                 }
                 Err(OpenError::Session(SessionError::Mint(e))) if stopped_mint(&e) => {
+                    if reopen_printed {
+                        self.caught_up(catch_ups.saturating_sub(1));
+                    }
                     let s = self.get(&id).await.unwrap_or(s);
                     return self.stored_tail(&id, &s).await;
                 }
@@ -297,6 +376,20 @@ impl Logs<'_> {
                     tokio::time::sleep(backoff.wait()).await;
                     backoff.grow();
                     continue;
+                }
+                // A catch-up reopen that fails ends in the stored copy, as
+                // the first read would have before reopens.
+                Err(_) if catch_ups > 0 => {
+                    let missing = if reopen_printed {
+                        format!("; {MAY_BE_MISSING}")
+                    } else {
+                        String::new()
+                    };
+                    stream::note(format_args!(
+                        "The live read of `{}` ended and could not reconnect{missing}.",
+                        self.name
+                    ));
+                    return self.stored_tail(&id, &s).await;
                 }
                 Err(e) => {
                     return Ended::Failed(
@@ -313,8 +406,15 @@ impl Logs<'_> {
                 }
             };
 
-            match self.pump(&mut stream, &mut backoff).await {
-                Pumped::Eof => return Ended::Done,
+            let pumped = self.pump(&mut stream, &mut backoff).await;
+            if catch_ups > 0 && self.since != resumed_from {
+                reopen_printed = true;
+            }
+            match pumped {
+                Pumped::Eof => {
+                    self.caught_up(catch_ups);
+                    return Ended::Done;
+                }
                 Pumped::End(e) => return e,
                 Pumped::Dropped(status) => {
                     if let (true, Some(s)) = (self.api.debug, &status) {
@@ -325,14 +425,55 @@ impl Logs<'_> {
                             .as_ref()
                             .is_some_and(|s| s.is(reason::SANDBOX_DISCONNECTED))
                         {
+                            if reopen_printed {
+                                self.caught_up(catch_ups);
+                            }
                             let s = self.get(&id).await.unwrap_or(s);
                             return self.stored_tail(&id, &s).await;
                         }
                         // The ring buffer replayed; the stream ending is the end.
-                        if status.is_none() {
+                        let Some(st) = status else {
+                            self.caught_up(catch_ups);
                             return Ended::Done;
+                        };
+                        // The broker ends a call whose client fell behind,
+                        // `rate_limited`: a large ring buffer replayed over a
+                        // slower link does. A reopen replays only what came
+                        // after the last printed chunk, so reads converge once
+                        // output stops; the stored copy, which lags the ring
+                        // buffer, is the fallback.
+                        if st.is(reason::RATE_LIMITED) {
+                            let reopened = catch_ups;
+                            catch_ups += 1;
+                            stalls = if self.since == resumed_from {
+                                stalls + 1
+                            } else {
+                                0
+                            };
+                            let behind_since = *fell_behind_at.get_or_insert_with(Instant::now);
+                            if catch_ups <= CATCH_UP_REOPENS
+                                && stalls < CATCH_UP_STALLS
+                                && behind_since.elapsed() < catch_up_time()
+                            {
+                                if self.api.debug {
+                                    debug(&format!("reconnecting the live read ({catch_ups})"));
+                                }
+                                tokio::time::sleep(CATCH_UP_PAUSE).await;
+                                catching_up = Some(s);
+                                continue;
+                            }
+                            let missing = match (reopened, reopen_printed) {
+                                (0, _) => String::new(),
+                                (n, false) => format!(" after {}", reopens(n)),
+                                (n, true) => format!(" after {}; {MAY_BE_MISSING}", reopens(n)),
+                            };
+                            stream::note(format_args!(
+                                "The live read of `{}` kept ending (rate_limited){missing}.",
+                                self.name
+                            ));
+                            return self.stored_tail(&id, &s).await;
                         }
-                        let st = status.expect("checked");
+                        self.caught_up(catch_ups);
                         let f = stream::broker_failure(&st, &self.name, Needs::Read, true);
                         if f.class == Class::ConnectionLost {
                             return Ended::Failed(
@@ -348,6 +489,23 @@ impl Logs<'_> {
                 }
             }
         }
+    }
+
+    /// The note a plain read that ended after `reopened` catch-up reopens
+    /// gives, since each may have resumed past chunks the ring buffer had
+    /// dropped. Before the stored copy, given only once a reopen printed.
+    fn caught_up(&self, reopened: u32) {
+        if reopened == 0 {
+            return;
+        }
+        let times = match reopened {
+            1 => "once".to_string(),
+            n => format!("{n} times"),
+        };
+        stream::note(format_args!(
+            "The live read of `{}` fell behind and reconnected {times}; {MAY_BE_MISSING}.",
+            self.name
+        ));
     }
 
     /// Prints a stream's chunks. Reading runs ahead of a slow stdout into
@@ -455,11 +613,15 @@ impl Logs<'_> {
         if self.printed {
             stream::note(format_args!(
                 "The live output ended; the rest is from the stored copy, which can miss the \
-                 last few seconds."
+                 newest output."
             ));
         }
         if self.follow {
-            stream::note(format_args!("{}", stream::state_line(s, &self.name)));
+            let state = stream::state_line(s, &self.name);
+            match follow_step(s) {
+                Some(step) => stream::note(format_args!("{state} {step}")),
+                None => stream::note(format_args!("{state}")),
+            }
         }
         Ended::Done
     }
@@ -532,6 +694,29 @@ enum Pumped {
     /// The stream ended: by the broker, the network, or a full spool.
     Dropped(Option<BrokerStatus>),
     End(Ended),
+}
+
+/// The step after a follow's state line: funds for a sandbox stopped
+/// unpaid, and what replica 0's failure calls for when it never started.
+/// None once it started, since its output is what was just printed, and
+/// for a sandbox that reads as running. An active sandbox is judged by its
+/// replica even when unpaid, as `port-forward` judges it.
+fn follow_step(s: &Sandbox) -> Option<String> {
+    if s.status != SandboxStatus::Active && s.end_reason == Some(SandboxEndReason::Unpaid) {
+        return Some(stream::next_step(s));
+    }
+    let replica0 = stream::replica0(s);
+    if replica0.is_some_and(|i| i.started_at.is_some()) {
+        return None;
+    }
+    let ended = s.status != SandboxStatus::Active
+        || replica0.is_some_and(|i| {
+            matches!(
+                i.status,
+                SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
+            )
+        });
+    ended.then(|| stream::ended_step(s))
 }
 
 /// A mint that can never succeed again: the sandbox or its replica stopped.

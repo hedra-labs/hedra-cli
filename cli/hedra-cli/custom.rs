@@ -156,6 +156,12 @@ fn configure(app: CliApp) -> CliApp {
         .transform_response(&["log-drains", "*"], views::defuse_arrays)
         .transform_response(&["billing", "*"], views::defuse_arrays)
         .transform_response(&["sandbox", "*"], views::defuse_arrays)
+        // Every matching hook runs, in registration order. `sandbox ls` gets
+        // its narrow row view after the `["sandbox", "*"]` de-hijacker, which
+        // passes the list envelope through unchanged. Registered the other
+        // way round, the de-hijacker would turn the `[]` an empty list
+        // becomes into an empty string.
+        .transform_response(&["sandbox", "ls"], views::sandbox_list)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {

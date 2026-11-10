@@ -42,7 +42,7 @@
 //!
 //! ## The fix
 //!
-//! Two layers, both applied as `transform_response` hooks registered from
+//! Three layers, each applied as `transform_response` hooks registered from
 //! `custom.rs` and — like `reshape_model_list_table` — only when the
 //! resolved output format is `Table`. JSON/YAML/CSV/JSONL output is
 //! therefore byte-identical to before, so scripts are unaffected.
@@ -57,6 +57,10 @@
 //!    and renders the surviving `status` frames the way `jobs get-status`
 //!    renders one. `--format json`, `--format raw` and `jobs logs` are
 //!    untouched, so no way of reading the log is taken away.
+//! 4. [`sandbox_list`] cuts each `sandbox ls` row to the columns a person
+//!    scans for: the generic renderer flattens every field of a sandbox,
+//!    its instances, billing and command included, into a row some 300
+//!    columns wide.
 //!
 //! ## Known limitations
 //!
@@ -98,6 +102,11 @@ pub(crate) async fn jobs(value: Value, path: Vec<String>) -> Result<Value, CliEr
 /// responses are hijacked by an array field.
 pub(crate) async fn defuse_arrays(value: Value, _: Vec<String>) -> Result<Value, CliError> {
     Ok(dehijack(value))
+}
+
+/// `transform_response` hook for `["sandbox", "ls"]`.
+pub(crate) async fn sandbox_list(value: Value, _: Vec<String>) -> Result<Value, CliError> {
+    Ok(sandbox_rows(value))
 }
 
 // ── Layer 1: generic de-hijacking ───────────────────────────────────
@@ -350,6 +359,51 @@ fn job_submit(value: &Value) -> Value {
         );
     }
     Value::Object(out)
+}
+
+// ── Layer 3: the sandbox list ───────────────────────────────────────
+
+/// `sandbox ls` — each sandbox as `id`, `name`, `status`, `gpu`,
+/// `created_at` and its billing's `usd_per_hour`.
+///
+/// Every row carries every column, null where the server sent nothing, so a
+/// page in which no sandbox has a field still shows its column, empty. The
+/// renderer orders the columns alphabetically (see the module docs). An
+/// empty list with no further page becomes an empty array, which the
+/// renderer prints as `(empty)` rather than the envelope's two keys. `get`,
+/// `create` and `stop` keep the full single-sandbox view, and `--format
+/// json` keeps every field.
+fn sandbox_rows(mut value: Value) -> Value {
+    let last_page = value.get("next_cursor").is_none_or(Value::is_null);
+    let Some(Value::Array(sandboxes)) = value.get_mut("data") else {
+        return value;
+    };
+    if sandboxes.is_empty() && last_page {
+        return Value::Array(Vec::new());
+    }
+    for sandbox in sandboxes.iter_mut() {
+        let Some(fields) = sandbox.as_object() else {
+            continue;
+        };
+        let mut row = Map::new();
+        for key in ["id", "name", "status", "gpu"] {
+            let cell = fields.get(key).cloned().unwrap_or(Value::Null);
+            row.insert(key.to_string(), cell);
+        }
+        let created = match fields.get("created_at") {
+            Some(Value::String(at)) => Value::String(instant(at)),
+            _ => Value::Null,
+        };
+        row.insert("created_at".into(), created);
+        let price = fields
+            .get("billing")
+            .and_then(|b| b.get("usd_per_hour"))
+            .cloned()
+            .unwrap_or(Value::Null);
+        row.insert("usd_per_hour".into(), price);
+        *sandbox = Value::Object(row);
+    }
+    value
 }
 
 // ── Job field helpers ───────────────────────────────────────────────
@@ -1190,5 +1244,79 @@ mod tests {
     fn multibyte_text_clips_on_char_boundaries() {
         // Byte-slicing "日本語テキスト" here would panic.
         assert_eq!(one_line("日本語テキスト", 4), "日本語…");
+    }
+
+    // ── The sandbox list ────────────────────────────────────────────
+
+    fn listed_sandbox() -> Value {
+        json!({
+            "id": "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+            "name": "train", "gpu": "rtx4090:1", "gpu_model": "rtx4090", "replicas": 1,
+            "status": "active", "end_reason": null,
+            "created_at": "2026-11-03T12:00:00.123456Z", "started_at": null,
+            "env_keys": ["HF_TOKEN"], "command": ["python", "train.py"],
+            "instances": [{"replica": 0, "status": "running"}], "url": null,
+            "billing": {"usd_per_hour": 1.0, "paid_usd": 0.75, "settled": false},
+        })
+    }
+
+    #[test]
+    fn sandbox_ls_shows_one_narrow_row_per_sandbox() {
+        let list = json!({"data": [listed_sandbox()], "next_cursor": null});
+        let rendered = render(&sandbox_rows(dehijack(list)));
+        let mut lines = rendered.lines();
+        let header: Vec<&str> = lines.next().unwrap().split_whitespace().collect();
+        assert_eq!(
+            header,
+            ["created_at", "gpu", "id", "name", "status", "usd_per_hour"]
+        );
+        let _ = lines.next();
+        let row: Vec<&str> = lines
+            .next()
+            .unwrap()
+            .split("  ")
+            .map(str::trim)
+            .filter(|c| !c.is_empty())
+            .collect();
+        assert_eq!(
+            row,
+            [
+                "2026-11-03 12:00:00 UTC",
+                "rtx4090:1",
+                "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
+                "train",
+                "active",
+                "1.0"
+            ]
+        );
+        assert_eq!(lines.next(), None);
+        assert!(!rendered.contains("HF_TOKEN") && !rendered.contains("paid_usd"));
+    }
+
+    #[test]
+    fn sandbox_ls_keeps_every_column_when_fields_are_missing_or_null() {
+        let bare = json!({"id": "sandbox_1", "name": "a", "created_at": null, "billing": null});
+        let list = json!({"data": [bare], "next_cursor": null});
+        let rows = sandbox_rows(list);
+        assert_eq!(
+            rows["data"][0],
+            json!({"id": "sandbox_1", "name": "a", "status": null, "gpu": null,
+                   "created_at": null, "usd_per_hour": null})
+        );
+        let header = render(&rows).lines().next().unwrap().to_string();
+        assert_eq!(
+            header.split_whitespace().collect::<Vec<_>>(),
+            ["created_at", "gpu", "id", "name", "status", "usd_per_hour"]
+        );
+    }
+
+    #[test]
+    fn an_empty_sandbox_list_and_other_shapes_pass_through() {
+        let empty = json!({"data": [], "next_cursor": null});
+        assert_eq!(render(&sandbox_rows(dehijack(empty))), "(empty)\n");
+        let more = json!({"data": [], "next_cursor": "c1"});
+        assert_eq!(sandbox_rows(more.clone()), more);
+        let single = listed_sandbox();
+        assert_eq!(sandbox_rows(single.clone()), single);
     }
 }

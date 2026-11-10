@@ -226,6 +226,8 @@ pub enum LogsEnd {
     Hold,
     Fail(Status),
     Close,
+    /// Sends the buffer's eof marker as a chunk, then OK trailers.
+    Eof,
 }
 
 /// What one `PortForward` call does.
@@ -307,6 +309,7 @@ pub enum PortStep {
 pub struct LogsScript {
     refuse: Option<Status>,
     append: Vec<Vec<u8>>,
+    evict: usize,
     end: LogsEnd,
 }
 
@@ -315,6 +318,7 @@ impl LogsScript {
         Self {
             refuse: None,
             append: Vec::new(),
+            evict: 0,
             end,
         }
     }
@@ -323,6 +327,7 @@ impl LogsScript {
         Self {
             refuse: Some(status),
             append: Vec::new(),
+            evict: 0,
             end: LogsEnd::Default,
         }
     }
@@ -330,6 +335,14 @@ impl LogsScript {
     /// Adds chunks to the ring buffer after the replay, without sending them.
     pub fn then_append(mut self, data: &[u8]) -> Self {
         self.append.push(data.to_vec());
+        self
+    }
+
+    /// Drops the `n` oldest chunks from the ring buffer after the replay
+    /// and any `then_append`, as a full ring buffer does; a later `since`
+    /// that names a dropped chunk replays only what is left, with no mark.
+    pub fn then_evict(mut self, n: usize) -> Self {
+        self.evict = n;
         self
     }
 }
@@ -378,6 +391,9 @@ struct Inner {
     logs: VecDeque<LogsScript>,
     port: VecDeque<PortScript>,
     ring: Vec<LogChunk>,
+    /// The next chunk's stamp, in seconds after the first: kept apart from
+    /// the ring buffer, so stamps keep rising after an eviction empties it.
+    next_stamp: i64,
     calls: Vec<Call>,
     conns: HashMap<u64, std::net::TcpStream>,
     connections: usize,
@@ -449,7 +465,7 @@ impl FakeBroker {
     /// Appends a chunk to the ring buffer, stamped after every earlier one.
     pub fn log(&self, data: &[u8]) -> Timestamp {
         let mut s = self.state.lock().unwrap();
-        append(&mut s.ring, data)
+        append(&mut s, data)
     }
 
     pub fn calls(&self) -> Vec<Call> {
@@ -492,13 +508,14 @@ impl Drop for FakeBroker {
     }
 }
 
-fn append(ring: &mut Vec<LogChunk>, data: &[u8]) -> Timestamp {
-    let i = ring.len() as i64;
+fn append(s: &mut Inner, data: &[u8]) -> Timestamp {
+    let i = s.next_stamp;
+    s.next_stamp += 1;
     let at = Timestamp {
         seconds: 1_793_750_400 + i,
         nanos: 500_000_000 + i as i32,
     };
-    ring.push(LogChunk {
+    s.ring.push(LogChunk {
         data: data.to_vec(),
         at: Some(at),
         stream: Stream::Stdout as i32,
@@ -1112,8 +1129,10 @@ impl SessionService for Arc<Broker> {
                 .cloned()
                 .collect();
             for data in &script.append {
-                append(&mut s.ring, data);
+                append(&mut s, data);
             }
+            let evict = script.evict.min(s.ring.len());
+            s.ring.drain(..evict);
             replay
         };
         let (out, rx) = mpsc::channel(16);
@@ -1131,6 +1150,14 @@ impl SessionService for Arc<Broker> {
                         let _ = out.send(Err(status)).await;
                     }
                     LogsEnd::Close => broker.close(conn),
+                    LogsEnd::Eof => {
+                        let _ = out
+                            .send(Ok(LogChunk {
+                                eof: true,
+                                ..Default::default()
+                            }))
+                            .await;
+                    }
                 }
             };
             supervise(broker.state.clone(), idx, &out, run).await;
@@ -1648,5 +1675,19 @@ mod tests {
             data.extend(chunk.data);
         }
         assert_eq!(data, b"bc");
+    }
+
+    /// An eviction that empties the ring buffer does not reset the stamps:
+    /// a chunk appended after it still sorts after every earlier one.
+    #[test]
+    fn stamps_keep_rising_after_an_eviction_empties_the_ring() {
+        let mut s = Inner::default();
+        let first = append(&mut s, b"a");
+        let second = append(&mut s, b"b");
+        s.ring.clear();
+        let third = append(&mut s, b"c");
+        let key = |t: Timestamp| (t.seconds, t.nanos);
+        assert!(key(first) < key(second), "{first:?} {second:?}");
+        assert!(key(second) < key(third), "{second:?} {third:?}");
     }
 }
