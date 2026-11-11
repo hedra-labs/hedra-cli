@@ -568,48 +568,6 @@ pub(crate) fn decide_retry(
     }
 }
 
-/// The server's `x-should-retry` answer: `Some(true)` for `true`,
-/// `Some(false)` for `false`, and `None` when the header is absent or holds
-/// anything else, which leaves the decision to [`decide_retry`].
-pub(crate) fn parse_should_retry(value: Option<&str>) -> Option<bool> {
-    match value?.trim() {
-        v if v.eq_ignore_ascii_case("true") => Some(true),
-        v if v.eq_ignore_ascii_case("false") => Some(false),
-        _ => None,
-    }
-}
-
-/// [`decide_retry`], except that a 429 the server marks `x-should-retry:
-/// false` is final, because a retry would only be refused again. Every other
-/// status, and a 429 without that answer, is decided exactly as
-/// [`decide_retry`] decides it.
-///
-/// The server's answer is a separate argument rather than a field of
-/// [`RetryOutcome`] because `src/sdk_executor.rs` builds that struct too, and
-/// `.fern/replay.yml` excludes that file, so a new field would be dropped on
-/// regeneration and the build would fail.
-pub(crate) fn decide_retry_with_server_hint(
-    attempt: u32,
-    outcome: &RetryOutcome<'_>,
-    should_retry: Option<bool>,
-    config: &RetriesConfig,
-    http_method: &str,
-    marked_idempotent: bool,
-    no_retry: bool,
-) -> Option<std::time::Duration> {
-    if outcome.status == Some(429) && should_retry == Some(false) {
-        return None;
-    }
-    decide_retry(
-        attempt,
-        outcome,
-        config,
-        http_method,
-        marked_idempotent,
-        no_retry,
-    )
-}
-
 /// Returns true if any dotted ancestor of `leaf_path` is present in `supplied`
 /// and is declared as an object-shorthand parameter (`param_type == "object"`).
 /// Used so a required leaf like `name.first` is not reported missing when the
@@ -2530,25 +2488,38 @@ pub async fn execute_method(
                         .get("retry-after")
                         .and_then(|v| v.to_str().ok())
                         .map(|s| s.to_string());
-                    let should_retry = parse_should_retry(
-                        resp.headers()
-                            .get("x-should-retry")
-                            .and_then(|v| v.to_str().ok()),
-                    );
                     if let Some(cfg) = retries_cfg {
                         let outcome = RetryOutcome {
                             status: Some(status.as_u16()),
                             retry_after: retry_after_header.as_deref(),
                         };
-                        if let Some(delay) = decide_retry_with_server_hint(
+                        if let Some(delay) = decide_retry(
                             retry_attempt,
                             &outcome,
-                            should_retry,
                             cfg,
                             &method.http_method,
                             retry_safe,
                             no_retry,
                         ) {
+                            // The API marks a response it advises against
+                            // resending `x-should-retry: false`; treat it as
+                            // final. `true` or no header leaves the decision
+                            // to `decide_retry`, so it never widens retries.
+                            if resp
+                                .headers()
+                                .get("x-should-retry")
+                                .and_then(|v| v.to_str().ok())
+                                .is_some_and(|v| v.trim().eq_ignore_ascii_case("false"))
+                            {
+                                tracing::debug!(
+                                    api_method = method_id,
+                                    http_method = %method.http_method,
+                                    status = status.as_u16(),
+                                    attempt = retry_attempt + 1,
+                                    "not retrying: server marked the response x-should-retry: false",
+                                );
+                                break resp;
+                            }
                             tracing::warn!(
                                 api_method = method_id,
                                 http_method = %method.http_method,
@@ -5981,59 +5952,6 @@ mod tests {
             .expect("should retry");
         // Falls back to backoff math \u2014 not zero, not the parsed value.
         assert!(d > std::time::Duration::ZERO);
-    }
-
-    #[test]
-    fn test_parse_should_retry() {
-        assert_eq!(parse_should_retry(Some("false")), Some(false));
-        assert_eq!(parse_should_retry(Some("FALSE")), Some(false));
-        assert_eq!(parse_should_retry(Some(" true ")), Some(true));
-        assert_eq!(parse_should_retry(Some("0")), None);
-        assert_eq!(parse_should_retry(Some("")), None);
-        assert_eq!(parse_should_retry(None), None);
-    }
-
-    #[test]
-    fn test_decide_retry_429_should_not_retry_outranks_retry_after() {
-        let cfg = enabled_cfg();
-        let outcome = RetryOutcome {
-            status: Some(429),
-            retry_after: Some("3"),
-        };
-        let d = decide_retry_with_server_hint(0, &outcome, Some(false), &cfg, "POST", false, false);
-        assert!(d.is_none(), "x-should-retry: false outranks Retry-After");
-    }
-
-    #[test]
-    fn test_decide_retry_should_not_retry_on_other_statuses_is_ignored() {
-        // Only a 429 reads the answer; every other status is decided as
-        // `decide_retry` decides it.
-        let cfg = enabled_cfg();
-        for (status, method, idempotent) in [
-            (503, "GET", false),
-            (503, "POST", true),
-            (408, "POST", false),
-            (503, "POST", false),
-        ] {
-            let outcome = RetryOutcome {
-                status: Some(status),
-                retry_after: None,
-            };
-            let hinted = decide_retry_with_server_hint(
-                0,
-                &outcome,
-                Some(false),
-                &cfg,
-                method,
-                idempotent,
-                false,
-            );
-            assert_eq!(
-                hinted.is_some(),
-                decide_retry(0, &outcome, &cfg, method, idempotent, false).is_some(),
-                "{status} {method} idempotent={idempotent}",
-            );
-        }
     }
 
     #[test]

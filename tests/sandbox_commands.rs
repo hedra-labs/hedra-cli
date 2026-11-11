@@ -185,15 +185,17 @@ fn create_with(extra: &[&str], responses: Vec<ResponseTemplate>) -> Outcome {
     run(&args, responses)
 }
 
+/// The 201 `POST /sandboxes` answers.
+fn created() -> ResponseTemplate {
+    ResponseTemplate::new(201).set_body_json(created_sandbox())
+}
+
 /// `sandbox create --format json` with the required flags plus `extra`,
 /// answered 201.
 fn create(extra: &[&str]) -> Outcome {
     let mut extra = extra.to_vec();
     extra.extend_from_slice(&["--format", "json"]);
-    create_with(
-        &extra,
-        vec![ResponseTemplate::new(201).set_body_json(created_sandbox())],
-    )
+    create_with(&extra, vec![created()])
 }
 
 /// Run the binary with no server and no key, for commands that send
@@ -561,7 +563,7 @@ fn unavailable_then_created() -> Vec<ResponseTemplate> {
         ResponseTemplate::new(503).set_body_json(json!({
             "error": {"type": "UNAVAILABLE", "message": "try again"}
         })),
-        ResponseTemplate::new(201).set_body_json(created_sandbox()),
+        created(),
     ]
 }
 
@@ -587,11 +589,7 @@ fn create_sends_the_idempotency_key_on_its_first_attempt_and_its_retry() {
 #[test]
 fn create_without_a_key_retries_with_one_generated_key() {
     let outcome = create_with(&["--format", "json"], unavailable_then_created());
-    assert!(outcome.out.status.success(), "{}", outcome.output_text());
-    assert_eq!(outcome.requests.len(), 2, "{}", outcome.output_text());
-    let keys: Vec<Option<String>> = outcome.requests.iter().map(idempotency_key).collect();
-    assert!(keys[0].is_some(), "no Idempotency-Key on the first attempt");
-    assert_eq!(keys[0], keys[1], "the retry sent a different key");
+    assert_retried_to_success(&outcome, 2);
 }
 
 /// A 429 with `message` as its error message and `headers` set.
@@ -603,10 +601,6 @@ fn too_many_requests(headers: &[(&str, &str)], message: &str) -> ResponseTemplat
         response = response.insert_header(*name, *value);
     }
     response
-}
-
-fn created() -> ResponseTemplate {
-    ResponseTemplate::new(201).set_body_json(created_sandbox())
 }
 
 /// The create was sent `sends` times under one key, and the 201 ended it.
@@ -661,6 +655,77 @@ fn create_retries_an_unmarked_429_under_one_key() {
         vec![too_many_requests(&[], "Too many requests."), created()],
     );
     assert_retried_to_success(&outcome, 2);
+}
+
+/// The header is read case-insensitively, and a padded value still counts
+/// (the HTTP parser strips the padding before the runtime sees it).
+#[test]
+fn create_reads_should_not_retry_in_any_case() {
+    for value in ["FALSE", "False", " false "] {
+        let outcome = create_with(
+            &["--format", "json"],
+            vec![
+                too_many_requests(&[("x-should-retry", value)], "Not now."),
+                created(),
+            ],
+        );
+        assert_eq!(
+            outcome.requests.len(),
+            1,
+            "{value:?}: {}",
+            outcome.output_text()
+        );
+        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    }
+}
+
+/// `x-should-retry: false` is final on every status, not only a 429: a 5xx
+/// the server marks that way is sent once even though `POST /sandboxes` is
+/// idempotent and an unmarked 5xx is retried.
+#[test]
+fn create_sends_a_5xx_marked_should_not_retry_once() {
+    for (status, kind) in [(503, "UNAVAILABLE"), (500, "INTERNAL")] {
+        let outcome = create_with(
+            &["--format", "json"],
+            vec![
+                ResponseTemplate::new(status)
+                    .insert_header("x-should-retry", "false")
+                    .set_body_json(json!({
+                        "error": {"code": kind, "message": "try again"}
+                    })),
+                created(),
+            ],
+        );
+        assert_eq!(
+            outcome.requests.len(),
+            1,
+            "{status}: {}",
+            outcome.output_text()
+        );
+        let shown = outcome.output_text();
+        assert!(!outcome.out.status.success(), "{shown}");
+        assert!(shown.contains(kind), "{shown}");
+    }
+}
+
+/// `x-should-retry: true` is advisory: it never lifts the attempt limit or
+/// overrides `--no-retry`. The runtime sends at most 4 attempts.
+#[test]
+fn create_marked_should_retry_still_stops_at_the_attempt_limit() {
+    let rate_limited = || {
+        vec![too_many_requests(
+            &[("x-should-retry", "true"), ("Retry-After", "0")],
+            "Request rate limit exceeded.",
+        )]
+    };
+    let limited = create_with(&["--format", "json"], rate_limited());
+    assert_eq!(limited.requests.len(), 4, "{}", limited.output_text());
+    assert!(!limited.out.status.success(), "{}", limited.output_text());
+
+    let unretried = create_with(&["--no-retry", "--format", "json"], rate_limited());
+    assert_eq!(unretried.requests.len(), 1, "{}", unretried.output_text());
+    let shown = unretried.output_text();
+    assert!(!unretried.out.status.success(), "{shown}");
 }
 
 // ---------------------------------------------------------------------------
@@ -740,10 +805,7 @@ fn get_and_create_print_the_sandboxs_own_fields_as_a_table() {
         ],
         ok(sandbox()),
     );
-    let created = create_with(
-        &["--format", "table"],
-        vec![ResponseTemplate::new(201).set_body_json(created_sandbox())],
-    );
+    let created = create_with(&["--format", "table"], vec![created()]);
     for (outcome, rows) in [
         (
             get,
