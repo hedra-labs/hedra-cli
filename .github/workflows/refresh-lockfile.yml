@@ -1,7 +1,19 @@
-# Repair a fern-bot regeneration branch so it can land green: align the
-# workspace crate versions (ENG-10219), re-apply the SDK header patches
-# (ENG-10226), then refresh Cargo.lock (ENG-10202). All fixes go out in ONE
-# commit — see "Gating" below for why that is not negotiable.
+# Repair a fern-bot regeneration branch so it can land green: strip the
+# generator's dead dependencies, align the workspace crate versions
+# (ENG-10219), re-apply the SDK header patches (ENG-10226), then refresh
+# Cargo.lock (ENG-10202). All fixes go out in ONE commit — see "Gating" below
+# for why that is not negotiable.
+#
+# --- Dead dependencies ---
+#
+# Fern's CLI template emits `hmac` and a `[build-dependencies]` table that the
+# root crate never uses. Since cargo 1.100.0 those trip the `unused_dependencies`
+# manifest lint, and setup-rust-toolchain@v2's CARGO_BUILD_WARNINGS=deny makes
+# every cargo command fail on it — `cargo fetch` below included, which is how
+# #189 lost this whole workflow's commit. #186's hand fix to the generator-owned
+# Cargo.toml was not recorded by Fern Replay, so strip-dead-deps.py re-applies
+# it after every regeneration; the step has to precede the first cargo command
+# that can warn. Its docstring carries the guards and the removal condition.
 #
 # --- SDK header patches ---
 #
@@ -151,6 +163,13 @@ jobs:
       - name: Set up Rust
         uses: actions-rust-lang/setup-rust-toolchain@v2
 
+      # First of the tree fixes: every cargo command after it — the staleness
+      # check, `cargo fetch`, the verify gate — fails on the lint warnings the
+      # dead dependencies raise. Removing dependencies can also invalidate the
+      # lockfile, so it must precede the staleness check like the aligner.
+      - name: Strip the generator's dead dependencies
+        run: python3 .github/scripts/strip-dead-deps.py Cargo.toml
+
       # Must precede the staleness check: aligning the members is itself one of
       # the things that can invalidate the lockfile, and the refresh below has
       # to see the aligned tree.
@@ -216,7 +235,7 @@ jobs:
           GH_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
         run: |
           . .github/scripts/crate-layout.sh
-          # A set check, not a string compare: up to six files can legitimately
+          # A set check, not a string compare: up to seven files can legitimately
           # be dirty now, in any combination.
           #
           # The allowlist and the message it prints are built from one list, so
@@ -226,7 +245,7 @@ jobs:
           # leave a guard that either passes on ANYTHING or rejects everything,
           # while still reading correctly in review. Widening this to `.*` is
           # strictly worse than the loud failure it replaces.
-          allowed=(Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs)
+          allowed=(Cargo.toml Cargo.lock "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml" "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs)
           # Escape the dots so `config.rs` cannot also match `configXrs`; the
           # crate directory names themselves carry no regex metacharacters.
           escaped="$(printf '%s\n' "${allowed[@]}" | sed 's/\./\\./g' | paste -sd '|' -)"
@@ -239,11 +258,14 @@ jobs:
             exit 1
           fi
           git add "${allowed[@]}"
-          # Name only what actually changed; the three fix groups occur in any
+          # Name only what actually changed; the four fix groups occur in any
           # combination.
           parts=""
+          if ! git diff --cached --quiet -- Cargo.toml; then
+            parts="strip dead dependencies"
+          fi
           if ! git diff --cached --quiet -- "$SDK_DIR/Cargo.toml" "$TYPES_DIR/Cargo.toml"; then
-            parts="align workspace crate versions"
+            parts="${parts:+$parts and }align workspace crate versions"
           fi
           if ! git diff --cached --quiet -- "$SDK_DIR/src/config.rs" src/http.rs src/sdk_executor.rs; then
             parts="${parts:+$parts and }re-apply the SDK header patches"
