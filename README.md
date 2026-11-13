@@ -349,15 +349,14 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
   instances. `exec`, `shell` and `cp` exit 255; `logs`, `attach` and `port-forward`
   exit 19. With `shell --gpu`, `--replica` must be below `--replicas`, and this is
   checked before the create, so nothing is paid for.
-- **Replaced instances shift the numbers.** When the platform replaces a lost
-  instance, `instances` lists the replacement beside the old one, so a sandbox can
-  list more instances than its `replicas`. Each running instance it lists can be
-  reached by its number. A stopped one can still be read with `logs` and `attach`,
-  while `exec`, `shell`, `cp` and `port-forward` report that it stopped. The numbers
-  are positions in that list, though, so a replacement can change which instance a
-  number names. Check
-  `hedra-cli sandbox get --sandbox <SANDBOX>` before reaching a replica after one
-  was lost.
+- **A replacement keeps its replica's number.** When the platform replaces a lost
+  instance, the replacement takes the lost instance's number and `instances` lists
+  only the replacement, so `--replica N` keeps reaching replica N. The replaced
+  instance's own output can no longer be read: `logs --replica N` reads the
+  replacement's.
+- **A stopped replica stays listed.** When every instance of a replica has stopped,
+  `instances` still lists the one that stopped last. `logs` and `attach` read its
+  output, while `exec`, `shell`, `cp` and `port-forward` report that it stopped.
 
 ### Built-in commands
 
