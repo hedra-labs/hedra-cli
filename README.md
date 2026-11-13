@@ -351,9 +351,11 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
   checked before the create, so nothing is paid for.
 - **Replaced instances shift the numbers.** When the platform replaces a lost
   instance, `instances` lists the replacement beside the old one, so a sandbox can
-  list more instances than its `replicas`. Each listed instance can still be reached
-  by its number. The numbers are positions in that list, though, so a replacement
-  can change which instance a number names. Check
+  list more instances than its `replicas`. Each running instance it lists can be
+  reached by its number. A stopped one can still be read with `logs` and `attach`,
+  while `exec`, `shell`, `cp` and `port-forward` report that it stopped. The numbers
+  are positions in that list, though, so a replacement can change which instance a
+  number names. Check
   `hedra-cli sandbox get --sandbox <SANDBOX>` before reaching a replica after one
   was lost.
 
