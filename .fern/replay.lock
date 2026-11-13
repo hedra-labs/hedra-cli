@@ -366,14 +366,20 @@ generations:
     cli_version: unknown
     generator_versions:
       fernapi/fern-cli-generator: 0.42.3
-current_generation: 7999e13da0a6eded08ee6ffe0d0b28f4e6732ebf
+  - commit_sha: adc0da38856d261a4a4901dc1ab2ef331f943f09
+    tree_hash: 1fad582a98ede9026f4f587b9fe549f8e8188a28
+    timestamp: 2026-11-13T19:19:58.081Z
+    cli_version: unknown
+    generator_versions:
+      fernapi/fern-cli-generator: 0.42.3
+current_generation: adc0da38856d261a4a4901dc1ab2ef331f943f09
 patches:
   - id: patch-d871322c
     content_hash: sha256:b6528bbfadb1d6b6d24ac20f2778f2a5c31fb41469f6068a7ab40b19a8a0c5bf
     original_commit: d871322c8674e92853a9cf1aec8b2cab60beb341
     original_message: "test: prove what headers a server actually receives from the CLI (#53)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 7999e13da0a6eded08ee6ffe0d0b28f4e6732ebf
+    base_generation: adc0da38856d261a4a4901dc1ab2ef331f943f09
     files:
       - docs/superpowers/plans/2026-08-10-wire-contract-harness.md
       - docs/superpowers/specs/2026-08-10-wire-contract-harness-design.md
@@ -2223,7 +2229,7 @@ patches:
     original_commit: 9784c08053b70839c12fa328ed0a316a22cfdfa0
     original_message: "fix(auth): repair the auth and workspace regressions from PR #102 (#104)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 7999e13da0a6eded08ee6ffe0d0b28f4e6732ebf
+    base_generation: adc0da38856d261a4a4901dc1ab2ef331f943f09
     files:
       - src/auth/login.rs
     patch_content: |
@@ -22808,7 +22814,7 @@ patches:
     original_commit: 5a252bd92036891e2f68270f6791f9fd86dbfe21
     original_message: "feat(cli): accept bare asset ids and URLs in media-reference flags (#162)"
     original_author: Mihai Claudiu Toader <mihai@hedra.com>
-    base_generation: 7999e13da0a6eded08ee6ffe0d0b28f4e6732ebf
+    base_generation: adc0da38856d261a4a4901dc1ab2ef331f943f09
     files:
       - src/openapi/executor.rs
     patch_content: |
@@ -36471,7 +36477,7 @@ patches:
     original_commit: 380c492a37a2b77fbf40710088d4db87b92d2108
     original_message: Require an explicit sandbox lifetime in the CLI (#182)
     original_author: Preston Bourne <90055250+prestonbourne@users.noreply.github.com>
-    base_generation: 7999e13da0a6eded08ee6ffe0d0b28f4e6732ebf
+    base_generation: adc0da38856d261a4a4901dc1ab2ef331f943f09
     files:
       - cli/hedra-cli/openapi0.json
       - reference.md
