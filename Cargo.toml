@@ -53,6 +53,7 @@ bytes = "1"
 clap = { version = "4", features = ["derive", "string", "env"] }
 clap_complete = "4"
 clap_mangen = "0.2"
+hmac = "0.12"
 dotenvy = "0.15"
 futures-util = "0.3"
 httpdate = "1"
@@ -149,6 +150,10 @@ path = "hedra-cli-sdk"
 [profile.dist]
 inherits = "release"
 lto = "thin"
+
+[build-dependencies]
+serde = "1"
+serde_yaml = "0.9.34"
 
 [dev-dependencies]
 serial_test = "3.4.0"
