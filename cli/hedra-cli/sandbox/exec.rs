@@ -43,6 +43,8 @@ pub(crate) struct Exec {
     pub(crate) no_stdin: bool,
     pub(crate) env: HashMap<String, String>,
     pub(crate) term: Option<String>,
+    /// The replica the command runs in, from 0.
+    pub(crate) replica: i64,
 }
 
 /// How an `exec` ended.
@@ -120,8 +122,9 @@ async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec:
     }
     let name = target.as_str().to_string();
     let mut signals = Signals::new();
+    let replica = exec.replica;
     let id = tokio::select! {
-        r = names::resolve(api, target) => match r {
+        r = names::resolve_replica(api, target, replica) => match r {
             Ok(id) => id,
             Err(f) => return Ended::Failed(f),
         },
@@ -131,13 +134,16 @@ async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec:
         Minter {
             api,
             id: id.clone(),
+            replica,
         },
         transport.clone(),
     );
     let driven = drive(api, &session, &id, &name, &exec, &mut signals).await;
     match driven.ended {
         Ended::Failed(f) if f.class == Class::ConnectionLost => {
-            match lost_unless_signalled(api, &id, driven.status.as_ref(), &mut signals).await {
+            match lost_unless_signalled(api, &id, replica, driven.status.as_ref(), &mut signals)
+                .await
+            {
                 Ok(f) => Ended::Failed(f),
                 Err(sig) => Ended::Signal(sig),
             }
@@ -149,12 +155,13 @@ async fn run_inner(api: &Api, transport: TransportConfig, target: &Target, exec:
 /// Opens an `Exec` call on `session` for `exec`, `shell` and `cp`: the
 /// retry lines and, under `--debug`, the broker's lines on stderr; a
 /// refusal read and classed; and a signal answered throughout, the read
-/// that explains a refusal included.
+/// that explains a refusal included. `replica` is the one `session` mints for.
 pub(crate) async fn open_call(
     api: &Api,
     session: &Session<Minter<'_>>,
     id: &str,
     name: &str,
+    replica: i64,
     signals: &mut Signals,
 ) -> Result<Duplex<ExecClientFrame, ExecServerFrame>, Ended> {
     // The proxy only when the broker does not bypass it.
@@ -182,7 +189,7 @@ pub(crate) async fn open_call(
     };
     let proxy = proxy();
     Err(tokio::select! {
-        f = stream::open_failure(api, id, name, Needs::Exec, proxy.as_deref(), e) => {
+        f = stream::open_failure(api, id, name, replica, Needs::Exec, proxy.as_deref(), e) => {
             Ended::Failed(f)
         }
         sig = signals.next() => Ended::Signal(sig),
@@ -194,11 +201,12 @@ pub(crate) async fn open_call(
 pub(crate) async fn lost_unless_signalled(
     api: &Api,
     id: &str,
+    replica: i64,
     status: Option<&BrokerStatus>,
     signals: &mut Signals,
 ) -> Result<Failure, Sig> {
     tokio::select! {
-        f = lost(api, id, status) => Ok(f),
+        f = lost(api, id, replica, status) => Ok(f),
         sig = signals.next() => Err(sig),
     }
 }
@@ -212,7 +220,7 @@ pub(crate) async fn drive(
     exec: &Exec,
     signals: &mut Signals,
 ) -> Driven {
-    let call = match open_call(api, session, id, name, signals).await {
+    let call = match open_call(api, session, id, name, exec.replica, signals).await {
         Ok(call) => call,
         Err(ended) => return Driven::before_start(ended),
     };
@@ -499,9 +507,15 @@ fn start_frame(start: ExecStart) -> Result<ExecClientFrame, Failure> {
     Ok(f)
 }
 
-/// The Connection lost failure, after a fresh read of the sandbox.
-pub(crate) async fn lost(api: &Api, id: &str, status: Option<&BrokerStatus>) -> Failure {
-    let detail = stream::lost_detail(api, id).await;
+/// The Connection lost failure, after a fresh read of the sandbox, judged by
+/// `replica`.
+pub(crate) async fn lost(
+    api: &Api,
+    id: &str,
+    replica: i64,
+    status: Option<&BrokerStatus>,
+) -> Failure {
+    let detail = stream::lost_detail(api, id, replica).await;
     let mut f = Failure::new(
         Class::ConnectionLost,
         format!(

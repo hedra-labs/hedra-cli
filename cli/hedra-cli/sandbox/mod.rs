@@ -80,6 +80,28 @@ fn sandbox_arg() -> Arg {
         .help("The sandbox's name, or its `sandbox_` id")
 }
 
+/// `--replica N`: which instance of a sandbox with several replicas a verb
+/// reaches. Every verb reached replica 0 before the flag, and still does.
+fn replica_arg() -> Arg {
+    Arg::new("replica")
+        .long("replica")
+        .value_name("N")
+        .value_parser(clap::value_parser!(i64).range(0..))
+        .default_value("0")
+        .help(
+            "The replica to reach, from 0; `hedra-cli sandbox get --sandbox <SANDBOX>` lists them",
+        )
+}
+
+/// `--replica`'s value: 0 when the command has none.
+fn replica(m: &ArgMatches) -> i64 {
+    m.try_get_one::<i64>("replica")
+        .ok()
+        .flatten()
+        .copied()
+        .unwrap_or(0)
+}
+
 fn term_arg() -> Arg {
     Arg::new("term")
         .long("term")
@@ -115,6 +137,7 @@ fn exec_command() -> Command {
                 .help("An environment variable for the command; repeatable"),
         )
         .arg(term_arg())
+        .arg(replica_arg())
         .arg(
             Arg::new("command")
                 .value_name("COMMAND")
@@ -152,8 +175,23 @@ fn shell_command() -> Command {
                 .requires("gpu")
                 .help("With --gpu: stop the sandbox this long after it is created, such as 8h; 24h by default"),
         )
+        .arg(
+            Arg::new("replicas")
+                .long("replicas")
+                .value_name("N")
+                .requires("gpu")
+                .value_parser(clap::value_parser!(i64).range(1..=MAX_REPLICAS))
+                .help("With --gpu: how many instances to create, at most your workspace's sandbox quota; 1 by default. Every one stops with the shell"),
+        )
         .arg(term_arg())
+        .arg(replica_arg().help(
+            "The replica to reach, from 0; with --gpu, below --replicas, else \
+             `hedra-cli sandbox get --sandbox <SANDBOX>` lists them",
+        ))
 }
+
+/// The most replicas the create route takes.
+const MAX_REPLICAS: i64 = 64;
 
 fn logs_command() -> Command {
     Command::new("logs")
@@ -167,6 +205,7 @@ fn logs_command() -> Command {
                 .action(ArgAction::SetTrue)
                 .help("Keep printing new output until Ctrl-C, through the sandbox's stop"),
         )
+        .arg(replica_arg())
 }
 
 fn attach_command() -> Command {
@@ -174,6 +213,7 @@ fn attach_command() -> Command {
         .about("Follow a sandbox's main process output; the same as logs -f")
         .after_long_help(EXIT_CODES)
         .arg(sandbox_arg())
+        .arg(replica_arg())
 }
 
 fn cp_command() -> Command {
@@ -211,6 +251,7 @@ fn cp_command() -> Command {
                 .value_parser(clap::value_parser!(std::ffi::OsString))
                 .help("A local path, or <SANDBOX>:<PATH>"),
         )
+        .arg(replica_arg())
 }
 
 fn port_forward_command() -> Command {
@@ -226,6 +267,7 @@ fn port_forward_command() -> Command {
                     "The local and sandbox ports, or one port for both; local 0 picks a free one",
                 ),
         )
+        .arg(replica_arg())
 }
 
 /// A verb's handler: the verb, then its exit code.
@@ -281,6 +323,7 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
                         transport,
                         arg("source"),
                         arg("destination"),
+                        replica(m),
                         json_errors,
                     ))
                 }),
@@ -294,7 +337,14 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
                 stream::transport_config(ctx.http_config()).map(|transport| (t, transport))
             }) {
                 Ok((t, transport)) => unwinding(json_errors, || {
-                    run_async(forward::run(api, transport, &t, &ports, json_errors))
+                    run_async(forward::run(
+                        api,
+                        transport,
+                        &t,
+                        &ports,
+                        replica(m),
+                        json_errors,
+                    ))
                 }),
                 Err(f) => {
                     let code = f.class.code();
@@ -308,7 +358,14 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
                 stream::transport_config(ctx.http_config()).map(|transport| (t, transport))
             }) {
                 Ok((t, transport)) => unwinding(json_errors, || {
-                    run_async(logs::run(&api, transport, &t, follow, json_errors))
+                    run_async(logs::run(
+                        &api,
+                        transport,
+                        &t,
+                        follow,
+                        replica(m),
+                        json_errors,
+                    ))
                 }),
                 Err(f) => {
                     let code = f.class.code();
@@ -383,6 +440,7 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
             if let Some(raw) = m.get_one::<String>("max-duration") {
                 render::parse_duration(raw).map_err(Failure::rejected)?;
             }
+            check_shell_replica(m)?;
         }
     }
     if verb == "exec" {
@@ -424,6 +482,8 @@ fn gpu_shell_args(
             .clone(),
         ttl_seconds,
         term: m.get_one::<String>("term").cloned(),
+        replicas: m.get_one::<i64>("replicas").copied(),
+        replica: check_shell_replica(m)?,
     };
     let transport = stream::transport_config(ctx.http_config())?;
     // With a bypass list the other verbs refuse an unusable proxy once the
@@ -435,6 +495,21 @@ fn gpu_shell_args(
             .map_err(|e| Failure::rejected(error::escape_controls(&e.to_string())))?;
     }
     Ok((shell, transport))
+}
+
+/// `shell --gpu`'s `--replica`, refused before the create unless it is below
+/// `--replicas`, so no sandbox is paid for that the shell cannot open in.
+fn check_shell_replica(m: &ArgMatches) -> Result<i64, Failure> {
+    let replicas = m.get_one::<i64>("replicas").copied().unwrap_or(1);
+    let replica = replica(m);
+    if replica >= replicas {
+        return Err(Failure::rejected(format!(
+            "--replica {replica} is not among the {replicas} replica{} --gpu creates; \
+             they are numbered from 0, so raise --replicas or lower --replica.",
+            if replicas == 1 { "" } else { "s" }
+        )));
+    }
+    Ok(replica)
 }
 
 /// The broker host the session route names, so `shell --gpu` can tell before
@@ -488,6 +563,7 @@ fn stream_verb(
             no_stdin: false,
             env: HashMap::new(),
             term,
+            replica: replica(m),
         }
     } else {
         exec::Exec {
@@ -501,6 +577,7 @@ fn stream_verb(
             no_stdin: m.get_flag("no-stdin"),
             env: exec_env(m)?,
             term,
+            replica: replica(m),
         }
     };
     let transport = stream::transport_config(ctx.http_config())?;
@@ -587,10 +664,18 @@ const PRE_CREATE_READ: std::time::Duration = std::time::Duration::from_secs(5);
 
 /// The warnings from the two reads before `shell --gpu`'s create: on any
 /// failure or after `read`, a read's line is skipped and the create goes
-/// ahead.
-async fn warnings_before_create(api: &Api, gpu: &str, read: std::time::Duration) -> Vec<String> {
+/// ahead. The quota counts every one of the `replicas` instances' GPUs.
+async fn warnings_before_create(
+    api: &Api,
+    gpu: &str,
+    replicas: i64,
+    read: std::time::Duration,
+) -> Vec<String> {
     let (model, count) = gpu.split_once(':').unwrap_or((gpu, "1"));
-    let count: i64 = count.parse().unwrap_or(1);
+    let count: i64 = count
+        .parse::<i64>()
+        .unwrap_or(1)
+        .saturating_mul(replicas.max(1));
     let (gpus, quota) = tokio::join!(
         attempt(read, api.client.gpus(None)),
         attempt(read, api.client.quota(None)),
@@ -751,6 +836,78 @@ mod tests {
         assert!(parse(&["train", "--max-duration", "8h"]).is_err());
     }
 
+    /// Every stream verb takes `--replica N`, replica 0 by default, and says
+    /// so in its help; a negative replica is a usage error.
+    #[test]
+    fn every_stream_verb_takes_a_replica_defaulting_to_zero() {
+        let args: [(&str, &[&str]); 6] = [
+            ("exec", &["train", "--", "true"]),
+            ("shell", &["train"]),
+            ("logs", &["train"]),
+            ("attach", &["train"]),
+            ("cp", &["./a", "train:/b"]),
+            ("port-forward", &["train", "8080"]),
+        ];
+        for (command, (verb, rest)) in commands().into_iter().map(|(c, _)| c).zip(args) {
+            assert_eq!(command.get_name(), verb);
+            let parse = |extra: &[&str]| {
+                command.clone().try_get_matches_from(
+                    std::iter::once(verb)
+                        .chain(extra.iter().copied())
+                        .chain(rest.iter().copied()),
+                )
+            };
+            assert_eq!(replica(&parse(&[]).unwrap()), 0, "{verb}");
+            assert_eq!(replica(&parse(&["--replica", "3"]).unwrap()), 3, "{verb}");
+            assert!(parse(&["--replica", "-1"]).is_err(), "{verb}");
+            assert!(parse(&["--replica", "x"]).is_err(), "{verb}");
+            let help = command.clone().render_long_help().to_string();
+            assert!(help.contains("--replica <N>"), "{verb}: {help}");
+            assert!(
+                help.contains("The replica to reach, from 0"),
+                "{verb}: {help}"
+            );
+        }
+    }
+
+    #[test]
+    fn shell_takes_replicas_only_with_gpu_and_a_replica_below_it() {
+        let parse = |args: &[&str]| {
+            shell_command()
+                .try_get_matches_from(std::iter::once("shell").chain(args.iter().copied()))
+        };
+        let gpu = ["--gpu", "h100:1", "--image", "i"];
+        assert!(parse(&["train", "--replicas", "2"]).is_err());
+        let with = |extra: &[&str]| parse(&[&gpu[..], extra].concat()).unwrap();
+        assert_eq!(with(&[]).get_one::<i64>("replicas"), None);
+        assert_eq!(
+            with(&["--replicas", "2"]).get_one::<i64>("replicas"),
+            Some(&2)
+        );
+        for bad in ["0", "65", "-1"] {
+            assert!(
+                parse(&[&gpu[..], &["--replicas", bad]].concat()).is_err(),
+                "{bad}"
+            );
+        }
+        assert_eq!(check_shell_replica(&with(&[])).unwrap(), 0);
+        assert_eq!(
+            check_shell_replica(&with(&["--replicas", "2", "--replica", "1"])).unwrap(),
+            1
+        );
+        let f = check_shell_replica(&with(&["--replica", "1"])).unwrap_err();
+        assert_eq!(f.class, Class::Rejected);
+        assert!(
+            f.message.contains("the 1 replica --gpu creates"),
+            "{}",
+            f.message
+        );
+        let f = check_shell_replica(&with(&["--replicas", "2", "--replica", "2"])).unwrap_err();
+        assert!(f.message.contains("the 2 replicas"), "{}", f.message);
+        let help = shell_command().render_long_help().to_string();
+        assert!(help.contains("--replicas <N>"), "{help}");
+    }
+
     #[test]
     fn exec_refuses_an_env_pair_without_a_key() {
         let m = exec_command()
@@ -795,7 +952,7 @@ mod tests {
         async fn prompt_reads_give_both_warnings() {
             let server = server(Duration::ZERO).await;
             let api = Api::for_tests(&server.uri());
-            let lines = warnings_before_create(&api, "h100:1", Duration::from_secs(5)).await;
+            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_secs(5)).await;
             assert_eq!(lines.len(), 2, "{lines:?}");
             assert!(lines[0].contains("No h100 is free"), "{lines:?}");
             assert!(lines[1].contains("0 GPUs left"), "{lines:?}");
@@ -806,9 +963,47 @@ mod tests {
             let server = server(Duration::from_secs(3)).await;
             let api = Api::for_tests(&server.uri());
             let started = Instant::now();
-            let lines = warnings_before_create(&api, "h100:1", Duration::from_millis(200)).await;
+            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_millis(200)).await;
             assert!(lines.is_empty(), "{lines:?}");
             assert!(started.elapsed() < Duration::from_secs(1));
         }
+
+        /// The quota counts every replica's GPUs: two left holds one
+        /// two-GPU instance, but not two of them.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn the_quota_warning_counts_every_replica() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/sandboxes/quota"))
+                .respond_with(
+                    ResponseTemplate::new(200).set_body_json(json!({"gpu_quota_remaining": 2})),
+                )
+                .mount(&server)
+                .await;
+            let api = Api::for_tests(&server.uri());
+            let read = Duration::from_secs(5);
+            assert!(warnings_before_create(&api, "h100:2", 1, read)
+                .await
+                .is_empty());
+            let lines = warnings_before_create(&api, "h100:1", 4, read).await;
+            assert_eq!(lines.len(), 1, "{lines:?}");
+            assert!(lines[0].contains("2 GPUs left"), "{lines:?}");
+            assert_eq!(
+                warnings_before_create(&api, "h100:2", 2, read).await.len(),
+                1
+            );
+        }
+    }
+
+    /// `--replicas`' range is the create route's, so a regeneration that
+    /// moves it fails here.
+    #[test]
+    fn max_replicas_is_the_create_routes_maximum() {
+        let spec: serde_json::Value =
+            serde_json::from_str(include_str!("../openapi0.json")).unwrap();
+        let replicas =
+            &spec["components"]["schemas"]["CreateSandboxRequest"]["properties"]["replicas"];
+        assert_eq!(replicas["maximum"], MAX_REPLICAS, "{replicas}");
+        assert_eq!(replicas["minimum"], 1, "{replicas}");
     }
 }

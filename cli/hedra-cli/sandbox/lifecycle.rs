@@ -241,8 +241,8 @@ pub(crate) enum Readiness {
     Failed(Failure),
 }
 
-/// A poll judged as `waiter` needs: a reader follows replica 0 alone, so
-/// another replica's trouble neither holds nor fails its wait.
+/// A poll judged as `waiter` needs: a reader follows its one replica alone,
+/// so another replica's trouble neither holds nor fails its wait.
 pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
     let name = &s.name;
     match s.status {
@@ -264,11 +264,11 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
     }
     let all = s.instances.as_deref().unwrap_or_default();
     let instances: Vec<_> = match waiter {
-        Waiter::Reader => all.iter().filter(|i| i.replica == 0).collect(),
+        Waiter::Reader(replica) => all.iter().filter(|i| i.replica == replica).collect(),
         Waiter::Stops => all.iter().collect(),
     };
     let needed = match waiter {
-        Waiter::Reader => 1,
+        Waiter::Reader(_) => 1,
         Waiter::Stops => s.replicas.max(1),
     };
     if let Some(failed) = instances
@@ -299,7 +299,7 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
             ),
         ));
     }
-    // Replica 0 first, whose output `logs` reads.
+    // Replica 0 first, whose output a plain `logs` reads.
     if let Some(stopped) = instances
         .iter()
         .filter(|i| matches!(i.status, SandboxInstanceStatus::Stopped))
@@ -324,15 +324,10 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
 /// one. A stopped instance is not always a command that exited: an idle or
 /// TTL stop reads the same.
 fn stopped_line(s: &Sandbox, stopped: &SandboxInstance) -> String {
-    let name = &s.name;
-    // `logs` reads replica 0 alone, so another replica's stop names `get`.
-    let (whose, step) = match stopped.replica {
-        0 => (format!("`{name}`'s instance"), super::stream::ended_step(s)),
-        n => (
-            format!("Replica {n} of `{name}`"),
-            super::stream::get_line(&s.id),
-        ),
-    };
+    // A replica that ran has output, which `logs --replica` reads; another
+    // that never ran names `get`, as the others may still be running.
+    let whose = super::stream::whose(&s.name, stopped.replica);
+    let step = super::stream::ended_step(s, stopped.replica);
     let reason = stopped
         .failure_reason
         .as_ref()
@@ -347,8 +342,8 @@ fn stopped_line(s: &Sandbox, stopped: &SandboxInstance) -> String {
 /// wait names.
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum Waiter {
-    /// A reader of the sandbox's output, who did not start it.
-    Reader,
+    /// A reader of one replica's output or sessions, who did not start it.
+    Reader(i64),
     /// A caller that stops the sandbox itself when the wait fails.
     Stops,
 }
@@ -436,7 +431,7 @@ pub(crate) async fn wait_ready_or_last(
         if Instant::now() >= deadline {
             let took = human_duration(started.elapsed().as_secs() as i64);
             let line = match waiter {
-                Waiter::Reader => format!(
+                Waiter::Reader(_) => format!(
                     "`{name}` is still starting after {took}. Check on it with `{}`.",
                     super::render::get_command(id)
                 ),
@@ -609,11 +604,50 @@ mod tests {
             None,
         );
         s.replicas = 2;
-        assert!(matches!(readiness(&s, Waiter::Reader), Readiness::Ready));
+        assert!(matches!(readiness(&s, Waiter::Reader(0)), Readiness::Ready));
         assert!(matches!(readiness(&s, Waiter::Stops), Readiness::Failed(_)));
+        // A reader of replica 1 is judged by replica 1 alone.
+        assert!(matches!(
+            readiness(&s, Waiter::Reader(1)),
+            Readiness::Failed(_)
+        ));
         s.instances.as_mut().unwrap()[1].status = SandboxInstanceStatus::Starting;
-        assert!(matches!(readiness(&s, Waiter::Reader), Readiness::Ready));
+        assert!(matches!(readiness(&s, Waiter::Reader(0)), Readiness::Ready));
         assert!(matches!(readiness(&s, Waiter::Stops), Readiness::Starting));
+        assert!(matches!(
+            readiness(&s, Waiter::Reader(1)),
+            Readiness::Starting
+        ));
+        s.instances.as_mut().unwrap()[1].status = SandboxInstanceStatus::Running;
+        s.instances.as_mut().unwrap()[0].status = SandboxInstanceStatus::Starting;
+        assert!(matches!(readiness(&s, Waiter::Reader(1)), Readiness::Ready));
+        assert!(matches!(
+            readiness(&s, Waiter::Reader(0)),
+            Readiness::Starting
+        ));
+    }
+
+    /// A reader of replica N whose replica stopped is pointed at that
+    /// replica's output; another replica's stop names `get`.
+    #[test]
+    fn a_readers_own_stopped_replica_names_its_logs() {
+        let mut s = sandbox(
+            "active",
+            json!([
+                {"replica": 0, "status": "running"},
+                {"replica": 1, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+            ]),
+            None,
+        );
+        s.replicas = 2;
+        let Readiness::Failed(f) = readiness(&s, Waiter::Reader(1)) else {
+            panic!("replica 1 stopped");
+        };
+        assert_eq!(
+            f.message,
+            "Replica 1 of `train` stopped before it was ready. \
+             Run `hedra-cli sandbox logs sandbox_1 --replica 1` for its output."
+        );
     }
 
     #[test]
@@ -700,7 +734,16 @@ mod tests {
             None,
         );
         both.replicas = 2;
+        // Replica 1 ran, then stopped: its own output is named.
+        let mut ran_1 = second.clone();
+        ran_1.instances.as_mut().unwrap()[1].started_at =
+            started.instances.as_ref().unwrap()[0].started_at;
         for (s, line) in [
+            (
+                ran_1,
+                "Replica 1 of `train` stopped before it was ready. Run `hedra-cli sandbox logs \
+                 sandbox_1 --replica 1` for its output.",
+            ),
             (
                 started,
                 "`train`'s instance stopped before it was ready. Run `hedra-cli sandbox logs \
@@ -1113,7 +1156,7 @@ mod tests {
             let api = Api::for_tests(&server.uri());
             // A reader is not told to stop the sandbox, nor a caller that
             // stops it itself.
-            for waiter in [Waiter::Reader, Waiter::Stops] {
+            for waiter in [Waiter::Reader(0), Waiter::Stops] {
                 let f = wait_ready(
                     &api,
                     "sandbox_1",

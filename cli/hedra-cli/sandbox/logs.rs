@@ -109,6 +109,7 @@ pub(crate) async fn run(
     transport: TransportConfig,
     target: &Target,
     follow: bool,
+    replica: i64,
     json_errors: bool,
 ) -> i32 {
     stream::ignore_sigpipe();
@@ -119,6 +120,7 @@ pub(crate) async fn run(
                 api,
                 transport,
                 name: target.as_str().to_string(),
+                replica,
                 follow,
                 out: Writer::spawn(out),
                 since: None,
@@ -165,6 +167,8 @@ struct Logs<'a> {
     api: &'a Api,
     transport: TransportConfig,
     name: String,
+    /// The replica whose output is read, from 0.
+    replica: i64,
     follow: bool,
     out: Writer,
     /// Where the next read resumes: just after the last chunk printed.
@@ -180,14 +184,14 @@ enum Phase {
     Stopped,
 }
 
-fn phase(s: &Sandbox) -> Phase {
+fn phase(s: &Sandbox, replica: i64) -> Phase {
     let instances = s.instances.as_deref().unwrap_or_default();
     match s.status {
         SandboxStatus::Failed => Phase::NeverRan,
         SandboxStatus::Ended if instances.is_empty() => Phase::NeverRan,
         SandboxStatus::Ended | SandboxStatus::Stopping => Phase::Stopped,
         SandboxStatus::Creating => Phase::Starting,
-        _ => match stream::replica0(s).map(|i| &i.status) {
+        _ => match stream::replica_at(s, replica).map(|i| &i.status) {
             None | Some(SandboxInstanceStatus::Starting) => Phase::Starting,
             Some(SandboxInstanceStatus::Running) => Phase::Running,
             Some(_) => Phase::Stopped,
@@ -211,6 +215,7 @@ impl Logs<'_> {
             Minter {
                 api: self.api,
                 id: id.clone(),
+                replica: self.replica,
             },
             self.transport.clone(),
         );
@@ -240,7 +245,7 @@ impl Logs<'_> {
                 match (read, waited.take()) {
                     (Ok(s), _) => s,
                     // After a failed start wait, a read that fails goes on
-                    // from the wait's last one, which saw replica 0 stop or
+                    // from the wait's last one, which saw the replica stop or
                     // never start, so a broken API does not hold the follow
                     // open.
                     (Err(e), Some(last)) if e.transient() => *last,
@@ -258,8 +263,15 @@ impl Logs<'_> {
                     (Err(e), _) => return Ended::Failed(e.failure(Some(&self.name))),
                 }
             };
+            // A replica the sandbox does not have is refused on the first
+            // read, before any stream opens.
+            if first {
+                if let Some(f) = stream::missing_replica(&s, &self.name, self.replica) {
+                    return Ended::Failed(f);
+                }
+            }
             first = false;
-            match phase(&s) {
+            match phase(&s, self.replica) {
                 Phase::NeverRan => {
                     let reason = render::stop_reason(&s)
                         .map(|r| format!(" ({})", escape_controls(&r)))
@@ -286,7 +298,7 @@ impl Logs<'_> {
                         &self.name,
                         Instant::now(),
                         &timing,
-                        lifecycle::Waiter::Reader,
+                        lifecycle::Waiter::Reader(self.replica),
                         // The create's seconds-to-ready line does not apply here.
                         &mut |line: &str| {
                             if !line.contains("after the create") {
@@ -296,17 +308,17 @@ impl Logs<'_> {
                     )
                     .await
                     {
-                        // Replica 0 still starting in the wait's last read
+                        // The replica still starting in the wait's last read
                         // ran out the budget, and a wait that read nothing
                         // ran it out or failed for good: either ends with
                         // the wait's failure.
                         // Otherwise the next pass reads the sandbox again,
                         // or goes on from the wait's last read when that
-                        // read fails for now, and follows replica 0 if it
+                        // read fails for now, and follows the replica if it
                         // runs again, or gives the line and exit 0 of a
                         // sandbox that stopped or never started, rather than
                         // the wait's line, which points back at `logs`.
-                        let last = w.last.as_deref().map(phase);
+                        let last = w.last.as_deref().map(|s| phase(s, self.replica));
                         if matches!(last, None | Some(Phase::Starting)) {
                             return Ended::Failed(w.failure);
                         }
@@ -397,6 +409,7 @@ impl Logs<'_> {
                             self.api,
                             &id,
                             &self.name,
+                            self.replica,
                             Needs::Read,
                             proxy().as_deref(),
                             e,
@@ -477,7 +490,7 @@ impl Logs<'_> {
                         let f = stream::broker_failure(&st, &self.name, Needs::Read, true);
                         if f.class == Class::ConnectionLost {
                             return Ended::Failed(
-                                super::exec::lost(self.api, &id, Some(&st)).await,
+                                super::exec::lost(self.api, &id, self.replica, Some(&st)).await,
                             );
                         }
                         return Ended::Failed(f);
@@ -585,7 +598,7 @@ impl Logs<'_> {
     /// ended.
     async fn stored_tail(&mut self, id: &str, s: &Sandbox) -> Ended {
         let since = self.since.map(rfc3339);
-        let stored = match self.api.logs(id, since.as_deref()).await {
+        let stored = match self.api.logs(id, self.replica, since.as_deref()).await {
             Ok(stored) => stored,
             Err(e)
                 if e.http()
@@ -617,8 +630,8 @@ impl Logs<'_> {
             ));
         }
         if self.follow {
-            let state = stream::state_line(s, &self.name);
-            match follow_step(s) {
+            let state = stream::state_line(s, &self.name, self.replica);
+            match follow_step(s, self.replica) {
                 Some(step) => stream::note(format_args!("{state} {step}")),
                 None => stream::note(format_args!("{state}")),
             }
@@ -697,26 +710,26 @@ enum Pumped {
 }
 
 /// The step after a follow's state line: funds for a sandbox stopped
-/// unpaid, and what replica 0's failure calls for when it never started.
+/// unpaid, and what `replica`'s failure calls for when it never started.
 /// None once it started, since its output is what was just printed, and
 /// for a sandbox that reads as running. An active sandbox is judged by its
 /// replica even when unpaid, as `port-forward` judges it.
-fn follow_step(s: &Sandbox) -> Option<String> {
+fn follow_step(s: &Sandbox, replica: i64) -> Option<String> {
     if s.status != SandboxStatus::Active && s.end_reason == Some(SandboxEndReason::Unpaid) {
-        return Some(stream::next_step(s));
+        return Some(stream::next_step(s, replica));
     }
-    let replica0 = stream::replica0(s);
-    if replica0.is_some_and(|i| i.started_at.is_some()) {
+    let instance = stream::replica_at(s, replica);
+    if instance.is_some_and(|i| i.started_at.is_some()) {
         return None;
     }
     let ended = s.status != SandboxStatus::Active
-        || replica0.is_some_and(|i| {
+        || instance.is_some_and(|i| {
             matches!(
                 i.status,
                 SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
             )
         });
-    ended.then(|| stream::ended_step(s))
+    ended.then(|| stream::ended_step(s, replica))
 }
 
 /// A mint that can never succeed again: the sandbox or its replica stopped.

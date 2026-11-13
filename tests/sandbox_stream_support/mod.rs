@@ -194,6 +194,50 @@ pub async fn mints(server: &MockServer, id: &str) -> usize {
         .len()
 }
 
+/// `request`'s `key` query parameter.
+pub fn query(request: &Request, key: &str) -> Option<String> {
+    request
+        .url
+        .query_pairs()
+        .find(|(k, _)| k == key)
+        .map(|(_, v)| v.into_owned())
+}
+
+/// The `replica` each session mint for `id` asked for, in order.
+pub async fn minted_replicas(server: &MockServer, id: &str) -> Vec<Option<String>> {
+    requests_to(server, "POST", &format!("/v3/sandboxes/{id}/session"))
+        .await
+        .iter()
+        .map(|r| query(r, "replica"))
+        .collect()
+}
+
+/// A sandbox of `replicas` replicas, `instances` its instances.
+pub fn replicated(id: &str, name: &str, status: &str, replicas: i64, instances: Value) -> Value {
+    let mut s = sandbox(id, name, status, instances);
+    s["replicas"] = json!(replicas);
+    s
+}
+
+/// Two running replicas.
+pub fn both_running() -> Value {
+    json!([
+        {"replica": 0, "status": "running"},
+        {"replica": 1, "status": "running"},
+    ])
+}
+
+/// A running two-replica sandbox `ID`, by id and as `box`, whose session
+/// route answers `broker`.
+pub async fn two_replica_sandbox(broker: &FakeBroker, instances: Value) -> MockServer {
+    let server = MockServer::start().await;
+    mount_session(&server, ID, broker).await;
+    let s = replicated(ID, "box", "active", 2, instances);
+    mount_sandbox(&server, ID, s.clone()).await;
+    mount_sandbox(&server, "box", s).await;
+    server
+}
+
 /// Answers in turn from `answers`, repeating the last.
 pub struct Sequence {
     answers: Vec<ResponseTemplate>,

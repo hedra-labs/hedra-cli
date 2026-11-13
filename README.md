@@ -21,6 +21,7 @@ The binary is `hedra-cli`. Every API resource is a subcommand (e.g. `hedra-cli j
   - [`webhooks`](#webhooks)
   - [`log-drains`](#log-drains)
   - [`workspaces`](#workspaces)
+  - [`sandbox`](#sandbox)
   - [Built-in commands](#built-in-commands)
 - [Global flags](#global-flags)
 - [Output formats](#output-formats)
@@ -301,6 +302,60 @@ post-login summary and `workspaces list` are the same view.
 browser login hinted at that workspace's organization and makes the freshly minted key
 active. Note that `HEDRA_API_KEY`, if set, shadows the keyring — the CLI warns when that
 would make the selected workspace not the one actually used.
+
+### `sandbox`
+
+GPU sandboxes. The control commands (`create`, `ls`, `get`, `stop`, `gpus`, `quota`,
+`events`, `secrets`, …) come from the API spec; [reference.md](reference.md) lists their
+flags. The stream verbs below are hand-written. Each one keeps a stream open to the
+sandbox through the sandbox broker. `SANDBOX` is a name or a `sandbox_` id.
+
+| Command | Description |
+|---------|-------------|
+| `hedra-cli sandbox exec <SANDBOX> [-t] [-n] [--env K=V] -- <COMMAND>…` | Run a command and relay its stdin, stdout, stderr and exit code |
+| `hedra-cli sandbox shell <SANDBOX>` | Open an interactive shell |
+| `hedra-cli sandbox shell --gpu <MODEL:COUNT> --image <REF> [--replicas N]` | Create a sandbox for one shell, and stop it when the shell ends |
+| `hedra-cli sandbox logs <SANDBOX> [-f]` | Print the main process's output; `-f` keeps following it |
+| `hedra-cli sandbox attach <SANDBOX>` | The same as `logs -f` |
+| `hedra-cli sandbox cp <SRC> <DST>` | Copy files in or out; one side is `<SANDBOX>:<PATH>` |
+| `hedra-cli sandbox port-forward <SANDBOX> <LOCAL:REMOTE>` | Forward a local port to a port in the sandbox until Ctrl-C |
+
+Each verb's `--help` lists its exit codes.
+
+#### Replicas
+
+A sandbox created with `replicas` greater than 1 runs one instance per replica, numbered
+from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`.
+
+- **Create with several replicas:** use `sandbox create --replicas N` (also accepted in
+  `--json '{"replicas": N, …}'`), or `sandbox shell --gpu … --replicas N`. The count is at
+  most your workspace's sandbox quota. `shell --gpu` waits for every replica to run, and
+  stops all of them when the shell ends.
+- **Reach one replica:** each stream verb takes `--replica N`, which defaults to 0.
+  `exec`, `shell`, `attach`, `cp`, `port-forward` and `logs` (including `-f` and the
+  stored copy it reads once the replica has stopped) all open their session on that
+  replica. They also judge whether the sandbox is ready by that replica's status, not
+  replica 0's:
+
+  ```bash
+  hedra-cli sandbox exec train --replica 1 -- nvidia-smi
+  hedra-cli sandbox logs -f train --replica 1
+  hedra-cli sandbox cp ./setup.sh train:/work/setup.sh --replica 1
+  ```
+
+- **A replica the sandbox does not have is refused before any stream opens,** and the
+  message says how many replicas the sandbox has. That means an `N` the sandbox does
+  not list and that is at or past both its `replicas` and its count of listed
+  instances. `exec`, `shell` and `cp` exit 255; `logs`, `attach` and `port-forward`
+  exit 19. With `shell --gpu`, `--replica` must be below `--replicas`, and this is
+  checked before the create, so nothing is paid for.
+- **Replaced instances shift the numbers.** When the platform replaces a lost
+  instance, `instances` lists the replacement beside the old one, so a sandbox can
+  list more instances than its `replicas`. Each listed instance can still be reached
+  by its number. The numbers are positions in that list, though, so a replacement
+  can change which instance a number names. Check
+  `hedra-cli sandbox get --sandbox <SANDBOX>` before reaching a replica after one
+  was lost.
 
 ### Built-in commands
 

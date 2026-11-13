@@ -545,6 +545,27 @@ fn create_sends_the_required_fields() {
     assert_eq!(body["image"], "ghcr.io/acme/trainer:1");
     assert_eq!(body["gpu"], "h100:1");
     assert!(body.get("accelerator").is_none(), "{body}");
+    // The count is the route's default unless asked for.
+    assert!(body.get("replicas").is_none(), "{body}");
+}
+
+/// `--replicas N` is a flag of the generated create, documented in its
+/// help, and sends `replicas` as a number; so does `--json`.
+#[test]
+fn create_sends_replicas_from_its_flag_and_from_json() {
+    let body = create(&["--replicas", "2"]).body();
+    assert_eq!(body["replicas"], 2);
+    let help = offline_with(&["sandbox", "create", "--help"], &[]);
+    let help = String::from_utf8_lossy(&help.stdout);
+    assert!(help.contains("--replicas <NUMBER>"), "{help}");
+    let json =
+        r#"{"name": "nightly", "image": "i", "gpu": "h100:1", "ttl_seconds": 900, "replicas": 3}"#;
+    let body = run(
+        &["sandbox", "create", "--json", json, "--format", "json"],
+        vec![ResponseTemplate::new(201).set_body_json(created_sandbox())],
+    )
+    .body();
+    assert_eq!(body["replicas"], 3);
 }
 
 fn idempotency_key(request: &Request) -> Option<String> {

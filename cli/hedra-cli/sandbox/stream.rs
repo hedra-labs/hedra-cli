@@ -25,17 +25,19 @@ const MINT_RETRY: Duration = Duration::from_secs(60);
 /// Between a mint's retries: the cap keeps several tries inside the minute.
 const MINT_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(8));
 
-/// Mints session JWTs for replica 0 of one sandbox through the v3 route.
+/// Mints session JWTs for one replica of one sandbox through the v3 route.
 pub(crate) struct Minter<'a> {
     pub(crate) api: &'a Api,
     pub(crate) id: String,
+    /// The replica the session reaches, from 0.
+    pub(crate) replica: i64,
 }
 
 impl SessionMinter for Minter<'_> {
     type Error = CallError;
 
     fn mint(&self) -> MintFuture<'_, CallError> {
-        Box::pin(mint(self.api, &self.id))
+        Box::pin(mint(self.api, &self.id, self.replica))
     }
 }
 
@@ -44,22 +46,26 @@ impl SessionMinter for Minter<'_> {
 pub(crate) struct OwnedMinter {
     pub(crate) api: std::sync::Arc<Api>,
     pub(crate) id: String,
+    /// The replica the session reaches, from 0.
+    pub(crate) replica: i64,
 }
 
 impl SessionMinter for OwnedMinter {
     type Error = CallError;
 
     fn mint(&self) -> MintFuture<'_, CallError> {
-        Box::pin(mint(&self.api, &self.id))
+        Box::pin(mint(&self.api, &self.id, self.replica))
     }
 }
 
-/// `POST /sandboxes/{id}/session`, retried on 408, 429, 5xx and transport
-/// errors for up to a minute; a second mint is harmless.
-async fn mint(api: &Api, id: &str) -> Result<Minted, CallError> {
+/// `POST /sandboxes/{id}/session?replica=N`, retried on 408, 429, 5xx and
+/// transport errors for up to a minute; a second mint is harmless.
+async fn mint(api: &Api, id: &str, replica: i64) -> Result<Minted, CallError> {
     let deadline = Instant::now() + MINT_RETRY;
     let mut backoff = MINT_BACKOFF;
-    let request = SessionQueryRequest { replica: Some(0) };
+    let request = SessionQueryRequest {
+        replica: Some(replica),
+    };
     loop {
         match attempt(ATTEMPT, api.client.session(id, &request, None)).await {
             Ok(session) => {
@@ -273,11 +279,13 @@ fn not_connected_line(name: &str, id: &str) -> String {
 
 /// A failure to open a call, classed for its exit code. A mint refused 404,
 /// or 400 FAILED_PRECONDITION, for a sandbox just resolved reads the sandbox
-/// and reports its state, unless a 400's sandbox still reads active.
+/// and reports its state, unless a 400's sandbox still reads active. An
+/// active sandbox is judged by `replica`, the one the session was for.
 pub(crate) async fn open_failure(
     api: &Api,
     id: &str,
     name: &str,
+    replica: i64,
     needs: Needs,
     proxy: Option<&str>,
     e: OpenError<CallError>,
@@ -347,19 +355,22 @@ pub(crate) async fn open_failure(
             // an active sandbox is judged by its replica, as `not_running`
             // judges it.
             if s.status != SandboxStatus::Active {
-                return Failure::new(Class::NotReady, state_line(&s, name)).then(next_step(&s));
+                return Failure::new(Class::NotReady, state_line(&s, name, replica))
+                    .then(next_step(&s, replica));
             }
-            match (exited_line(&s, name), precondition) {
+            match (exited_line(&s, name, replica), precondition) {
                 // The route's message already says the instance stopped, so
                 // only a failure reason adds to it.
-                (Some(_), true) if replica0(&s).is_some_and(|i| i.failure_reason.is_none()) => {
-                    e.failure(Some(name)).then(ended_step(&s))
+                (Some(_), true)
+                    if replica_at(&s, replica).is_some_and(|i| i.failure_reason.is_none()) =>
+                {
+                    e.failure(Some(name)).then(ended_step(&s, replica))
                 }
                 (Some(exited), true) => e.failure(Some(name)).then(exited),
                 (Some(exited), false) => Failure::new(Class::NotReady, exited),
                 (None, true) => e.failure(Some(name)).then(get_line(id)),
                 (None, false) => {
-                    Failure::new(Class::NotReady, state_line(&s, name)).then(get_line(id))
+                    Failure::new(Class::NotReady, state_line(&s, name, replica)).then(get_line(id))
                 }
             }
         }
@@ -367,40 +378,101 @@ pub(crate) async fn open_failure(
 }
 
 /// The Not ready or stopped (13) failure for a sandbox read as not running:
-/// stopping, ended, failed, or active with replica 0 stopped or failed. None
+/// stopping, ended, failed, or active with `replica` stopped or failed. None
 /// while it is still being created, or in a status hedra-cli does not know, or
-/// replica 0 is running, starting or missing: those may yet run. An active
+/// `replica` is running, starting or missing: those may yet run. An active
 /// sandbox whose lease was refused (`unpaid`) still runs until the refusal's
 /// grace ends, and a paid lease clears it, so it is judged by its replica.
-pub(crate) fn not_running(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<Failure> {
+pub(crate) fn not_running(
+    s: &hedra_cli_sdk::api::Sandbox,
+    name: &str,
+    replica: i64,
+) -> Option<Failure> {
     let stopped = matches!(
         s.status,
         SandboxStatus::Stopping | SandboxStatus::Ended | SandboxStatus::Failed
     );
     if stopped {
-        return Some(Failure::new(Class::NotReady, state_line(s, name)).then(next_step(s)));
+        return Some(
+            Failure::new(Class::NotReady, state_line(s, name, replica)).then(next_step(s, replica)),
+        );
     }
     if s.status != SandboxStatus::Active {
         return None;
     }
-    exited_line(s, name).map(|exited| Failure::new(Class::NotReady, exited))
+    exited_line(s, name, replica).map(|exited| Failure::new(Class::NotReady, exited))
 }
 
-/// What an active sandbox's stopped replica 0 means, then the next step.
-/// None unless the read shows replica 0 stopped or failed: a replica
+/// The refusal for a replica `s` does not have, before any stream opens: one
+/// past every instance the read lists and at or past its `replicas`, as the
+/// session route bounds `replica` by the instances it lists. An instance the
+/// platform started to replace a lost one is listed beside it, so a sandbox
+/// can list more instances than its `replicas`, and each is reachable. One
+/// under `replicas` but not listed yet may still be placed, and the verbs
+/// wait for it as for one starting. Replica 0, which every sandbox has and
+/// every verb reached before `--replica`, is never refused here.
+pub(crate) fn missing_replica(
+    s: &hedra_cli_sdk::api::Sandbox,
+    name: &str,
+    replica: i64,
+) -> Option<Failure> {
+    let listed = s.instances.as_deref().unwrap_or_default();
+    if replica == 0 || listed.iter().any(|i| i.replica == replica) {
+        return None;
+    }
+    let replicas = s.replicas.max(1);
+    let count = listed.len() as i64;
+    if replica < replicas.max(count) {
+        return None;
+    }
+    let range = |n: i64| match n {
+        1 => "replica 0".to_string(),
+        n => format!("0 to {}", n - 1),
+    };
+    let has = if count > replicas {
+        format!(
+            "it has {replicas} replica{} and lists {count} instances, {}",
+            if replicas == 1 { "" } else { "s" },
+            range(count)
+        )
+    } else {
+        format!(
+            "it has {replicas} replica{}, {}",
+            if replicas == 1 { "" } else { "s" },
+            range(replicas)
+        )
+    };
+    Some(Failure::rejected(escape_controls(&format!(
+        "`{name}` has no replica {replica}: {has}."
+    ))))
+}
+
+/// Who a line names for `replica`: the sandbox's instance for replica 0, as
+/// a one-replica sandbox reads, else that replica.
+pub(crate) fn whose(name: &str, replica: i64) -> String {
+    match replica {
+        0 => format!("`{name}`'s instance"),
+        n => format!("Replica {n} of `{name}`"),
+    }
+}
+
+/// What an active sandbox's stopped `replica` means, then the next step.
+/// None unless the read shows that replica stopped or failed: a replica
 /// missing, starting or in a state hedra-cli does not know may yet run.
 /// A stopped replica is not always a command that exited: an idle or TTL
 /// stop reads the same while the sandbox is still active.
-fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<String> {
-    let instance = replica0(s).filter(|i| {
+fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str, replica: i64) -> Option<String> {
+    let instance = replica_at(s, replica).filter(|i| {
         matches!(
             i.status,
             SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
         )
     })?;
+    let whose = whose(name, replica);
+    let step = ended_step(s, replica);
     let line = match &instance.failure_reason {
-        Some(f) => format!("`{name}`'s instance stopped ({f}). {}", ended_step(s)),
-        None => format!("`{name}`'s instance stopped. {}", ended_step(s)),
+        Some(f) => format!("{whose} stopped ({f}). {step}"),
+        None => format!("{whose} stopped. {step}"),
     };
     Some(escape_controls(&line))
 }
@@ -409,7 +481,7 @@ fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> Option<String> {
 /// unpaid, a retry while it is still being created, and otherwise what
 /// `ended_step` names. Commands name the sandbox by id: once it ends, its
 /// name is free for a new sandbox.
-pub(crate) fn next_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
+pub(crate) fn next_step(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> String {
     if s.end_reason == Some(SandboxEndReason::Unpaid) {
         return format!(
             "Add funds to the workspace, then create another; `{}` lists the running ones.",
@@ -418,21 +490,28 @@ pub(crate) fn next_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
     }
     match s.status {
         SandboxStatus::Creating => check_line(&s.id),
-        SandboxStatus::Stopping | SandboxStatus::Ended | SandboxStatus::Failed => ended_step(s),
+        SandboxStatus::Stopping | SandboxStatus::Ended | SandboxStatus::Failed => {
+            ended_step(s, replica)
+        }
         _ => get_line(&s.id),
     }
 }
 
-/// The next step once replica 0 can run nothing more: its output when it
+/// The next step once `replica` can run nothing more: its output when it
 /// started, whatever ended it, since a started instance's start time is kept
 /// through any later stop or failure; otherwise what its failure calls for.
-pub(crate) fn ended_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
-    if replica0(s).is_some_and(|i| i.started_at.is_some()) {
-        return output_line(&s.id);
+pub(crate) fn ended_step(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> String {
+    if replica_at(s, replica).is_some_and(|i| i.started_at.is_some()) {
+        return output_line(&s.id, replica);
     }
-    // Replica 0's failure first, as the state line reads it; another
-    // replica's when replica 0 has none, so a full pool still says so.
-    let failure = replica0(s)
+    // Past replica 0, an active sandbox's other replicas may still run, so
+    // creating another is not the step.
+    if replica != 0 && s.status == SandboxStatus::Active {
+        return get_line(&s.id);
+    }
+    // That replica's failure first, as the state line reads it; another
+    // replica's when it has none, so a full pool still says so.
+    let failure = replica_at(s, replica)
         .and_then(|i| i.failure_reason.as_ref())
         .or_else(|| {
             s.instances
@@ -460,11 +539,12 @@ pub(crate) fn ended_step(s: &hedra_cli_sdk::api::Sandbox) -> String {
     }
 }
 
-/// "Run `hedra-cli sandbox logs <id>` for its output."
-fn output_line(id: &str) -> String {
+/// "Run `hedra-cli sandbox logs <id>` for its output", with `--replica N`
+/// past replica 0.
+fn output_line(id: &str, replica: i64) -> String {
     escape_controls(&format!(
         "Run `{}` for its output.",
-        render::logs_command(id)
+        render::logs_command(id, replica)
     ))
 }
 
@@ -497,24 +577,24 @@ pub(crate) fn get_line(id: &str) -> String {
     escape_controls(&format!("Check on it with `{}`.", render::get_command(id)))
 }
 
-/// "`<name>` is <status>.", with the stop reason or the replica's failure,
-/// or that its instance stopped when an active sandbox's replica 0 has, the
+/// "`<name>` is <status>.", with the stop reason or `replica`'s failure,
+/// or that its instance stopped when an active sandbox's `replica` has, the
 /// server's text escaped.
-pub(crate) fn state_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> String {
+pub(crate) fn state_line(s: &hedra_cli_sdk::api::Sandbox, name: &str, replica: i64) -> String {
     let line = match render::stop_reason(s) {
         Some(reason) => format!("`{name}` is {} ({reason}).", s.status),
-        None => match replica0(s).and_then(|i| i.failure_reason.as_ref()) {
-            Some(f) => format!("`{name}`'s instance stopped ({f})."),
+        None => match replica_at(s, replica).and_then(|i| i.failure_reason.as_ref()) {
+            Some(f) => format!("{} stopped ({f}).", whose(name, replica)),
             // An active sandbox reads as running without this.
             None if s.status == SandboxStatus::Active
-                && replica0(s).is_some_and(|i| {
+                && replica_at(s, replica).is_some_and(|i| {
                     matches!(
                         i.status,
                         SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
                     )
                 }) =>
             {
-                format!("`{name}`'s instance stopped.")
+                format!("{} stopped.", whose(name, replica))
             }
             None => format!("`{name}` is {}.", s.status),
         },
@@ -522,15 +602,17 @@ pub(crate) fn state_line(s: &hedra_cli_sdk::api::Sandbox, name: &str) -> String 
     escape_controls(&line)
 }
 
-pub(crate) fn replica0(
+/// The instance at `replica`, when the read lists it.
+pub(crate) fn replica_at(
     s: &hedra_cli_sdk::api::Sandbox,
+    replica: i64,
 ) -> Option<&hedra_cli_sdk::api::SandboxInstance> {
-    s.instances.iter().flatten().find(|i| i.replica == 0)
+    s.instances.iter().flatten().find(|i| i.replica == replica)
 }
 
 /// The Connection lost line's second sentence, from a fresh read of the
-/// sandbox.
-pub(crate) async fn lost_detail(api: &Api, id: &str) -> String {
+/// sandbox, judged by `replica`, the one the session was for.
+pub(crate) async fn lost_detail(api: &Api, id: &str, replica: i64) -> String {
     let Ok(s) = attempt(ATTEMPT, api.client.get(id, None)).await else {
         return "The sandbox is still running.".to_string();
     };
@@ -544,24 +626,28 @@ pub(crate) async fn lost_detail(api: &Api, id: &str) -> String {
             "The sandbox is stopping: {}.",
             reason.unwrap_or_else(|| "no reason given".into())
         ),
-        _ => match replica0(&s) {
-            Some(i)
-                if matches!(
-                    i.status,
-                    SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
-                ) =>
-            {
-                match &i.failure_reason {
-                    Some(f) => format!(
-                        "The sandbox's instance stopped ({}).",
-                        escape_controls(&f.to_string())
-                    ),
-                    None => "The sandbox's instance stopped.".to_string(),
-                }
-            }
-            _ => "The sandbox is still running.".to_string(),
-        },
+        _ => instance_stopped(&s, replica)
+            .unwrap_or_else(|| "The sandbox is still running.".to_string()),
     }
+}
+
+/// "The sandbox's instance stopped (<reason>)." when an active sandbox's
+/// `replica` has stopped or failed, naming the replica past 0.
+pub(crate) fn instance_stopped(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> Option<String> {
+    let i = replica_at(s, replica).filter(|i| {
+        matches!(
+            i.status,
+            SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
+        )
+    })?;
+    let whose = match replica {
+        0 => "The sandbox's instance".to_string(),
+        n => format!("The sandbox's replica {n}"),
+    };
+    Some(match &i.failure_reason {
+        Some(f) => format!("{whose} stopped ({}).", escape_controls(&f.to_string())),
+        None => format!("{whose} stopped."),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1540,6 +1626,7 @@ mod tests {
                     api,
                     "sandbox_1",
                     "t",
+                    0,
                     Needs::Exec,
                     proxy,
                     OpenError::Refused(s),
@@ -1662,32 +1749,32 @@ mod tests {
         // A stop with no failure may be an exit, an idle stop or a TTL stop.
         let s = active_with(replica("stopped", None, true));
         assert_eq!(
-            exited_line(&s, "box").unwrap(),
+            exited_line(&s, "box", 0).unwrap(),
             format!("`box`'s instance stopped. {OUTPUT}")
         );
         let s = active_with(replica("failed", Some("oom_killed"), true));
         assert_eq!(
-            exited_line(&s, "box").unwrap(),
+            exited_line(&s, "box", 0).unwrap(),
             format!("`box`'s instance stopped (oom_killed). {OUTPUT}")
         );
         // Lost with its node after it ran: the output is there.
         let s = active_with(replica("failed", Some("platform_error"), true));
         assert_eq!(
-            exited_line(&s, "box").unwrap(),
+            exited_line(&s, "box", 0).unwrap(),
             format!("`box`'s instance stopped (platform_error). {OUTPUT}")
         );
         let s = active_with(replica("failed", Some("evil\u{1b}]52;c;aGk=\u{7}"), true));
-        let line = exited_line(&s, "box").unwrap();
+        let line = exited_line(&s, "box", 0).unwrap();
         assert!(!line.contains('\x1b') && !line.contains('\x07'), "{line:?}");
         // An instance that never started has no output to read.
         let s = active_with(replica("failed", Some("image_pull_failed"), false));
         assert_eq!(
-            exited_line(&s, "box").unwrap(),
+            exited_line(&s, "box", 0).unwrap(),
             format!("`box`'s instance stopped (image_pull_failed). {ANOTHER}")
         );
         let s = active_with(replica("failed", Some("no_capacity"), false));
         assert_eq!(
-            exited_line(&s, "box").unwrap(),
+            exited_line(&s, "box", 0).unwrap(),
             format!("`box`'s instance stopped (no_capacity). {CAPACITY}")
         );
         // A read that shows replica 0 running, starting, missing or in a
@@ -1700,7 +1787,7 @@ mod tests {
             serde_json::json!(null),
         ] {
             assert_eq!(
-                exited_line(&active_with(instance.clone()), "box"),
+                exited_line(&active_with(instance.clone()), "box", 0),
                 None,
                 "{instance}"
             );
@@ -1759,7 +1846,7 @@ mod tests {
             (read("active", None, ran.clone()), get),
         ] {
             assert_eq!(
-                next_step(&s),
+                next_step(&s, 0),
                 want,
                 "{:?} {:?} {:?}",
                 s.status,
@@ -1776,7 +1863,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .push(serde_json::from_value(failed_1).unwrap());
-        assert_eq!(next_step(&s), OUTPUT);
+        assert_eq!(next_step(&s, 0), OUTPUT);
         // A replica 0 that never started beside a replica 1 the pool could
         // not place still names the GPUs.
         let mut s = read("ended", Some("instance_failed"), never.clone());
@@ -1786,7 +1873,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .push(serde_json::from_value(full_1).unwrap());
-        assert_eq!(next_step(&s), CAPACITY);
+        assert_eq!(next_step(&s, 0), CAPACITY);
         // `logs` reads replica 0, so another replica having started gives
         // it no output.
         let mut s = read("ended", Some("caller_stopped"), never.clone());
@@ -1796,21 +1883,20 @@ mod tests {
             .as_mut()
             .unwrap()
             .push(serde_json::from_value(ran_1).unwrap());
-        assert_eq!(next_step(&s), ANOTHER);
+        assert_eq!(next_step(&s, 0), ANOTHER);
         // Unpaid names funds, on a stopping and on an ended sandbox.
         for status in ["stopping", "ended"] {
-            let unpaid = next_step(&read(
-                status,
-                Some("unpaid"),
-                replica("stopped", None, true),
-            ));
+            let unpaid = next_step(
+                &read(status, Some("unpaid"), replica("stopped", None, true)),
+                0,
+            );
             assert!(unpaid.starts_with("Add funds"), "{status}: {unpaid}");
         }
         // A whole line, as `open_failure` builds it for a stopped sandbox:
         // the name as typed in the prose, the id in the command.
         let s = read("ended", Some("instance_failed"), no_capacity);
         assert_eq!(
-            format!("{} {}", state_line(&s, "x"), next_step(&s)),
+            format!("{} {}", state_line(&s, "x", 0), next_step(&s, 0)),
             format!("`x` is ended (instance_failed (no_capacity)). {CAPACITY}")
         );
     }
@@ -1823,9 +1909,9 @@ mod tests {
             serde_json::json!({"replica": 0, "status": "starting"}),
             serde_json::json!(null),
         ] {
-            assert_eq!(not_running(&active_with(instance), "box"), None);
+            assert_eq!(not_running(&active_with(instance), "box", 0), None);
         }
-        let f = not_running(&active_with(stopped.clone()), "box").unwrap();
+        let f = not_running(&active_with(stopped.clone()), "box", 0).unwrap();
         assert_eq!(f.class, Class::NotReady);
         assert_eq!(f.message, format!("`box`'s instance stopped. {OUTPUT}"));
         // A sandbox still being created, or in a status this build does not
@@ -1833,15 +1919,15 @@ mod tests {
         for status in ["creating", "paused"] {
             let mut s = active_with(stopped.clone());
             s.status = serde_json::from_value(serde_json::json!(status)).unwrap();
-            assert_eq!(not_running(&s, "box"), None, "{status}");
+            assert_eq!(not_running(&s, "box", 0), None, "{status}");
         }
         // An active sandbox whose lease was refused still runs.
         let mut unpaid = active_with(serde_json::json!({"replica": 0, "status": "running"}));
         unpaid.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::Unpaid);
-        assert_eq!(not_running(&unpaid, "box"), None);
+        assert_eq!(not_running(&unpaid, "box", 0), None);
         let mut stopped_unpaid = unpaid.clone();
         stopped_unpaid.status = SandboxStatus::Stopping;
-        assert!(not_running(&stopped_unpaid, "box")
+        assert!(not_running(&stopped_unpaid, "box", 0)
             .unwrap()
             .message
             .starts_with("`box` is stopping (unpaid). Add funds"));
@@ -1849,15 +1935,131 @@ mod tests {
         ended.status = SandboxStatus::Ended;
         ended.end_reason = Some(hedra_cli_sdk::api::SandboxEndReason::CallerStopped);
         assert_eq!(
-            not_running(&ended, "box").unwrap().message,
+            not_running(&ended, "box", 0).unwrap().message,
             format!("`box` is ended (caller_stopped). {OUTPUT}")
         );
         let mut failed = active_with(serde_json::json!(null));
         failed.status = SandboxStatus::Failed;
         assert_eq!(
-            not_running(&failed, "box").unwrap().message,
+            not_running(&failed, "box", 0).unwrap().message,
             format!("`box` is failed. {ANOTHER}")
         );
+    }
+
+    /// A two-replica active sandbox whose instances are `instances`.
+    fn two_replicas(instances: serde_json::Value) -> hedra_cli_sdk::api::Sandbox {
+        let mut s = active_with(serde_json::json!(null));
+        s.replicas = 2;
+        s.instances = serde_json::from_value(instances).unwrap();
+        s
+    }
+
+    #[test]
+    fn a_replica_the_sandbox_does_not_have_is_refused_naming_how_many_it_has() {
+        let s = two_replicas(serde_json::json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "running"},
+        ]));
+        assert_eq!(missing_replica(&s, "box", 0), None);
+        assert_eq!(missing_replica(&s, "box", 1), None);
+        let f = missing_replica(&s, "box", 2).unwrap();
+        assert_eq!(f.class, Class::Rejected);
+        assert_eq!(
+            f.message,
+            "`box` has no replica 2: it has 2 replicas, 0 to 1."
+        );
+        let one = active_with(serde_json::json!({"replica": 0, "status": "running"}));
+        assert_eq!(
+            missing_replica(&one, "box", 1).unwrap().message,
+            "`box` has no replica 1: it has 1 replica, replica 0."
+        );
+        // Under `replicas` but not listed, or listing none yet: it may still
+        // be placed, so it is not refused here.
+        let placing = two_replicas(serde_json::json!([{"replica": 0, "status": "running"}]));
+        assert_eq!(missing_replica(&placing, "box", 1), None);
+        assert_eq!(
+            missing_replica(&two_replicas(serde_json::json!(null)), "box", 1),
+            None
+        );
+        assert!(missing_replica(&placing, "box", 2).is_some());
+        // An instance started to replace a lost one is listed beside it, past
+        // `replicas`, and is reachable as the session route numbers it.
+        let replaced = two_replicas(serde_json::json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "failed", "failure_reason": "platform_error"},
+            {"replica": 2, "status": "running"},
+        ]));
+        assert_eq!(missing_replica(&replaced, "box", 2), None);
+        assert_eq!(
+            missing_replica(&replaced, "box", 3).unwrap().message,
+            "`box` has no replica 3: it has 2 replicas and lists 3 instances, 0 to 2."
+        );
+        // A read with no `replicas` still has replica 0.
+        let mut none = one.clone();
+        none.replicas = 0;
+        assert_eq!(
+            missing_replica(&none, "box", 1).unwrap().message,
+            "`box` has no replica 1: it has 1 replica, replica 0."
+        );
+        // Replica 0 is never refused, whatever the read lists.
+        assert_eq!(
+            missing_replica(
+                &two_replicas(serde_json::json!([{"replica": 1, "status": "running"}])),
+                "box",
+                0
+            ),
+            None
+        );
+    }
+
+    #[test]
+    fn a_sandbox_is_judged_by_the_replica_asked_for() {
+        let ran_1 = serde_json::json!({"replica": 1, "status": "stopped",
+                                       "started_at": "2026-11-03T12:01:00Z"});
+        let s = two_replicas(serde_json::json!([
+            {"replica": 0, "status": "running"},
+            ran_1,
+        ]));
+        // Replica 0 runs, so a session to it is not refused...
+        assert_eq!(not_running(&s, "box", 0), None);
+        // ...while replica 1 stopped, and its own output is named.
+        let f = not_running(&s, "box", 1).unwrap();
+        assert_eq!(f.class, Class::NotReady);
+        assert_eq!(
+            f.message,
+            "Replica 1 of `box` stopped. \
+             Run `hedra-cli sandbox logs sandbox_1 --replica 1` for its output."
+        );
+        assert_eq!(state_line(&s, "box", 1), "Replica 1 of `box` stopped.");
+        assert_eq!(state_line(&s, "box", 0), "`box` is active.");
+        assert_eq!(
+            instance_stopped(&s, 1).as_deref(),
+            Some("The sandbox's replica 1 stopped.")
+        );
+        assert_eq!(instance_stopped(&s, 0), None);
+        // The other way round: replica 0 stopped, replica 1 runs.
+        let s = two_replicas(serde_json::json!([
+            replica("failed", Some("oom_killed"), true),
+            {"replica": 1, "status": "running"},
+        ]));
+        assert_eq!(not_running(&s, "box", 1), None);
+        assert_eq!(
+            not_running(&s, "box", 0).unwrap().message,
+            format!("`box`'s instance stopped (oom_killed). {OUTPUT}")
+        );
+        // A replica past 0 that never ran, beside one still running, names
+        // `get`; once the sandbox has ended, another.
+        let mut s = two_replicas(serde_json::json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "failed", "failure_reason": "image_pull_failed"},
+        ]));
+        let get = "Check on it with `hedra-cli sandbox get --sandbox sandbox_1`.";
+        assert_eq!(
+            not_running(&s, "box", 1).unwrap().message,
+            format!("Replica 1 of `box` stopped (image_pull_failed). {get}")
+        );
+        s.status = SandboxStatus::Ended;
+        assert_eq!(ended_step(&s, 1), ANOTHER);
     }
 
     #[test]
@@ -1871,7 +2073,7 @@ mod tests {
             "billing": {"usd_per_hour": 2.5, "paid_usd": 0.0, "settled": false},
         }))
         .unwrap();
-        let line = state_line(&s, "box");
+        let line = state_line(&s, "box", 0);
         assert!(!line.contains('\x1b') && !line.contains('\x07'), "{line:?}");
         let f = broker_failure(
             &status_saying(

@@ -2,7 +2,7 @@
 
 use hedra_cli_sdk::api::Sandbox;
 
-use super::api::{attempt, Api, ATTEMPT};
+use super::api::{attempt, Api, CallError, ATTEMPT};
 use super::error::Failure;
 
 const ID_PREFIX: &str = "sandbox_";
@@ -82,6 +82,36 @@ pub(crate) async fn resolve(api: &Api, target: &Target) -> Result<String, Failur
     match target {
         Target::Id(id) => Ok(id.clone()),
         Target::Name(name) => Ok(resolve_name(api, name).await?.id),
+    }
+}
+
+/// [`resolve`] for a stream to `replica`. Past replica 0 the sandbox is read,
+/// an id too, and a replica it does not have is refused before any stream
+/// opens; replica 0, which every sandbox has, costs no read beyond a name's.
+/// An id's read that fails in a way a retry may get past, or whose answer
+/// this build cannot parse, goes on to the mint, which retries for a minute
+/// and whose route refuses a missing replica before any stream opens too.
+pub(crate) async fn resolve_replica(
+    api: &Api,
+    target: &Target,
+    replica: i64,
+) -> Result<String, Failure> {
+    if replica == 0 {
+        return resolve(api, target).await;
+    }
+    let s = match target {
+        Target::Name(name) => resolve_name(api, name).await?,
+        Target::Id(id) => match attempt(ATTEMPT, api.client.get(id, None)).await {
+            Ok(s) => s,
+            Err(e) if e.transient() || matches!(e, CallError::Unreadable(_)) => {
+                return Ok(id.clone())
+            }
+            Err(e) => return Err(e.failure(Some(id))),
+        },
+    };
+    match super::stream::missing_replica(&s, target.as_str(), replica) {
+        Some(f) => Err(f),
+        None => Ok(s.id),
     }
 }
 
