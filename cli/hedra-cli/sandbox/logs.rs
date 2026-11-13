@@ -284,7 +284,10 @@ impl Logs<'_> {
                 }
                 Phase::Stopped => return self.stored_tail(&id, &s).await,
                 Phase::Starting if !self.follow => {
-                    stream::note(format_args!("`{}` has no output yet.", self.name));
+                    stream::note(format_args!(
+                        "{} has no output yet.",
+                        stream::subject(&self.name, self.replica)
+                    ));
                     return Ended::Done;
                 }
                 Phase::Starting => {

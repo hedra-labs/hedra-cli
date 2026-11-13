@@ -447,6 +447,16 @@ pub(crate) fn missing_replica(
     ))))
 }
 
+/// What a line about the sandbox names for `replica`: the sandbox for
+/// replica 0, as the line read before `--replica`, else that replica, since
+/// the others may be in another state.
+pub(crate) fn subject(name: &str, replica: i64) -> String {
+    match replica {
+        0 => format!("`{name}`"),
+        n => format!("Replica {n} of `{name}`"),
+    }
+}
+
 /// Who a line names for `replica`: the sandbox's instance for replica 0, as
 /// a one-replica sandbox reads, else that replica.
 pub(crate) fn whose(name: &str, replica: i64) -> String {
