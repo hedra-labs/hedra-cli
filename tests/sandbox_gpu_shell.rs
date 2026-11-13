@@ -1119,3 +1119,128 @@ async fn keys_typed_during_the_stop_are_left_for_the_local_shell() {
         "hedra-cli read the line typed after the shell ended"
     );
 }
+
+/// `--replicas 2` asks the create for two instances, and `--replica 1` opens
+/// the shell in the second; the shell's end stops the sandbox, both of them.
+#[tokio::test]
+async fn replicas_reach_the_create_and_the_shell_opens_in_its_replica() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(3)]));
+    let get = ResponseTemplate::new(200).set_body_json(replicated(
+        GPU_ID,
+        "shell-aaaaaa",
+        "active",
+        2,
+        both_running(),
+    ));
+    let stopped = ResponseTemplate::new(200).set_body_json(replicated(
+        GPU_ID,
+        "shell-aaaaaa",
+        "ended",
+        2,
+        json!([
+            {"replica": 0, "status": "stopped"},
+            {"replica": 1, "status": "stopped"},
+        ]),
+    ));
+    let server = api_with(&broker, 0, get, stopped).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let mut args = ARGS.to_vec();
+    args.extend(["2h", "--replicas", "2", "--replica", "1"]);
+    let child = pty.spawn(&run.command(&args));
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 3, "{}", out.stderr);
+    assert!(pty.cooked(), "the terminal was left raw");
+    let sent = creates(&server).await;
+    assert_eq!(sent.len(), 1);
+    assert_eq!(sent[0]["replicas"], 2);
+    assert_eq!(minted_replicas(&server, GPU_ID).await, [Some("1".into())]);
+    assert_eq!(stops(&server).await, 1);
+}
+
+/// A shell in replica 1 whose stream drops keeps the sandbox, and the line
+/// names replica 1: the reopen command takes `--replica 1` while it runs,
+/// and once replica 1 has stopped, the line says so though replica 0 runs.
+#[tokio::test]
+async fn a_dropped_shell_in_a_replica_is_kept_and_named_by_its_replica() {
+    let two = |one: &str| {
+        ResponseTemplate::new(200).set_body_json(replicated(
+            GPU_ID,
+            "shell-aaaaaa",
+            "active",
+            2,
+            json!([
+                {"replica": 0, "status": "running"},
+                {"replica": 1, "status": one},
+            ]),
+        ))
+    };
+    for (after, want) in [
+        ("running", "--replica 1`, or stop it with"),
+        ("stopped", "The sandbox's replica 1 stopped."),
+    ] {
+        let broker = FakeBroker::start();
+        broker.push_exec(ExecScript::admit([Step::Start, Step::Close]));
+        let get = Sequence::new(vec![two("running"), two(after)]);
+        let server = api_with(&broker, 0, get, ResponseTemplate::new(500)).await;
+        let run = Run::new(&server);
+        let pty = Pty::open(24, 80);
+        let mut args = ARGS.to_vec();
+        args.extend(["2h", "--replicas", "2", "--replica", "1"]);
+        let child = pty.spawn(&run.command(&args));
+        let out = child.finish(WAIT);
+        assert_eq!(out.code, 255, "{after}: {}", out.stderr);
+        let line = class_line(&out.stderr).unwrap_or_default();
+        assert!(
+            line.starts_with("hedra-cli: Connection lost (18): "),
+            "{after}: {line}"
+        );
+        assert!(line.contains(want), "{after}: {line}");
+        assert_eq!(stops(&server).await, 0, "{after}");
+    }
+}
+
+/// Without `--replicas` the create leaves the count to the route.
+#[tokio::test]
+async fn without_replicas_the_create_sends_none() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+    let server = api(&broker, 0).await;
+    let out = on_pty(&Run::new(&server), |_| {});
+    assert_eq!(out.code, 0, "{}", out.stderr);
+    let sent = creates(&server).await;
+    assert!(sent[0].get("replicas").is_none(), "{}", sent[0]);
+    assert_eq!(minted_replicas(&server, GPU_ID).await, [Some("0".into())]);
+}
+
+/// A `--replica` the create would not make is refused before any request,
+/// so nothing is paid for, `--dry-run` included.
+#[tokio::test]
+async fn a_replica_past_replicas_is_refused_before_the_create() {
+    let server = MockServer::start().await;
+    let run = Run::new(&server);
+    for extra in [
+        &["--replica", "1"][..],
+        &["--replicas", "2", "--replica", "2"][..],
+        &["--replicas", "2", "--replica", "2", "--dry-run"][..],
+    ] {
+        let mut args = ARGS.to_vec();
+        args.push("2h");
+        args.extend_from_slice(extra);
+        let out = run.run(&args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(255), "{extra:?}: {err}");
+        assert!(
+            class_line(&err).is_some_and(|l| l
+                .starts_with("hedra-cli: Rejected request (19): --replica ")
+                && l.contains("--gpu creates")),
+            "{extra:?}: {err}"
+        );
+    }
+    assert!(server
+        .received_requests()
+        .await
+        .unwrap_or_default()
+        .is_empty());
+}

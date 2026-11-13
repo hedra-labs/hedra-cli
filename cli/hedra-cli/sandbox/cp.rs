@@ -37,10 +37,11 @@ pub(crate) async fn run(
     transport: TransportConfig,
     src: &OsStr,
     dst: &OsStr,
+    replica: i64,
     json_errors: bool,
 ) -> i32 {
     stream::ignore_sigpipe();
-    let ended = run_inner(api, transport, src, dst).await;
+    let ended = run_inner(api, transport, src, dst, replica).await;
     exec::finish(ended, json_errors).await
 }
 
@@ -63,7 +64,13 @@ pub(crate) fn plan(src: &OsStr, dst: &OsStr) -> Result<(Target, Plan), Failure> 
     Ok((target, plan.map_err(Failure::rejected)?))
 }
 
-async fn run_inner(api: &Api, transport: TransportConfig, src: &OsStr, dst: &OsStr) -> Ended {
+async fn run_inner(
+    api: &Api,
+    transport: TransportConfig,
+    src: &OsStr,
+    dst: &OsStr,
+    replica: i64,
+) -> Ended {
     // Everything that can be refused locally is refused before a request.
     let (target, mut plan) = match plan(src, dst) {
         Ok(p) => p,
@@ -74,14 +81,20 @@ async fn run_inner(api: &Api, transport: TransportConfig, src: &OsStr, dst: &OsS
             return Ended::Failed(Failure::rejected(m));
         }
     }
-    copy(api, transport, &target, plan).await
+    copy(api, transport, &target, replica, plan).await
 }
 
-async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan) -> Ended {
+async fn copy(
+    api: &Api,
+    transport: TransportConfig,
+    target: &Target,
+    replica: i64,
+    plan: Plan,
+) -> Ended {
     let name = target.as_str().to_string();
     let mut signals = Signals::new();
     let id = tokio::select! {
-        r = names::resolve(api, target) => match r {
+        r = names::resolve_replica(api, target, replica) => match r {
             Ok(id) => id,
             Err(f) => return discard(plan, Ended::Failed(f)),
         },
@@ -91,10 +104,11 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         Minter {
             api,
             id: id.clone(),
+            replica,
         },
         transport.clone(),
     );
-    let call = match exec::open_call(api, &session, &id, &name, &mut signals).await {
+    let call = match exec::open_call(api, &session, &id, &name, replica, &mut signals).await {
         Ok(call) => call,
         Err(ended) => return discard(plan, ended),
     };
@@ -207,7 +221,7 @@ async fn copy(api: &Api, transport: TransportConfig, target: &Target, plan: Plan
         }
         Err(CopyError::Ended) => None,
     };
-    match exec::lost_unless_signalled(api, &id, status.as_ref(), &mut signals).await {
+    match exec::lost_unless_signalled(api, &id, replica, status.as_ref(), &mut signals).await {
         Ok(f) => Ended::Failed(with_partial(stopped_at(f, &report.stopped_at))),
         Err(sig) => signalled(sig),
     }

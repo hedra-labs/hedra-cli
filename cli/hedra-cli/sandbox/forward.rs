@@ -40,13 +40,17 @@ impl ForwardError for ConnectionFailure {
 }
 
 /// A refusal no later call can get past: the sandbox or its replica stopped,
-/// or the key lost a scope or was revoked. Any other 404 refuses only its
+/// the sandbox has no such replica, or the key lost a scope or was revoked.
+/// Any other 404 refuses only its
 /// connection.
 fn permanent_mint(e: &CallError) -> bool {
     e.http().is_some_and(|h| {
         matches!(h.status, 401 | 403)
             || (h.status == 404 && h.message() == SANDBOX_NOT_FOUND)
             || h.is(400, "FAILED_PRECONDITION")
+            // `replica` is the session route's one argument: a sandbox with
+            // no instance at it refuses every later mint the same way.
+            || h.is(400, "INVALID_ARGUMENT")
     }) || matches!(e, CallError::NoCredential(_))
 }
 
@@ -91,6 +95,7 @@ struct Opener {
     session: Session<OwnedMinter>,
     id: String,
     name: String,
+    replica: i64,
     quota_said: AtomicBool,
 }
 
@@ -154,6 +159,7 @@ impl PortOpener for Opener {
                     &self.api,
                     &self.id,
                     &self.name,
+                    self.replica,
                     Needs::Write,
                     proxy.as_deref(),
                     e,
@@ -207,6 +213,7 @@ pub(crate) async fn run(
     transport: TransportConfig,
     target: &Target,
     ports: &str,
+    replica: i64,
     json_errors: bool,
 ) -> i32 {
     stream::ignore_sigpipe();
@@ -231,12 +238,15 @@ pub(crate) async fn run(
     };
     let id = match read {
         Read::Sandbox(s) => {
-            if let Some(f) = stream::not_running(&s, &name) {
+            if let Some(f) = stream::missing_replica(&s, &name, replica) {
                 return fail(f).await;
             }
-            // A session is refused until replica 0 runs, so the start line
+            if let Some(f) = stream::not_running(&s, &name, replica) {
+                return fail(f).await;
+            }
+            // A session is refused until the replica runs, so the start line
             // waits for it, as `shell --gpu` does.
-            if starting(&s) {
+            if starting(&s, replica) {
                 let timing = Timing {
                     ready_budget: START_BUDGET,
                     ..Timing::default()
@@ -255,7 +265,7 @@ pub(crate) async fn run(
                     &name,
                     Instant::now(),
                     &timing,
-                    Waiter::Reader,
+                    Waiter::Reader(replica),
                     &mut say,
                 );
                 let ready = tokio::select! {
@@ -263,13 +273,13 @@ pub(crate) async fn run(
                     sig = signals.next() => return signal_code(sig),
                 };
                 if let Err(w) = ready {
-                    // A sandbox that stopped, or whose replica 0 failed, gets
+                    // A sandbox that stopped, or whose replica failed, gets
                     // the line and next step the read above gives, from the
                     // wait's last read. One still starting keeps the wait's
                     // line, as does a wait whose read failed for good.
                     let f = w
                         .last
-                        .and_then(|now| stream::not_running(&now, &name))
+                        .and_then(|now| stream::not_running(&now, &name, replica))
                         .unwrap_or(w.failure);
                     return fail(f).await;
                 }
@@ -295,11 +305,13 @@ pub(crate) async fn run(
             OwnedMinter {
                 api: api.clone(),
                 id: id.clone(),
+                replica,
             },
             transport.clone(),
         ),
         id,
         name,
+        replica,
         quota_said: AtomicBool::new(false),
     };
     let (events_tx, mut events) = forward::events::<ConnectionFailure>();
@@ -359,12 +371,12 @@ async fn read_sandbox(api: &Api, target: &Target) -> Read {
     }
 }
 
-/// Created, or active with replica 0 not yet running: it may yet run.
-fn starting(s: &hedra_cli_sdk::api::Sandbox) -> bool {
+/// Created, or active with `replica` not yet running: it may yet run.
+fn starting(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> bool {
     match s.status {
         SandboxStatus::Creating => true,
         SandboxStatus::Active => matches!(
-            stream::replica0(s).map(|i| &i.status),
+            stream::replica_at(s, replica).map(|i| &i.status),
             None | Some(SandboxInstanceStatus::Starting)
         ),
         _ => false,
@@ -413,6 +425,12 @@ mod tests {
         )));
         assert!(permanent_mint(&http(403, "PERMISSION_DENIED", "No.")));
         assert!(!permanent_mint(&http(503, "UNAVAILABLE", "Try again.")));
+        // A replica the sandbox has no instance at refuses every mint.
+        assert!(permanent_mint(&http(
+            400,
+            "INVALID_ARGUMENT",
+            "replica must be below 2, the sandbox's instance count."
+        )));
     }
 
     #[test]

@@ -2875,3 +2875,331 @@ async fn a_broker_no_proxy_bypasses_is_not_said_to_be_reached_through_the_proxy(
     );
     assert!(!err.contains("proxy"), "{err}");
 }
+
+// ---------------------------------------------------------------- --replica
+
+/// Without `--replica`, `exec` mints for replica 0 and reads nothing first,
+/// as before the flag; with it, the sandbox is read, an id too, and the
+/// mint asks for that replica.
+#[tokio::test]
+async fn exec_mints_for_the_replica_asked_for() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(3)]));
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let out = Run::new(&server).run(&exec_args(&["-n", "--", "true"]));
+    assert_eq!(out.status.code(), Some(3), "{}", stderr(&out));
+    assert_eq!(minted_replicas(&server, ID).await, [Some("0".into())]);
+    assert!(requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+        .await
+        .is_empty());
+
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(4)]));
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let out = Run::new(&server).run(&exec_args(&["--replica", "1", "-n", "--", "true"]));
+    assert_eq!(out.status.code(), Some(4), "{}", stderr(&out));
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+    assert_eq!(
+        requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+            .await
+            .len(),
+        1
+    );
+    // By name, the one lookup is the read.
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let out = Run::new(&server).run(&["sandbox", "exec", "box", "--replica", "1", "--", "true"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+    assert_eq!(
+        requests_to(&server, "GET", "/v3/sandboxes/box").await.len(),
+        1
+    );
+}
+
+/// A replica past the sandbox's `replicas`, or one it does not list once it
+/// lists instances, is refused before any session is minted or stream
+/// opened, naming how many replicas it has; `exec` exits 255, `logs` and
+/// `attach` with the class's code.
+#[tokio::test]
+async fn a_replica_the_sandbox_lacks_is_refused_before_any_stream() {
+    let cases: [(&[&str], i32); 4] = [
+        (
+            &["sandbox", "exec", ID, "--replica", "2", "--", "true"],
+            255,
+        ),
+        (&["sandbox", "logs", ID, "--replica", "2"], 19),
+        (&["sandbox", "logs", "-f", "box", "--replica", "2"], 19),
+        (&["sandbox", "attach", ID, "--replica", "5"], 19),
+    ];
+    for (args, code) in cases {
+        let broker = FakeBroker::start();
+        let server = two_replica_sandbox(&broker, both_running()).await;
+        let out = Run::new(&server).run(args);
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(code), "{args:?}: {err}");
+        let line = class_line(&err).unwrap_or_default();
+        assert!(
+            line.starts_with("hedra-cli: Rejected request (19): `"),
+            "{args:?}: {err}"
+        );
+        assert!(
+            line.contains("has no replica") && line.contains("it has 2 replicas, 0 to 1."),
+            "{args:?}: {err}"
+        );
+        assert_eq!(mints(&server, ID).await, 0, "{args:?}");
+        assert_eq!(broker.connections(), 0, "{args:?}");
+    }
+
+    // Under `replicas`, but not listed yet: it may still be placed, so it
+    // reads as starting, which a plain `logs` says has no output yet.
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    mount_sandbox(&server, ID, replicated(ID, "box", "active", 2, running())).await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID, "--replica", "1"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(0), "{err}");
+    assert!(err.contains("has no output yet"), "{err}");
+    assert_eq!(mints(&server, ID).await, 0);
+
+    // An instance started to replace a lost one is listed past `replicas`,
+    // and is reached as the session route numbers it.
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+    let server = two_replica_sandbox(
+        &broker,
+        json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "failed", "failure_reason": "platform_error"},
+            {"replica": 2, "status": "running"},
+        ]),
+    )
+    .await;
+    let out = Run::new(&server).run(&exec_args(&["--replica", "2", "-n", "--", "true"]));
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(minted_replicas(&server, ID).await, [Some("2".into())]);
+}
+
+/// An id's read answered 503 does not end `exec --replica 1`: the mint goes
+/// ahead, retried as every mint is, and its route checks the replica.
+#[tokio::test]
+async fn a_failed_read_of_an_id_goes_on_to_the_mint() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(5)]));
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(envelope(503, "UNAVAILABLE", "Try again.", None))
+        .mount(&server)
+        .await;
+    let out = Run::new(&server).run(&exec_args(&["--replica", "1", "-n", "--", "true"]));
+    assert_eq!(out.status.code(), Some(5), "{}", stderr(&out));
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+}
+
+/// `logs --replica 1` reads replica 1 live while it runs, and its stored
+/// copy once it stopped, judged by replica 1 though replica 0 still runs.
+#[tokio::test]
+async fn logs_reads_the_replica_asked_for_live_and_stored() {
+    let broker = FakeBroker::start();
+    broker.log(b"one\n");
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    mount_stored(&server, "stored\n").await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID, "--replica", "1"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "one\n");
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+    assert!(stored_reads(&server).await.is_empty());
+
+    let broker = FakeBroker::start();
+    let server = two_replica_sandbox(
+        &broker,
+        json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+        ]),
+    )
+    .await;
+    mount_stored(&server, "stored one\n").await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID, "--replica", "1"]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    assert_eq!(stdout(&out), "stored one\n");
+    assert_eq!(mints(&server, ID).await, 0);
+    let reads = stored_reads(&server).await;
+    assert_eq!(reads.len(), 1);
+    assert_eq!(query(&reads[0], "replica").as_deref(), Some("1"));
+
+    // Without the flag the stored copy is replica 0's.
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    mount_sandbox(&server, ID, ended()).await;
+    mount_stored(&server, "stored\n").await;
+    let out = Run::new(&server).run(&["sandbox", "logs", ID]);
+    assert_eq!(out.status.code(), Some(0), "{}", stderr(&out));
+    let reads = stored_reads(&server).await;
+    assert_eq!(query(&reads[0], "replica").as_deref(), Some("0"));
+}
+
+/// `logs -f --replica 1` follows replica 1 while replica 0 has failed, and
+/// so does `attach --replica 1`.
+#[tokio::test]
+async fn logs_f_and_attach_follow_the_replica_asked_for() {
+    for verb in [&["logs", "-f"][..], &["attach"][..]] {
+        let broker = FakeBroker::start();
+        broker.log(b"one\n");
+        broker.push_logs(LogsScript::admit(LogsEnd::Hold));
+        let server = two_replica_sandbox(
+            &broker,
+            json!([
+                {"replica": 0, "status": "failed", "failure_reason": "oom_killed"},
+                {"replica": 1, "status": "running"},
+            ]),
+        )
+        .await;
+        let mut args = vec!["sandbox"];
+        args.extend_from_slice(verb);
+        args.extend_from_slice(&[ID, "--replica", "1"]);
+        let mut child = Run::new(&server).spawn(&args);
+        let seen = collect(child.stdout.take().unwrap());
+        wait_until("replica 1's output", || {
+            seen.lock().unwrap().ends_with(b"one\n")
+        });
+        signal(&child, libc::SIGINT);
+        let out = wait(child, WAIT);
+        assert_eq!(out.status.code(), Some(0), "{verb:?}: {}", stderr(&out));
+        assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+        assert!(broker.calls()[0].logs.unwrap().follow, "{verb:?}");
+    }
+}
+
+/// `logs -f --replica 1` waits on replica 1 alone: with replica 0 running and
+/// replica 1 still starting, the wait runs out its budget and exits 13.
+#[tokio::test]
+async fn logs_f_waits_on_the_replica_asked_for() {
+    let broker = FakeBroker::start();
+    let server = two_replica_sandbox(
+        &broker,
+        json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "starting"},
+        ]),
+    )
+    .await;
+    let run = Run::new(&server);
+    let mut cmd = run.command(&["sandbox", "logs", "-f", ID, "--replica", "1"]);
+    cmd.env("HEDRA_CLI_TEST_START_BUDGET_MS", "300");
+    let child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .unwrap();
+    let out = wait(child, WAIT);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(13), "{err}");
+    assert!(
+        class_line(&err).is_some_and(|l| l.contains("still starting after")),
+        "{err}"
+    );
+    assert!(broker.calls().is_empty());
+    assert_eq!(mints(&server, ID).await, 0);
+}
+
+/// A stream to replica 1 lost after start reads the sandbox and says replica
+/// 1 stopped, though replica 0 still runs.
+#[tokio::test]
+async fn a_lost_stream_is_explained_by_the_replica_asked_for() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([
+        Step::Start,
+        Step::Sleep(Duration::from_millis(100)),
+        Step::Close,
+    ]));
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    let read = |one: serde_json::Value| {
+        ResponseTemplate::new(200).set_body_json(replicated(
+            ID,
+            "box",
+            "active",
+            2,
+            json!([{"replica": 0, "status": "running"}, one]),
+        ))
+    };
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            read(json!({"replica": 1, "status": "running"})),
+            read(json!({"replica": 1, "status": "failed", "failure_reason": "oom_killed"})),
+        ]))
+        .mount(&server)
+        .await;
+    let out = Run::new(&server).run(&exec_args(&["--replica", "1", "-n", "--", "train"]));
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    let line = class_line(&err).unwrap_or_default();
+    assert!(
+        line.starts_with("hedra-cli: Connection lost (18): Lost the connection to the sandbox"),
+        "{line}"
+    );
+    assert!(
+        line.ends_with("The sandbox's replica 1 stopped (oom_killed)."),
+        "{line}"
+    );
+}
+
+/// A mint refused because replica 1 stopped names replica 1 and its own
+/// `logs`, though replica 0 still runs.
+#[tokio::test]
+async fn a_refused_mint_is_judged_by_the_replica_asked_for() {
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(400, "INVALID_ARGUMENT", "unused", None))
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .and(wiremock::matchers::query_param("replica", "1"))
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The instance at this replica has stopped.",
+            None,
+        ))
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    mount_sandbox(
+        &server,
+        ID,
+        replicated(
+            ID,
+            "box",
+            "active",
+            2,
+            json!([
+                {"replica": 0, "status": "running"},
+                {"replica": 1, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+            ]),
+        ),
+    )
+    .await;
+    let out = Run::new(&server).run(&exec_args(&["--replica", "1", "-n", "--", "true"]));
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): The instance at this replica has stopped. \
+                 Run `hedra-cli sandbox logs {ID} --replica 1` for its output."
+            )
+            .as_str()
+        ),
+        "{err}"
+    );
+}

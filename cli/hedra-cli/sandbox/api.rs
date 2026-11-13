@@ -173,15 +173,16 @@ impl Api {
         self.date.lock().ok().and_then(|d| *d)
     }
 
-    /// `GET /sandboxes/{sandbox}/logs`, the stored copy of replica 0's
-    /// output.
+    /// `GET /sandboxes/{sandbox}/logs?replica=N`, the stored copy of that
+    /// replica's output.
     pub(crate) async fn logs(
         &self,
         sandbox_id: &str,
+        replica: i64,
         since: Option<&str>,
     ) -> Result<StoredLogs, CallError> {
         let request = SavedLogsQueryRequest {
-            replica: Some(0),
+            replica: Some(replica),
             since: since.map(str::to_string),
         };
         let logs = attempt(

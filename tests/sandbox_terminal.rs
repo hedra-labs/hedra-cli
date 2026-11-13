@@ -392,3 +392,43 @@ async fn shell_on_a_stopped_instance_names_the_logs_command() {
         out.stderr
     );
 }
+
+/// `shell --replica 1` opens its shell in replica 1.
+#[tokio::test]
+async fn shell_opens_in_the_replica_asked_for() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(4)]));
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let child = pty.spawn(&run.command(&["sandbox", "shell", "box", "--replica", "1"]));
+    let out = child.finish(WAIT);
+    assert_eq!(out.code, 4, "{}", out.stderr);
+    assert!(pty.cooked());
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+    assert!(broker.calls()[0].start.as_ref().unwrap().tty);
+}
+
+/// `shell` to a replica the sandbox lacks is refused with exit 255 before
+/// any session is minted.
+#[tokio::test]
+async fn shell_to_a_replica_the_sandbox_lacks_is_refused_before_any_stream() {
+    let broker = FakeBroker::start();
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let out = pty
+        .spawn(&run.command(&["sandbox", "shell", "box", "--replica", "2"]))
+        .finish(WAIT);
+    assert_eq!(out.code, 255, "{}", out.stderr);
+    assert_eq!(
+        class_line(&out.stderr),
+        Some(
+            "hedra-cli: Rejected request (19): `box` has no replica 2: it has 2 replicas, 0 to 1."
+        ),
+        "{}",
+        out.stderr
+    );
+    assert_eq!(mints(&server, ID).await, 0);
+    assert_eq!(broker.connections(), 0);
+}

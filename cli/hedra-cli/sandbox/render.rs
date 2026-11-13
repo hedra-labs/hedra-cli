@@ -46,9 +46,18 @@ pub(crate) fn get_command(sandbox: &str) -> String {
     format!("hedra-cli sandbox get --sandbox {sandbox}")
 }
 
-/// The command that prints `sandbox`'s output, a name or an id.
-pub(crate) fn logs_command(sandbox: &str) -> String {
-    format!("hedra-cli sandbox logs {sandbox}")
+/// The command that prints `sandbox`'s output, a name or an id, naming
+/// `--replica` past replica 0.
+pub(crate) fn logs_command(sandbox: &str, replica: i64) -> String {
+    format!("hedra-cli sandbox logs {sandbox}{}", replica_flag(replica))
+}
+
+/// " --replica N" past replica 0, which every stream verb reaches by default.
+pub(crate) fn replica_flag(replica: i64) -> String {
+    match replica {
+        0 => String::new(),
+        n => format!(" --replica {n}"),
+    }
 }
 
 /// The generated commands a recovery hint names, for the test that runs each

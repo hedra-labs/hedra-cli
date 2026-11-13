@@ -11,7 +11,7 @@ use std::time::Duration;
 use hedra_cli_sandbox::session::Session;
 use hedra_cli_sandbox::stream::status::reason;
 use hedra_cli_sandbox::stream::transport::TransportConfig;
-use hedra_cli_sdk::api::{CreateSandboxRequest, Sandbox, SandboxInstanceStatus, SandboxStatus};
+use hedra_cli_sdk::api::{CreateSandboxRequest, Sandbox, SandboxStatus};
 use tokio::time::Instant;
 
 use super::api::Api;
@@ -35,6 +35,11 @@ pub(crate) struct GpuShell {
     pub(crate) image: String,
     pub(crate) ttl_seconds: i64,
     pub(crate) term: Option<String>,
+    /// `--replicas`: the instances to create; the route's default, one, when
+    /// absent.
+    pub(crate) replicas: Option<i64>,
+    /// `--replica`: the one the shell opens in, below `replicas`.
+    pub(crate) replica: i64,
 }
 
 static CREATED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
@@ -69,7 +74,7 @@ fn request(shell: &GpuShell, name: &str) -> CreateSandboxRequest {
         name: name.to_string(),
         image: shell.image.clone(),
         gpu: shell.gpu.clone(),
-        replicas: None,
+        replicas: shell.replicas,
         resources: None,
         command: None,
         idle: Some(true),
@@ -111,7 +116,12 @@ pub(crate) async fn run(
     let mut signals = Signals::new();
     // No request to create has been sent: a signal here creates nothing.
     let warnings = tokio::select! {
-        lines = super::warnings_before_create(api, &shell.gpu, super::PRE_CREATE_READ) => lines,
+        lines = super::warnings_before_create(
+            api,
+            &shell.gpu,
+            shell.replicas.unwrap_or(1),
+            super::PRE_CREATE_READ,
+        ) => lines,
         sig = signals.next() => return sig.class().code(),
     };
     for line in warnings {
@@ -153,6 +163,7 @@ pub(crate) async fn run(
         Minter {
             api,
             id: id.clone(),
+            replica: shell.replica,
         },
         transport,
     );
@@ -163,9 +174,10 @@ pub(crate) async fn run(
         no_stdin: false,
         env: HashMap::new(),
         term: shell.term.clone(),
+        replica: shell.replica,
     };
     let driven = exec::drive(api, &session, &id, &name, &shell_exec, &mut signals).await;
-    finish(&stopper, driven, &mut signals).await
+    finish(&stopper, driven, shell.replica, &mut signals).await
 }
 
 /// Creates the sandbox under a generated name, retrying once under a new
@@ -315,8 +327,13 @@ fn after_failure(driven: &Driven, f: &Failure) -> AfterFailure {
     }
 }
 
-/// What happens once the shell ends.
-async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSig) -> i32 {
+/// What happens once the shell, in `replica`, ends.
+async fn finish(
+    stopper: &Stopper<'_>,
+    driven: Driven,
+    replica: i64,
+    signals: &mut impl NextSig,
+) -> i32 {
     let Stopper {
         api,
         id,
@@ -340,7 +357,7 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
                     format!(
                         "Lost the connection to the sandbox{}. {}",
                         exec::broker_note(driven.status.as_ref()),
-                        kept(api, id, name, signals).await
+                        kept(api, id, name, replica, signals).await
                     ),
                 );
                 f.reason = driven.status.as_ref().and_then(|s| s.reason.clone());
@@ -348,7 +365,7 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
                 255
             }
             AfterFailure::Kept => {
-                let f = f.clone().then(kept(api, id, name, signals).await);
+                let f = f.clone().then(kept(api, id, name, replica, signals).await);
                 f.say(json).await;
                 255
             }
@@ -358,14 +375,15 @@ async fn finish(stopper: &Stopper<'_>, driven: Driven, signals: &mut impl NextSi
 
 /// What to do about a sandbox kept after a dropped stream, from a fresh read.
 /// A signal during the read takes the still-running text at once.
-async fn kept(api: &Api, id: &str, name: &str, signals: &mut impl NextSig) -> String {
+async fn kept(api: &Api, id: &str, name: &str, replica: i64, signals: &mut impl NextSig) -> String {
     let running = || {
         format!(
             "`{name}` is still running: reopen it within about 15 minutes with `hedra-cli sandbox \
-             shell {name}`, or stop it with `{}`; otherwise its idle \
+             shell {name}{}`, or stop it with `{}`; otherwise its idle \
              TTL stops it about 15 minutes after its last activity. A reopened shell's exit does \
              not stop it, and a tmux server or a nohup or & process left in it does not count \
              as activity.",
+            render::replica_flag(replica),
             render::stop_command(id)
         )
     };
@@ -382,23 +400,7 @@ async fn kept(api: &Api, id: &str, name: &str, signals: &mut impl NextSig) -> St
     match s.status {
         SandboxStatus::Ended => format!("The sandbox stopped: {reason}."),
         SandboxStatus::Stopping => format!("The sandbox is stopping: {reason}."),
-        _ => match stream::replica0(&s) {
-            Some(i)
-                if matches!(
-                    i.status,
-                    SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed
-                ) =>
-            {
-                match &i.failure_reason {
-                    Some(f) => format!(
-                        "The sandbox's instance stopped ({}).",
-                        escape_controls(&f.to_string())
-                    ),
-                    None => "The sandbox's instance stopped.".to_string(),
-                }
-            }
-            _ => running(),
-        },
+        _ => stream::instance_stopped(&s, replica).unwrap_or_else(running),
     }
 }
 
@@ -641,6 +643,8 @@ mod tests {
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
+            replicas: None,
+            replica: 0,
         };
         let timing = Timing {
             create_loop: Duration::from_secs(20),
@@ -683,6 +687,8 @@ mod tests {
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
+            replicas: None,
+            replica: 0,
         };
         let started = std::time::Instant::now();
         let created = tokio::time::timeout(
@@ -717,6 +723,8 @@ mod tests {
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
+            replicas: None,
+            replica: 0,
         };
         // Signals pop from the end: SIGTERM, then two Ctrl-Cs.
         for signals in [
@@ -842,7 +850,10 @@ mod tests {
             answered: true,
             status: None,
         };
-        assert_eq!(finish(&stopper, driven, &mut Injected(vec![])).await, 255);
+        assert_eq!(
+            finish(&stopper, driven, 0, &mut Injected(vec![])).await,
+            255
+        );
     }
 
     #[test]
@@ -853,6 +864,8 @@ mod tests {
                 image: "i".into(),
                 ttl_seconds: DEFAULT_MAX_DURATION,
                 term: None,
+                replicas: None,
+                replica: 0,
             },
             "shell-abcdef",
         );
@@ -860,5 +873,23 @@ mod tests {
         assert_eq!(r.idle_ttl_seconds, Some(IDLE_TTL_SECONDS));
         assert_eq!(r.ttl_seconds, Some(DEFAULT_MAX_DURATION));
         assert_eq!(r.command, None);
+        // No `--replicas` leaves the route's default of one.
+        assert_eq!(r.replicas, None);
+    }
+
+    #[test]
+    fn replicas_reach_the_create() {
+        let r = request(
+            &GpuShell {
+                gpu: "h100:1".into(),
+                image: "i".into(),
+                ttl_seconds: DEFAULT_MAX_DURATION,
+                term: None,
+                replicas: Some(3),
+                replica: 2,
+            },
+            "shell-abcdef",
+        );
+        assert_eq!(r.replicas, Some(3));
     }
 }

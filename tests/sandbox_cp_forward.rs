@@ -2864,3 +2864,262 @@ async fn debug_on_cp_and_port_forward_shows_the_broker_and_never_the_token() {
     );
     assert!(!err.contains(TOKEN), "{err}");
 }
+
+// ---------------------------------------------------------------- --replica
+
+/// `cp --replica 1` copies into replica 1: the sandbox is read, then the
+/// session minted for replica 1. Without the flag it is replica 0's.
+#[tokio::test(flavor = "multi_thread")]
+async fn cp_copies_into_the_replica_asked_for() {
+    for (flag, want) in [(&[][..], "0"), (&["--replica", "1"][..], "1")] {
+        let broker = FakeBroker::start();
+        broker.push_exec(ExecScript::admit([
+            Step::Start,
+            Step::Stdout(b"new\n".to_vec()),
+            Step::Count,
+            Step::Exit(0),
+        ]));
+        let server = two_replica_sandbox(&broker, both_running()).await;
+        let run = Run::new(&server);
+        std::fs::write(run.home.path().join("a.txt"), b"hello").unwrap();
+        let dst = format!("{ID}:/work/a.txt");
+        let mut args = vec!["sandbox", "cp"];
+        args.extend_from_slice(flag);
+        args.extend_from_slice(&["a.txt", &dst]);
+        let out = run.run(&args);
+        assert_eq!(out.status.code(), Some(0), "{flag:?}: {}", stderr(&out));
+        assert_eq!(minted_replicas(&server, ID).await, [Some(want.into())]);
+        assert_eq!(&broker.calls()[0].stdin[512..517], b"hello");
+    }
+}
+
+/// `cp` to a replica the sandbox lacks is refused before any session, with
+/// exit 255, and a copy out leaves nothing behind.
+#[tokio::test(flavor = "multi_thread")]
+async fn cp_to_a_replica_the_sandbox_lacks_is_refused_before_any_stream() {
+    let broker = FakeBroker::start();
+    let server = two_replica_sandbox(&broker, both_running()).await;
+    let run = Run::new(&server);
+    let src = format!("{ID}:/work/out");
+    let out = run.run(&["sandbox", "cp", "--replica", "2", &src, "out/deep"]);
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(255), "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Rejected request (19): `{ID}` has no replica 2: it has 2 replicas, 0 \
+                 to 1."
+            )
+            .as_str()
+        ),
+        "{err}"
+    );
+    assert_eq!(mints(&server, ID).await, 0);
+    assert_eq!(broker.connections(), 0);
+    assert!(!run.home.path().join("out").exists());
+}
+
+/// `port-forward --replica 1` waits on replica 1 alone and forwards to it,
+/// though replica 0 has stopped; each connection mints for replica 1.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_reaches_the_replica_asked_for() {
+    use std::io::Write;
+    let broker = FakeBroker::start();
+    broker.push_port(PortScript::admit([
+        PortStep::AwaitBytes(4),
+        PortStep::Data(b"pong".to_vec()),
+        PortStep::Eof,
+    ]));
+    let server = two_replica_sandbox(
+        &broker,
+        serde_json::json!([
+            {"replica": 0, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+            {"replica": 1, "status": "running"},
+        ]),
+    )
+    .await;
+    let run = Run::new(&server);
+    let fwd = Forward::start_with(
+        &run,
+        &["sandbox", "port-forward", "box", "0:8888", "--replica", "1"],
+    );
+    let mut conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    conn.write_all(b"ping").unwrap();
+    assert_eq!(read_all(&mut conn).unwrap(), b"pong");
+    broker.wait_for(WAIT, |c| c.len() == 1 && c[0].port_data == b"ping");
+    assert_eq!(minted_replicas(&server, ID).await, [Some("1".into())]);
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// `port-forward --replica 1` waits while replica 1 starts, though replica 0
+/// already runs, and starts once replica 1 runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_waits_for_the_replica_asked_for() {
+    let broker = FakeBroker::start();
+    let server = MockServer::start().await;
+    mount_session(&server, ID, &broker).await;
+    let read = |one: &str| {
+        ResponseTemplate::new(200).set_body_json(replicated(
+            ID,
+            "box",
+            "active",
+            2,
+            serde_json::json!([
+                {"replica": 0, "status": "running"},
+                {"replica": 1, "status": one},
+            ]),
+        ))
+    };
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            read("starting"),
+            read("starting"),
+            read("running"),
+        ]))
+        .mount(&server)
+        .await;
+    let run = Run::new(&server);
+    let fwd = Forward::start_with(
+        &run,
+        &["sandbox", "port-forward", ID, "0:8888", "--replica", "1"],
+    );
+    let _ = fwd.port();
+    assert_eq!(
+        requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
+            .await
+            .len(),
+        3
+    );
+    signal(&fwd.child, libc::SIGINT);
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 0, "{err}");
+}
+
+/// A wait that ends with replica 1 stopped names replica 1 from the wait's
+/// last read, while replica 0 runs; and a connection whose mint is refused
+/// because replica 1 stopped names replica 1's output.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_failures_are_judged_by_the_replica_asked_for() {
+    let two = |one: serde_json::Value| {
+        ResponseTemplate::new(200).set_body_json(replicated(
+            ID,
+            "box",
+            "active",
+            2,
+            serde_json::json!([{"replica": 0, "status": "running"}, one]),
+        ))
+    };
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            two(serde_json::json!({"replica": 1, "status": "starting"})),
+            two(serde_json::json!({"replica": 1, "status": "stopped"})),
+        ]))
+        .mount(&server)
+        .await;
+    let out = wait(
+        Run::new(&server).spawn(&["sandbox", "port-forward", ID, "0:8888", "--replica", "1"]),
+        WAIT,
+    );
+    let err = stderr(&out);
+    assert_eq!(out.status.code(), Some(13), "{err}");
+    assert_eq!(
+        class_line(&err),
+        Some(
+            format!(
+                "hedra-cli: Not ready or stopped (13): Replica 1 of `{ID}` stopped. Check on it \
+                 with `hedra-cli sandbox get --sandbox {ID}`."
+            )
+            .as_str()
+        ),
+        "{err}"
+    );
+
+    let server = MockServer::start().await;
+    Mock::given(method("POST"))
+        .and(path(format!("/v3/sandboxes/{ID}/session")))
+        .respond_with(envelope(
+            400,
+            "FAILED_PRECONDITION",
+            "The instance at this replica has stopped.",
+            None,
+        ))
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(format!("/v3/sandboxes/{ID}")))
+        .respond_with(Sequence::new(vec![
+            two(serde_json::json!({"replica": 1, "status": "running"})),
+            two(serde_json::json!({"replica": 1, "status": "stopped",
+                                   "started_at": "2026-11-03T12:01:00Z"})),
+        ]))
+        .mount(&server)
+        .await;
+    let run = Run::new(&server);
+    let fwd = Forward::start_with(
+        &run,
+        &["sandbox", "port-forward", ID, "0:8888", "--replica", "1"],
+    );
+    let _conn = TcpStream::connect(("127.0.0.1", fwd.port())).unwrap();
+    let (code, err) = fwd.finish();
+    assert_eq!(code, 13, "{err}");
+    assert!(
+        err.contains(&format!(
+            "The instance at this replica has stopped. Run `hedra-cli sandbox logs {ID} \
+             --replica 1` for its output."
+        )),
+        "{err}"
+    );
+}
+
+/// `port-forward` to replica 0 when replica 0 stopped exits 13 naming it,
+/// and to a replica the sandbox lacks exits 19, both before the start line.
+#[tokio::test(flavor = "multi_thread")]
+async fn port_forward_refuses_a_stopped_or_missing_replica_before_it_starts() {
+    let broker = FakeBroker::start();
+    let server = two_replica_sandbox(
+        &broker,
+        serde_json::json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "stopped", "started_at": "2026-11-03T12:01:00Z"},
+        ]),
+    )
+    .await;
+    for (replica, code, line) in [
+        (
+            "1",
+            13,
+            "hedra-cli: Not ready or stopped (13): Replica 1 of `box` stopped. \
+             Run `hedra-cli sandbox logs sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301 \
+             --replica 1` for its output.",
+        ),
+        (
+            "2",
+            19,
+            "hedra-cli: Rejected request (19): `box` has no replica 2: it has 2 replicas, 0 to 1.",
+        ),
+    ] {
+        let out = wait(
+            Run::new(&server).spawn(&[
+                "sandbox",
+                "port-forward",
+                "box",
+                "0:8888",
+                "--replica",
+                replica,
+            ]),
+            WAIT,
+        );
+        let err = stderr(&out);
+        assert_eq!(out.status.code(), Some(code), "{replica}: {err}");
+        assert_eq!(class_line(&err), Some(line), "{err}");
+        assert!(!err.contains("Forwarding"), "{err}");
+    }
+    assert_eq!(mints(&server, ID).await, 0);
+    assert_eq!(broker.connections(), 0);
+}
