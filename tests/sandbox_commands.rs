@@ -796,7 +796,15 @@ fn ls_as_a_table_shows_only_the_scanned_columns() {
     assert_eq!(lines.len(), 3, "{table}");
     assert_eq!(
         lines[0].split_whitespace().collect::<Vec<_>>(),
-        ["created_at", "gpu", "id", "name", "status", "usd_per_hour"],
+        [
+            "created_at",
+            "created_by",
+            "gpu",
+            "id",
+            "name",
+            "status",
+            "usd_per_hour"
+        ],
         "{table}"
     );
     let row: Vec<&str> = lines[2]
@@ -808,6 +816,7 @@ fn ls_as_a_table_shows_only_the_scanned_columns() {
         row,
         [
             "2026-11-05 00:00:00 UTC",
+            "—",
             "h100:1",
             "sandbox_0123456789abcdef",
             "nightly",
@@ -828,4 +837,78 @@ fn ls_as_a_table_shows_only_the_scanned_columns() {
     assert!(raw.out.status.success(), "{}", raw.output_text());
     let printed: Value = serde_json::from_str(&raw.stdout()).expect("JSON on stdout");
     assert_eq!(printed, list);
+}
+
+// ---------------------------------------------------------------------------
+// Who created each sandbox
+// ---------------------------------------------------------------------------
+
+/// A page of three sandboxes: one a member created, one the workspace's
+/// service key created, and one with a null `created_by`.
+fn created_by_list() -> Value {
+    let mut members = sandbox();
+    members["created_by"] =
+        json!({"email": "ada@example.com", "name": "Ada Lovelace", "kind": "personal"});
+    let mut services = sandbox();
+    services["id"] = json!("sandbox_fedcba9876543210");
+    services["created_by"] = json!({"email": null, "name": null, "kind": "service"});
+    let mut unknown = sandbox();
+    unknown["id"] = json!("sandbox_00000000000000ff");
+    unknown["created_by"] = Value::Null;
+    json!({"data": [members, services, unknown], "next_cursor": null})
+}
+
+/// The `created_by` cell names the creator: the email, `service key` for
+/// the workspace's service key, and `—` for a null `created_by`. (A missing
+/// one is `ls_as_a_table_shows_only_the_scanned_columns`.)
+#[test]
+fn ls_as_a_table_shows_who_created_each_sandbox() {
+    let outcome = run(
+        &["sandbox", "ls", "--format", "table"],
+        ok(created_by_list()),
+    );
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    let table = outcome.stdout();
+    let creators: Vec<String> = table
+        .lines()
+        .filter(|line| line.contains("sandbox_"))
+        .map(|line| {
+            line.split("  ")
+                .map(str::trim)
+                .filter(|cell| !cell.is_empty())
+                .nth(1)
+                .unwrap_or_default()
+                .to_string()
+        })
+        .collect();
+    assert_eq!(creators, ["ada@example.com", "service key", "—"], "{table}");
+}
+
+/// `--format json` passes `created_by` through as the server sent it.
+#[test]
+fn ls_as_json_keeps_created_by() {
+    let outcome = run(
+        &["sandbox", "ls", "--format", "json"],
+        ok(created_by_list()),
+    );
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    let printed: Value = serde_json::from_str(&outcome.stdout()).expect("JSON on stdout");
+    assert_eq!(printed, created_by_list());
+}
+
+/// Until the spec declares `members`, `--params` sends it.
+#[test]
+fn ls_sends_members_from_params() {
+    let outcome = run(
+        &[
+            "sandbox",
+            "ls",
+            "--params",
+            r#"{"members": true}"#,
+            "--format",
+            "json",
+        ],
+        ok(json!({"data": [], "next_cursor": null})),
+    );
+    assert_eq!(query(outcome.request(), "members").as_deref(), Some("true"));
 }

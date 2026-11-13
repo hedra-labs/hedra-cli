@@ -364,7 +364,8 @@ fn job_submit(value: &Value) -> Value {
 // ── Layer 3: the sandbox list ───────────────────────────────────────
 
 /// `sandbox ls` — each sandbox as `id`, `name`, `status`, `gpu`,
-/// `created_at` and its billing's `usd_per_hour`.
+/// `created_at`, who created it (`created_by`) and its billing's
+/// `usd_per_hour`.
 ///
 /// Every row carries every column, null where the server sent nothing, so a
 /// page in which no sandbox has a field still shows its column, empty. The
@@ -395,6 +396,8 @@ fn sandbox_rows(mut value: Value) -> Value {
             _ => Value::Null,
         };
         row.insert("created_at".into(), created);
+        let creator = creator_label(fields.get("created_by"));
+        row.insert("created_by".into(), Value::String(creator));
         let price = fields
             .get("billing")
             .and_then(|b| b.get("usd_per_hour"))
@@ -404,6 +407,32 @@ fn sandbox_rows(mut value: Value) -> Value {
         *sandbox = Value::Object(row);
     }
     value
+}
+
+/// Who created a sandbox, from its `created_by` (`{email, name, kind}`):
+/// the email, else the name, else `service key` for the workspace's service
+/// key, else `—`, which also stands for a missing or null `created_by`, as
+/// a server from before the field sends, and for a creator whose account
+/// was deleted.
+fn creator_label(created_by: Option<&Value>) -> String {
+    let Some(Value::Object(creator)) = created_by else {
+        return "—".to_string();
+    };
+    let text = |key: &str| {
+        creator
+            .get(key)
+            .and_then(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+    };
+    if let Some(label) = text("email").or_else(|| text("name")) {
+        return label;
+    }
+    match creator.get("kind").and_then(Value::as_str) {
+        Some("service") => "service key".to_string(),
+        _ => "—".to_string(),
+    }
 }
 
 // ── Job field helpers ───────────────────────────────────────────────
@@ -1268,7 +1297,15 @@ mod tests {
         let header: Vec<&str> = lines.next().unwrap().split_whitespace().collect();
         assert_eq!(
             header,
-            ["created_at", "gpu", "id", "name", "status", "usd_per_hour"]
+            [
+                "created_at",
+                "created_by",
+                "gpu",
+                "id",
+                "name",
+                "status",
+                "usd_per_hour"
+            ]
         );
         let _ = lines.next();
         let row: Vec<&str> = lines
@@ -1282,6 +1319,7 @@ mod tests {
             row,
             [
                 "2026-11-03 12:00:00 UTC",
+                "—",
                 "rtx4090:1",
                 "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
                 "train",
@@ -1301,12 +1339,20 @@ mod tests {
         assert_eq!(
             rows["data"][0],
             json!({"id": "sandbox_1", "name": "a", "status": null, "gpu": null,
-                   "created_at": null, "usd_per_hour": null})
+                   "created_at": null, "created_by": "—", "usd_per_hour": null})
         );
         let header = render(&rows).lines().next().unwrap().to_string();
         assert_eq!(
             header.split_whitespace().collect::<Vec<_>>(),
-            ["created_at", "gpu", "id", "name", "status", "usd_per_hour"]
+            [
+                "created_at",
+                "created_by",
+                "gpu",
+                "id",
+                "name",
+                "status",
+                "usd_per_hour"
+            ]
         );
     }
 
@@ -1318,5 +1364,44 @@ mod tests {
         assert_eq!(sandbox_rows(more.clone()), more);
         let single = listed_sandbox();
         assert_eq!(sandbox_rows(single.clone()), single);
+    }
+
+    #[test]
+    fn sandbox_ls_names_each_creator() {
+        let creators = [
+            json!({"email": "ada@example.com", "name": "Ada Lovelace", "kind": "personal"}),
+            json!({"email": null, "name": "Grace Hopper", "kind": "personal"}),
+            json!({"email": null, "name": null, "kind": "service"}),
+            json!({"email": null, "name": null, "kind": "personal"}),
+            Value::Null,
+        ];
+        let mut sandboxes: Vec<Value> = creators
+            .iter()
+            .map(|creator| {
+                let mut sandbox = listed_sandbox();
+                sandbox["created_by"] = creator.clone();
+                sandbox
+            })
+            .collect();
+        // A server from before `created_by` sends no such field.
+        sandboxes.push(listed_sandbox());
+        let rows = sandbox_rows(json!({"data": sandboxes, "next_cursor": null}));
+        let labels: Vec<&str> = rows["data"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|row| row["created_by"].as_str().unwrap())
+            .collect();
+        assert_eq!(
+            labels,
+            [
+                "ada@example.com",
+                "Grace Hopper",
+                "service key",
+                "—",
+                "—",
+                "—"
+            ]
+        );
     }
 }
