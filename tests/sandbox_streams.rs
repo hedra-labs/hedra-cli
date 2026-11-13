@@ -2968,8 +2968,8 @@ async fn a_replica_the_sandbox_lacks_is_refused_before_any_stream() {
     );
     assert_eq!(mints(&server, ID).await, 0);
 
-    // An instance started to replace a lost one is listed past `replicas`,
-    // and is reached as the session route numbers it.
+    // A live instance listed at a number past `replicas` is reached, as the
+    // session route serves it.
     let broker = FakeBroker::start();
     broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
     let server = two_replica_sandbox(

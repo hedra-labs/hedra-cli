@@ -404,13 +404,14 @@ pub(crate) fn not_running(
 }
 
 /// The refusal for a replica `s` does not have, before any stream opens: one
-/// past every instance the read lists and at or past its `replicas`, as the
-/// session route bounds `replica` by the instances it lists. An instance the
-/// platform started to replace a lost one is listed beside it, so a sandbox
-/// can list more instances than its `replicas`, and each is reachable. One
-/// under `replicas` but not listed yet may still be placed, and the verbs
-/// wait for it as for one starting. Replica 0, which every sandbox has and
-/// every verb reached before `--replica`, is never refused here.
+/// the read does not list, at or past both its `replicas` and the number of
+/// instances it lists. The read lists one instance per replica number, and a
+/// replacement takes the number of the instance it replaces. A live instance
+/// can still be listed at a number at or past `replicas`, and the session
+/// route serves it, so `replicas` alone is not the bound. One under
+/// `replicas` but not listed yet may still be placed, and the verbs wait for
+/// it as for one starting. Replica 0, which every sandbox has and every verb
+/// reached before `--replica`, is never refused here.
 pub(crate) fn missing_replica(
     s: &hedra_cli_sdk::api::Sandbox,
     name: &str,
@@ -1992,8 +1993,8 @@ mod tests {
             None
         );
         assert!(missing_replica(&placing, "box", 2).is_some());
-        // An instance started to replace a lost one is listed beside it, past
-        // `replicas`, and is reachable as the session route numbers it.
+        // A live instance listed at a number past `replicas` is reachable, as
+        // the session route serves it.
         let replaced = two_replicas(serde_json::json!([
             {"replica": 0, "status": "running"},
             {"replica": 1, "status": "failed", "failure_reason": "platform_error"},
