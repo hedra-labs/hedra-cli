@@ -17,6 +17,11 @@ concurrency:
 env:
   CARGO_TERM_COLOR: always
   RUSTFLAGS: "-A warnings"
+  # Fern's Rust generator writes a `[build-dependencies]` table into Cargo.toml
+  # that no build script uses, and Cargo warns about it. setup-rust-toolchain
+  # sets this to `deny`, which makes every Cargo warning an error, unless the
+  # workflow sets it first.
+  CARGO_BUILD_WARNINGS: warn
 
 jobs:
   rust:
