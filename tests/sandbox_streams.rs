@@ -1835,8 +1835,9 @@ async fn logs_f_whose_sandbox_is_still_starting_after_the_budget_exits_13() {
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(13), "{err}");
     assert!(
-        class_line(&err).is_some_and(|l| l.starts_with("hedra-cli: Not ready or stopped (13): ")
-            && l.contains("still starting after")),
+        class_line(&err).is_some_and(|l| l.starts_with(&format!(
+            "hedra-cli: Not ready or stopped (13): `{ID}` is still starting after "
+        ))),
         "{err}"
     );
     assert!(broker.calls().is_empty());
@@ -2961,7 +2962,10 @@ async fn a_replica_the_sandbox_lacks_is_refused_before_any_stream() {
     let out = Run::new(&server).run(&["sandbox", "logs", ID, "--replica", "1"]);
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(0), "{err}");
-    assert!(err.contains("has no output yet"), "{err}");
+    assert!(
+        err.contains(&format!("Replica 1 of `{ID}` has no output yet.")),
+        "{err}"
+    );
     assert_eq!(mints(&server, ID).await, 0);
 
     // An instance started to replace a lost one is listed past `replicas`,
@@ -3101,7 +3105,8 @@ async fn logs_f_waits_on_the_replica_asked_for() {
     let err = stderr(&out);
     assert_eq!(out.status.code(), Some(13), "{err}");
     assert!(
-        class_line(&err).is_some_and(|l| l.contains("still starting after")),
+        class_line(&err)
+            .is_some_and(|l| l.contains(&format!(": Replica 1 of `{ID}` is still starting after "))),
         "{err}"
     );
     assert!(broker.calls().is_empty());

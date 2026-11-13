@@ -431,8 +431,9 @@ pub(crate) async fn wait_ready_or_last(
         if Instant::now() >= deadline {
             let took = human_duration(started.elapsed().as_secs() as i64);
             let line = match waiter {
-                Waiter::Reader(_) => format!(
-                    "`{name}` is still starting after {took}. Check on it with `{}`.",
+                Waiter::Reader(replica) => format!(
+                    "{} is still starting after {took}. Check on it with `{}`.",
+                    super::stream::subject(name, replica),
                     super::render::get_command(id)
                 ),
                 Waiter::Stops => format!("`{name}` is still starting after {took}."),
@@ -1170,9 +1171,43 @@ mod tests {
                 .err()
                 .unwrap();
                 assert_eq!(f.class, Class::NotReady);
-                assert!(f.message.contains("still starting"), "{}", f.message);
+                assert!(
+                    f.message.starts_with("`train` is still starting"),
+                    "{}",
+                    f.message
+                );
                 assert!(!f.message.contains("sandbox stop"), "{}", f.message);
             }
+        }
+
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_readers_wait_for_a_replica_past_0_names_that_replica() {
+            let server = MockServer::start().await;
+            Mock::given(method("GET"))
+                .and(path("/sandboxes/sandbox_1"))
+                .respond_with(ResponseTemplate::new(200).set_body_json(row("active", "starting")))
+                .mount(&server)
+                .await;
+            let api = Api::for_tests(&server.uri());
+            let f = wait_ready(
+                &api,
+                "sandbox_1",
+                "train",
+                Instant::now(),
+                &short(),
+                Waiter::Reader(1),
+                &mut |_| {},
+            )
+            .await
+            .err()
+            .unwrap();
+            assert_eq!(f.class, Class::NotReady);
+            assert!(
+                f.message
+                    .starts_with("Replica 1 of `train` is still starting after "),
+                "{}",
+                f.message
+            );
         }
 
         #[tokio::test(flavor = "multi_thread")]
