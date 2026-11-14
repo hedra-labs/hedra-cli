@@ -362,8 +362,9 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
 #### End time
 
 A sandbox created without `--ttl-seconds` has no end time: it runs until you stop it,
-its command exits, or the wallet cannot pay a lease. `sandbox update` sets, moves or
-removes the end time while the sandbox is creating or active:
+its command exits, or the wallet cannot pay a lease. `--ttl-seconds` takes whole seconds
+or a duration such as `10h`, `90m` or `2d`, counted from create. `sandbox update` sets,
+moves or removes the end time while the sandbox is creating or active:
 
 ```bash
 hedra-cli sandbox update --sandbox train --ttl-ends-at 2026-11-20T18:00:00Z  # an RFC 3339 time with an offset

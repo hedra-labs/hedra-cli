@@ -338,6 +338,15 @@ fn create_without_a_lifetime_sends_no_ttl_seconds() {
 }
 
 #[test]
+fn create_sends_a_duration_as_ttl_seconds() {
+    for (value, seconds) in [("10h", 36_000), ("36000", 36_000)] {
+        let outcome = create(&["--ttl-seconds", value]);
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], seconds, "{value}");
+    }
+}
+
+#[test]
 fn create_accepts_both_lifetime_boundaries() {
     for seconds in [120, 31536000] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});

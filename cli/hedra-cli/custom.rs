@@ -165,12 +165,14 @@ fn configure(app: CliApp) -> CliApp {
 }
 
 /// Rewrites an operation's parameters before the runtime validates them:
-/// expands a bare asset id or URL given for a MediaRef field, and turns a
+/// expands a bare asset id or URL given for a MediaRef field, turns a
+/// duration given to `sandbox create --ttl-seconds` into seconds, and turns a
 /// duration or `none` given to `sandbox update --ttl-ends-at` into a time or
 /// `null`. `set_param_transform` keeps only the first transform installed,
-/// so both rewrites run in this one function.
+/// so every rewrite runs in this one function.
 fn rewrite_params(method: &RestMethod, params: &mut Map<String, Value>) -> Result<(), CliError> {
     media_refs::expand(method, params)?;
+    sandbox::rewrite_ttl_seconds(method, params);
     sandbox::rewrite_ttl_ends_at(method, params)
 }
 
