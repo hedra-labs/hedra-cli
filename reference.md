@@ -1875,6 +1875,9 @@ the signing key revokes them.
 Move the sandbox's end time earlier or later with `ttl_ends_at`, or
 remove it with `null`, while the sandbox is creating or active.
 
+`--ttl-ends-at` also takes a duration from now, such as `10h`, `90m`
+or `2d`.
+
 `PATCH /sandboxes/{sandbox}`
 
 | Flag | Type | Required | Description |
