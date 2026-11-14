@@ -1748,8 +1748,7 @@ OpenAI-compatible Responses API. Each request runs as a chat completion, and is 
 Start one instance per replica, paying the first lease from the API
 wallet before any instance is created. The sandbox runs until you stop
 it, its command exits, the wallet cannot pay a lease, or its
-required `ttl_seconds` ends (120–86,400 seconds). Longer reservations require
-a sales contract with Hedra; contact sales@hedra.com. 404 while sandboxes are not enabled
+`ttl_seconds` ends, when you give one. 404 while sandboxes are not enabled
 for your workspace.
 
 `POST /sandboxes`
@@ -1870,6 +1869,18 @@ the signing key revokes them.
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
 | `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+
+#### `hedra-cli sandbox update`
+
+Move the sandbox's end time earlier or later with `ttl_ends_at`, or
+remove it with `null`, while the sandbox is creating or active.
+
+`PATCH /sandboxes/{sandbox}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
 

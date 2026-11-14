@@ -359,6 +359,22 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
   `hedra-cli sandbox get --sandbox <SANDBOX>` before reaching a replica after one
   was lost.
 
+#### End time
+
+A sandbox created without `--ttl-seconds` has no end time: it runs until you stop it,
+its command exits, or the wallet cannot pay a lease. `sandbox update` sets, moves or
+removes the end time while the sandbox is creating or active:
+
+```bash
+hedra-cli sandbox update --sandbox train --ttl-ends-at 2026-11-20T18:00:00Z  # an RFC 3339 time with an offset
+hedra-cli sandbox update --sandbox train --ttl-ends-at 10h                   # 10 hours from now; also 90m, 2d
+hedra-cli sandbox update --sandbox train --ttl-ends-at none                  # no end time
+```
+
+`sandbox ls` shows each sandbox's end time under `ttl_ends_at`, and `—` for a sandbox
+with no end time. `sandbox shell --gpu` gives its sandbox an end time `--max-duration`
+after create, 24h by default.
+
 ### Built-in commands
 
 | Command | Description |
