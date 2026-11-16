@@ -47,7 +47,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.8".to_string());
             Some(o)
         };
         self.http_client
@@ -57,7 +57,7 @@ impl SecretsClient {
 
     /// Store a secret that any member's sandbox can name in `secrets`: 201
     /// for a new name, 200 when it replaces the value of a name your workspace
-    /// holds. Only a workspace owner or admin can set one.
+    /// holds.
     ///
     /// # Arguments
     ///
@@ -101,7 +101,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.8".to_string());
             Some(o)
         };
         self.http_client
@@ -115,7 +115,7 @@ impl SecretsClient {
             .await
     }
 
-    /// Delete a secret. Only a workspace owner or admin can delete one.
+    /// Delete a secret.
     ///
     /// # Arguments
     ///
@@ -150,7 +150,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.8".to_string());
             Some(o)
         };
         self.http_client

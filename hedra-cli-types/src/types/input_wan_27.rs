@@ -22,6 +22,9 @@ pub struct InputWan27 {
     /// Seed for reproducible output; omit for a random seed. From 0 to 2147483647.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputWan27AspectRatio>,
     /// Output resolution.
     pub resolution: InputWan27Resolution,
     /// Duration in ms.
@@ -33,9 +36,6 @@ pub struct InputWan27 {
     /// End frame. At most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputWan27EndImage>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputWan27AspectRatio>,
     /// Reference images. 1 to 4 images, each at most 20 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputWan27ImagesItem>>,
@@ -54,11 +54,11 @@ pub struct InputWan27Builder {
     prompt: Option<String>,
     negative_prompt: Option<String>,
     seed: Option<i64>,
+    aspect_ratio: Option<InputWan27AspectRatio>,
     resolution: Option<InputWan27Resolution>,
     duration_ms: Option<i64>,
     start_image: Option<InputWan27StartImage>,
     end_image: Option<InputWan27EndImage>,
-    aspect_ratio: Option<InputWan27AspectRatio>,
     images: Option<Vec<InputWan27ImagesItem>>,
 }
 
@@ -83,6 +83,11 @@ impl InputWan27Builder {
         self
     }
 
+    pub fn aspect_ratio(mut self, value: InputWan27AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
     pub fn resolution(mut self, value: InputWan27Resolution) -> Self {
         self.resolution = Some(value);
         self
@@ -103,11 +108,6 @@ impl InputWan27Builder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputWan27AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
     pub fn images(mut self, value: Vec<InputWan27ImagesItem>) -> Self {
         self.images = Some(value);
         self
@@ -124,11 +124,11 @@ impl InputWan27Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             negative_prompt: self.negative_prompt,
             seed: self.seed,
+            aspect_ratio: self.aspect_ratio,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             images: self.images,
         })
     }

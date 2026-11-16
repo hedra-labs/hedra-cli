@@ -13,7 +13,7 @@ pub struct SandboxBillingSummary {
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]
     pub paid_usd: f64,
-    /// The charge once settled. Before that, on `GET /sandboxes/{sandbox}` only, the charge so far; null on the list.
+    /// The final charge once settled. Before settlement, the charge so far on single-sandbox GET and stop responses when sandbox instance timestamps are available; null on list and create responses.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers::option")]

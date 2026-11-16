@@ -15,9 +15,6 @@ pub struct InputGeminiOmniFlash11 {
     pub aspect_ratio: InputGeminiOmniFlash11AspectRatio,
     /// Output resolution.
     pub resolution: InputGeminiOmniFlash11Resolution,
-    /// Duration in ms.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub duration_ms: Option<i64>,
     /// Start frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputGeminiOmniFlash11StartImage>,
@@ -33,6 +30,9 @@ pub struct InputGeminiOmniFlash11 {
     /// Reference videos. 1 to 3 videos, each at most 10.15s and at most 524.2 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub videos: Option<Vec<InputGeminiOmniFlash11VideosItem>>,
+    /// Duration in ms.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
 }
 
 impl InputGeminiOmniFlash11 {
@@ -48,12 +48,12 @@ pub struct InputGeminiOmniFlash11Builder {
     prompt: Option<String>,
     aspect_ratio: Option<InputGeminiOmniFlash11AspectRatio>,
     resolution: Option<InputGeminiOmniFlash11Resolution>,
-    duration_ms: Option<i64>,
     start_image: Option<InputGeminiOmniFlash11StartImage>,
     end_image: Option<InputGeminiOmniFlash11EndImage>,
     source_video: Option<InputGeminiOmniFlash11SourceVideo>,
     images: Option<Vec<InputGeminiOmniFlash11ImagesItem>>,
     videos: Option<Vec<InputGeminiOmniFlash11VideosItem>>,
+    duration_ms: Option<i64>,
 }
 
 impl InputGeminiOmniFlash11Builder {
@@ -74,11 +74,6 @@ impl InputGeminiOmniFlash11Builder {
 
     pub fn resolution(mut self, value: InputGeminiOmniFlash11Resolution) -> Self {
         self.resolution = Some(value);
-        self
-    }
-
-    pub fn duration_ms(mut self, value: i64) -> Self {
-        self.duration_ms = Some(value);
         self
     }
 
@@ -107,6 +102,11 @@ impl InputGeminiOmniFlash11Builder {
         self
     }
 
+    pub fn duration_ms(mut self, value: i64) -> Self {
+        self.duration_ms = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`InputGeminiOmniFlash11`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputGeminiOmniFlash11Builder::prompt)
@@ -118,12 +118,12 @@ impl InputGeminiOmniFlash11Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
-            duration_ms: self.duration_ms,
             start_image: self.start_image,
             end_image: self.end_image,
             source_video: self.source_video,
             images: self.images,
             videos: self.videos,
+            duration_ms: self.duration_ms,
         })
     }
 }

@@ -22,15 +22,15 @@ pub struct InputMinimaxH3 {
     /// Duration in ms.
     #[serde(default)]
     pub duration_ms: i64,
+    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image, else the first reference video.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputMinimaxH3AspectRatio>,
     /// Start frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3StartImage>,
     /// End frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3EndImage>,
-    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image, else the first reference video.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputMinimaxH3AspectRatio>,
     /// Reference images. 1 to 5 images, each from 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMinimaxH3ImagesItem>>,
@@ -55,9 +55,9 @@ pub struct InputMinimaxH3Builder {
     prompt: Option<String>,
     resolution: Option<InputMinimaxH3Resolution>,
     duration_ms: Option<i64>,
+    aspect_ratio: Option<InputMinimaxH3AspectRatio>,
     start_image: Option<InputMinimaxH3StartImage>,
     end_image: Option<InputMinimaxH3EndImage>,
-    aspect_ratio: Option<InputMinimaxH3AspectRatio>,
     images: Option<Vec<InputMinimaxH3ImagesItem>>,
     videos: Option<Vec<InputMinimaxH3VideosItem>>,
     audios: Option<Vec<InputMinimaxH3AudiosItem>>,
@@ -84,6 +84,11 @@ impl InputMinimaxH3Builder {
         self
     }
 
+    pub fn aspect_ratio(mut self, value: InputMinimaxH3AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
     pub fn start_image(mut self, value: InputMinimaxH3StartImage) -> Self {
         self.start_image = Some(value);
         self
@@ -91,11 +96,6 @@ impl InputMinimaxH3Builder {
 
     pub fn end_image(mut self, value: InputMinimaxH3EndImage) -> Self {
         self.end_image = Some(value);
-        self
-    }
-
-    pub fn aspect_ratio(mut self, value: InputMinimaxH3AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
         self
     }
 
@@ -125,9 +125,9 @@ impl InputMinimaxH3Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
+            aspect_ratio: self.aspect_ratio,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             images: self.images,
             videos: self.videos,
             audios: self.audios,

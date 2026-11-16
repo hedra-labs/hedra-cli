@@ -19,6 +19,9 @@ pub struct InputViduQ3 {
     /// Seed for reproducible output; omit for a random seed.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub seed: Option<i64>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputViduQ3AspectRatio>,
     /// Output resolution.
     pub resolution: InputViduQ3Resolution,
     /// Duration in ms.
@@ -30,9 +33,6 @@ pub struct InputViduQ3 {
     /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputViduQ3EndImage>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputViduQ3AspectRatio>,
     /// Quality level to generate at. `standard` — the full model. `turbo` — the same options tuned for turnaround, at a lower rate.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<InputViduQ3Quality>,
@@ -50,11 +50,11 @@ pub struct InputViduQ3Builder {
     num_outputs: Option<i64>,
     prompt: Option<String>,
     seed: Option<i64>,
+    aspect_ratio: Option<InputViduQ3AspectRatio>,
     resolution: Option<InputViduQ3Resolution>,
     duration_ms: Option<i64>,
     start_image: Option<InputViduQ3StartImage>,
     end_image: Option<InputViduQ3EndImage>,
-    aspect_ratio: Option<InputViduQ3AspectRatio>,
     quality: Option<InputViduQ3Quality>,
 }
 
@@ -71,6 +71,11 @@ impl InputViduQ3Builder {
 
     pub fn seed(mut self, value: i64) -> Self {
         self.seed = Some(value);
+        self
+    }
+
+    pub fn aspect_ratio(mut self, value: InputViduQ3AspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
         self
     }
 
@@ -94,11 +99,6 @@ impl InputViduQ3Builder {
         self
     }
 
-    pub fn aspect_ratio(mut self, value: InputViduQ3AspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
-        self
-    }
-
     pub fn quality(mut self, value: InputViduQ3Quality) -> Self {
         self.quality = Some(value);
         self
@@ -114,11 +114,11 @@ impl InputViduQ3Builder {
             num_outputs: self.num_outputs,
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             seed: self.seed,
+            aspect_ratio: self.aspect_ratio,
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             quality: self.quality,
         })
     }

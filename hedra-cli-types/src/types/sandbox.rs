@@ -27,6 +27,9 @@ pub struct Sandbox {
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,
+    /// Who created the sandbox: you, another member of your workspace, or its service key. Set on every answer.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<SandboxCreator>,
     /// The earliest `started_at` of its instances; null on the list and before any instance starts.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -45,18 +48,21 @@ pub struct Sandbox {
     /// The keys of `env`, never its values.
     #[serde(default)]
     pub env_keys: Vec<String>,
-    /// The image the sandbox runs, as created. Set wherever `instances` is and the sandbox has an instance; null on the list, on the create answer, and while it has none.
+    /// The image the sandbox runs, as created. Set wherever `instances` is and the sandbox has an instance; null on the list, on the create answer, while it has none, and once the owner has created a later sandbox of its name.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub image: Option<String>,
-    /// The `command` the sandbox runs, as created and returned as given, so a secret belongs in `env` rather than here; null when `image` is, when the image's own `ENTRYPOINT`/`CMD` runs, and for an `idle` sandbox.
+    /// The `command` the sandbox runs, as created and returned as given, so a secret belongs in `env` rather than here; null when `image` is, when the image's own `ENTRYPOINT`/`CMD` runs, and for an `idle` sandbox. Every member of the workspace reads it, so a secret in it is a secret shared with the workspace.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
     /// One entry per replica; null on the list.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub instances: Option<Vec<SandboxInstance>>,
-    /// The address of the port in `ports`, the same for every replica; call it with a token from `POST /sandboxes/{sandbox}/endpoint-token`. Set wherever `instances` is; null on the list, for a sandbox created without `ports`, and while its pool serves no address.
+    /// The address of the port in `ports`, the same for every replica. With `auth` `token`, each request also carries a token from `POST /sandboxes/{sandbox}/endpoint-token`. Set wherever `instances` is; null on the list, for a sandbox created without `ports`, while its compute pool serves no address, and after any later create of the same sandbox name in the same workspace by the same owner, including a failed create. Recreates with `ports` in that scope keep the routed URL while the compute pool's gateway host stays the same. An earlier endpoint token or `browser_url` still reaches the replacement until its original `expires_at` or signing-key rotation. Stopping, recreating or changing the image does not revoke the endpoint token; another sandbox name isolates the replacement without revoking the earlier endpoint token.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub url: Option<String>,
+    /// The address of the port in `ports` from the public internet, beside `url`; the port's `auth` applies to both, and the same token works on both. Null wherever `url` is null, for a sandbox created while its environment served no public addresses, and while its compute pool serves none.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub internet_url: Option<String>,
     #[serde(default)]
     pub billing: SandboxBillingSummary,
 }
@@ -78,6 +84,7 @@ pub struct SandboxBuilder {
     status: Option<SandboxStatus>,
     end_reason: Option<SandboxEndReason>,
     created_at: Option<DateTime<FixedOffset>>,
+    created_by: Option<SandboxCreator>,
     started_at: Option<DateTime<FixedOffset>>,
     ended_at: Option<DateTime<FixedOffset>>,
     ttl_ends_at: Option<DateTime<FixedOffset>>,
@@ -86,6 +93,7 @@ pub struct SandboxBuilder {
     command: Option<Vec<String>>,
     instances: Option<Vec<SandboxInstance>>,
     url: Option<String>,
+    internet_url: Option<String>,
     billing: Option<SandboxBillingSummary>,
 }
 
@@ -130,6 +138,11 @@ impl SandboxBuilder {
         self
     }
 
+    pub fn created_by(mut self, value: SandboxCreator) -> Self {
+        self.created_by = Some(value);
+        self
+    }
+
     pub fn started_at(mut self, value: DateTime<FixedOffset>) -> Self {
         self.started_at = Some(value);
         self
@@ -170,6 +183,11 @@ impl SandboxBuilder {
         self
     }
 
+    pub fn internet_url(mut self, value: impl Into<String>) -> Self {
+        self.internet_url = Some(value.into());
+        self
+    }
+
     pub fn billing(mut self, value: SandboxBillingSummary) -> Self {
         self.billing = Some(value);
         self
@@ -196,6 +214,7 @@ impl SandboxBuilder {
             status: self.status.ok_or_else(|| BuildError::missing_field("status"))?,
             end_reason: self.end_reason,
             created_at: self.created_at.ok_or_else(|| BuildError::missing_field("created_at"))?,
+            created_by: self.created_by,
             started_at: self.started_at,
             ended_at: self.ended_at,
             ttl_ends_at: self.ttl_ends_at,
@@ -204,6 +223,7 @@ impl SandboxBuilder {
             command: self.command,
             instances: self.instances,
             url: self.url,
+            internet_url: self.internet_url,
             billing: self.billing.ok_or_else(|| BuildError::missing_field("billing"))?,
         })
     }
