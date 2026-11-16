@@ -328,7 +328,8 @@ Hedra charges a sandbox's GPU time until the sandbox stops. `sandbox get` shows 
 these ended it:
 
 - **A job that runs to completion:** make it the `--command`. The sandbox ends when the
-  command exits (`exited`), unless `--restart` restarts it.
+  command exits (`exited`, or `instance_failed` for a nonzero exit), unless `--restart`
+  restarts it.
 - **A job you run with `exec`:** create the sandbox with `--idle true --idle-ttl-seconds N`,
   and it stops `N` seconds after the last session ends (`idle_ttl_ended`). Keep the job in
   the foreground: a process left running after its session ends is not activity.
