@@ -1748,8 +1748,7 @@ OpenAI-compatible Responses API. Each request runs as a chat completion, and is 
 Start one instance per replica, paying the first lease from the API
 wallet before any instance is created. The sandbox runs until you stop
 it, its command exits, the wallet cannot pay a lease, or its
-required `ttl_seconds` ends (120–86,400 seconds). Longer reservations require
-a sales contract with Hedra; contact sales@hedra.com. 404 while sandboxes are not enabled
+`ttl_seconds` ends, when you give one. 404 while sandboxes are not enabled
 for your workspace.
 
 `POST /sandboxes`
