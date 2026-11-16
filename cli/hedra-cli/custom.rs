@@ -36,8 +36,9 @@ mod workspaces;
 use fern_cli_sdk::app::CliApp;
 use fern_cli_sdk::error::{write_error_json, CliError, ErrorDisplayContext};
 use fern_cli_sdk::formatter::{OutputFormat, OutputPipeline};
+use fern_cli_sdk::openapi::discovery::RestMethod;
 use fern_cli_sdk::openapi::{commands, load_openapi_spec};
-use serde_json::Value;
+use serde_json::{Map, Value};
 
 /// Set up the CLI and run the command, then exit with its code. Never returns.
 ///
@@ -110,9 +111,9 @@ fn configure(app: CliApp) -> CliApp {
         fern_cli_sdk::auth::auto_store(),
     )));
 
-    // `--input.source-image asset_…` / `https://…` as shorthand for the
-    // MediaRef object. Request-side, so it applies in every output format.
-    media_refs::install();
+    // The rewrites apply in every output format, so this runs before the
+    // table-only early return below.
+    fern_cli_sdk::openapi::executor::set_param_transform(rewrite_params);
 
     // `sandbox session` mints a session token, which a developer has no use
     // for, so it stays out of the text `--help`. `--help --format json`,
@@ -161,6 +162,18 @@ fn configure(app: CliApp) -> CliApp {
         // way round, the de-hijacker would turn the `[]` an empty list
         // becomes into an empty string.
         .transform_response(&["sandbox", "ls"], views::sandbox_list)
+}
+
+/// Rewrites an operation's parameters before the runtime validates them:
+/// expands a bare asset id or URL given for a MediaRef field, turns a
+/// duration given to `sandbox create --ttl-seconds` into seconds, and turns a
+/// duration or `none` given to `sandbox update --ttl-ends-at` into a time or
+/// `null`. `set_param_transform` keeps only the first transform installed,
+/// so every rewrite runs in this one function.
+fn rewrite_params(method: &RestMethod, params: &mut Map<String, Value>) -> Result<(), CliError> {
+    media_refs::expand(method, params)?;
+    sandbox::rewrite_ttl_seconds(method, params);
+    sandbox::rewrite_ttl_ends_at(method, params)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {

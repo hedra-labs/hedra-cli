@@ -49,17 +49,13 @@ enum Slot {
     Items,
 }
 
-/// Install the shorthand. Called once from `custom::register`.
-pub fn install() {
-    fern_cli_sdk::openapi::executor::set_param_transform(expand);
-}
-
 fn embedded_spec() -> &'static Value {
     static SPEC: OnceLock<Value> = OnceLock::new();
     SPEC.get_or_init(|| serde_json::from_str(include_str!("openapi0.json")).unwrap_or(Value::Null))
 }
 
-fn expand(method: &RestMethod, params: &mut Map<String, Value>) -> Result<(), CliError> {
+/// Expands the bare forms given for `method`'s media fields in `params`.
+pub(crate) fn expand(method: &RestMethod, params: &mut Map<String, Value>) -> Result<(), CliError> {
     // Parsed lazily, once, and only for an operation that was handed at
     // least one parameter.
     if params.is_empty() {

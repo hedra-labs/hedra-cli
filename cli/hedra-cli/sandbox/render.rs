@@ -72,8 +72,8 @@ pub(crate) fn hinted_commands() -> Vec<String> {
     ]
 }
 
-/// Parses `--max-duration`: whole seconds, or a number with `s`, `m`, `h`
-/// or `d`.
+/// Parses a duration for `--max-duration`, `--ttl-seconds` or
+/// `--ttl-ends-at`: whole seconds, or a number with `s`, `m`, `h` or `d`.
 pub(crate) fn parse_duration(raw: &str) -> Result<i64, String> {
     let raw = raw.trim();
     let (digits, unit) = match raw.char_indices().find(|(_, c)| !c.is_ascii_digit()) {
