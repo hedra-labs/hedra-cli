@@ -178,8 +178,6 @@ fn create_with(extra: &[&str], responses: Vec<ResponseTemplate>) -> Outcome {
         "ghcr.io/acme/trainer:1",
         "--gpu",
         "h100:1",
-        "--ttl-seconds",
-        "900",
     ];
     args.extend_from_slice(extra);
     run(&args, responses)
@@ -290,88 +288,67 @@ fn session_is_hidden_from_help_but_still_runs() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
-    for lifetime in [Value::Null, json!(120.5)] {
-        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
-        for input in ["--json", "--params"] {
-            let outcome = run(
-                &[
-                    "sandbox",
-                    "create",
-                    input,
-                    &body.to_string(),
-                    "--format",
-                    "json",
-                ],
-                ok(created_sandbox()),
-            );
-            assert!(
-                !outcome.out.status.success(),
-                "{input} {lifetime}: {}",
-                outcome.output_text()
-            );
-            assert!(
-                outcome.requests.is_empty(),
-                "{input} {lifetime}: {}",
-                outcome.output_text()
-            );
-            assert!(
-                outcome.output_text().contains("ttl_seconds"),
-                "{}",
-                outcome.output_text()
-            );
-        }
+fn create_rejects_a_fractional_lifetime_from_every_input_without_sending() {
+    let body =
+        json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": 120.5});
+    for input in ["--json", "--params"] {
         let outcome = run(
             &[
                 "sandbox",
                 "create",
-                "--name",
-                "nightly",
-                "--image",
-                "python:3.12",
-                "--gpu",
-                "h100:1",
-                "--ttl-seconds",
-                &lifetime.to_string(),
+                input,
+                &body.to_string(),
+                "--format",
+                "json",
             ],
             ok(created_sandbox()),
         );
-        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
-        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
-    }
-}
-
-#[test]
-fn create_requires_a_lifetime_including_dry_runs() {
-    let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1"}).to_string();
-    for args in [
-        vec!["--json", body.as_str()],
-        vec!["--json", body.as_str(), "--dry-run"],
-        vec![
-            "--name",
-            "nightly",
-            "--image",
-            "python:3.12",
-            "--gpu",
-            "h100:1",
-        ],
-    ] {
-        let mut command = vec!["sandbox", "create"];
-        command.extend(args);
-        let outcome = run(&command, ok(created_sandbox()));
-        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
-        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+        assert!(
+            !outcome.out.status.success(),
+            "{input}: {}",
+            outcome.output_text()
+        );
+        assert!(
+            outcome.requests.is_empty(),
+            "{input}: {}",
+            outcome.output_text()
+        );
         assert!(
             outcome.output_text().contains("ttl_seconds"),
             "{}",
             outcome.output_text()
         );
     }
+    let outcome = create(&["--ttl-seconds", "120.5"]);
+    assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+}
+
+#[test]
+fn create_without_a_lifetime_sends_no_ttl_seconds() {
+    let body = create(&[]).body();
+    assert!(body.get("ttl_seconds").is_none(), "{body}");
+    let json = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1"});
+    let outcome = run(
+        &["sandbox", "create", "--json", &json.to_string()],
+        ok(created_sandbox()),
+    );
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    assert_eq!(outcome.body(), json);
+}
+
+#[test]
+fn create_sends_a_duration_as_ttl_seconds() {
+    for (value, seconds) in [("10h", 36_000), ("36000", 36_000)] {
+        let outcome = create(&["--ttl-seconds", value]);
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], seconds, "{value}");
+    }
 }
 
 #[test]
 fn create_accepts_both_lifetime_boundaries() {
-    for seconds in [120, 86400] {
+    for seconds in [120, 31536000] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
         let outcome = run(
             &["sandbox", "create", "--json", &body.to_string()],
@@ -384,8 +361,8 @@ fn create_accepts_both_lifetime_boundaries() {
 
 #[test]
 fn create_leaves_lifetime_range_validation_to_the_api() {
-    let message = "Lifetime refused by the API; contact sales@hedra.com.";
-    for seconds in [0, 119, 86401, 31536000] {
+    let message = "ttl_seconds must be 120 to 31,536,000.";
+    for seconds in [0, 119, 31536001] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
         let outcome = run(
             &["sandbox", "create", "--json", &body.to_string()],
@@ -409,7 +386,7 @@ fn create_validates_a_body_read_from_stdin() {
     let file = home.path().join("sandbox.json");
     std::fs::write(
         &file,
-        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":null}"#,
+        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":120.5}"#,
     )
     .unwrap();
     let out = hedra_cli(home.path())
@@ -419,11 +396,7 @@ fn create_validates_a_body_read_from_stdin() {
         .output()
         .unwrap();
     assert!(!out.status.success(), "{}", describe(&out));
-    assert!(
-        describe(&out).contains("ttl_seconds"),
-        "{}",
-        describe(&out)
-    );
+    assert!(describe(&out).contains("ttl_seconds"), "{}", describe(&out));
 }
 
 #[test]
@@ -616,6 +589,91 @@ fn create_without_a_key_retries_with_one_generated_key() {
 }
 
 // ---------------------------------------------------------------------------
+// update: the end time
+// ---------------------------------------------------------------------------
+
+/// `sandbox update --sandbox nightly --ttl-ends-at <value> --format json`,
+/// answered with the sandbox.
+fn update(value: &str) -> Outcome {
+    run(
+        &[
+            "sandbox",
+            "update",
+            "--sandbox",
+            "nightly",
+            "--ttl-ends-at",
+            value,
+            "--format",
+            "json",
+        ],
+        ok(sandbox()),
+    )
+}
+
+fn unix_now() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap()
+        .as_secs() as i64
+}
+
+#[test]
+fn update_sends_a_time_as_given() {
+    let outcome = update("2026-11-20T10:00:00-08:00");
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    let request = outcome.request();
+    assert_eq!(request.method.as_str(), "PATCH");
+    assert_eq!(request.url.path(), "/sandboxes/nightly");
+    assert_eq!(
+        outcome.body(),
+        json!({"ttl_ends_at": "2026-11-20T10:00:00-08:00"})
+    );
+}
+
+#[test]
+fn update_sends_a_duration_as_the_time_that_long_from_now() {
+    let before = unix_now();
+    let outcome = update("10h");
+    let after = unix_now();
+    assert!(outcome.out.status.success(), "{}", outcome.output_text());
+    let body = outcome.body();
+    let sent = body["ttl_ends_at"].as_str().expect("a time");
+    let at = hedra_cli_sdk::api::prelude::DateTime::parse_from_rfc3339(sent)
+        .unwrap_or_else(|e| panic!("`{sent}` is not RFC 3339: {e}"))
+        .timestamp();
+    assert!(
+        (before + 36_000..=after + 36_000).contains(&at),
+        "{sent} is not 10 hours after the run"
+    );
+}
+
+#[test]
+fn update_sends_none_as_null() {
+    for value in ["none", "null"] {
+        let outcome = update(value);
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body(), json!({"ttl_ends_at": null}), "{value}");
+    }
+}
+
+#[test]
+fn update_refuses_any_other_value_before_sending() {
+    let outcome = update("tomorrow");
+    assert_eq!(
+        outcome.out.status.code(),
+        Some(3),
+        "{}",
+        outcome.output_text()
+    );
+    assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+    assert!(
+        outcome.output_text().contains("--ttl-ends-at takes"),
+        "{}",
+        outcome.output_text()
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Filters and paths
 // ---------------------------------------------------------------------------
 
@@ -803,6 +861,7 @@ fn ls_as_a_table_shows_only_the_scanned_columns() {
             "id",
             "name",
             "status",
+            "ttl_ends_at",
             "usd_per_hour"
         ],
         "{table}"
@@ -821,6 +880,7 @@ fn ls_as_a_table_shows_only_the_scanned_columns() {
             "sandbox_0123456789abcdef",
             "nightly",
             "active",
+            "—",
             "2.5"
         ],
         "{table}"

@@ -364,8 +364,8 @@ fn job_submit(value: &Value) -> Value {
 // ── Layer 3: the sandbox list ───────────────────────────────────────
 
 /// `sandbox ls` — each sandbox as `id`, `name`, `status`, `gpu`,
-/// `created_at`, who created it (`created_by`) and its billing's
-/// `usd_per_hour`.
+/// `created_at`, who created it (`created_by`), when it ends (`ttl_ends_at`,
+/// `—` for no end time) and its billing's `usd_per_hour`.
 ///
 /// Every row carries every column, null where the server sent nothing, so a
 /// page in which no sandbox has a field still shows its column, empty. The
@@ -398,6 +398,11 @@ fn sandbox_rows(mut value: Value) -> Value {
         row.insert("created_at".into(), created);
         let creator = creator_label(fields.get("created_by"));
         row.insert("created_by".into(), Value::String(creator));
+        let ends = match fields.get("ttl_ends_at") {
+            Some(Value::String(at)) => instant(at),
+            _ => "—".to_string(),
+        };
+        row.insert("ttl_ends_at".into(), Value::String(ends));
         let price = fields
             .get("billing")
             .and_then(|b| b.get("usd_per_hour"))
@@ -1283,6 +1288,7 @@ mod tests {
             "name": "train", "gpu": "rtx4090:1", "gpu_model": "rtx4090", "replicas": 1,
             "status": "active", "end_reason": null,
             "created_at": "2026-11-03T12:00:00.123456Z", "started_at": null,
+            "ttl_ends_at": "2026-11-04T12:00:00Z",
             "env_keys": ["HF_TOKEN"], "command": ["python", "train.py"],
             "instances": [{"replica": 0, "status": "running"}], "url": null,
             "billing": {"usd_per_hour": 1.0, "paid_usd": 0.75, "settled": false},
@@ -1304,6 +1310,7 @@ mod tests {
                 "id",
                 "name",
                 "status",
+                "ttl_ends_at",
                 "usd_per_hour"
             ]
         );
@@ -1324,6 +1331,7 @@ mod tests {
                 "sandbox_3f2504e0-4f89-41d3-9a0c-0305e82c3301",
                 "train",
                 "active",
+                "2026-11-04 12:00:00 UTC",
                 "1.0"
             ]
         );
@@ -1339,7 +1347,8 @@ mod tests {
         assert_eq!(
             rows["data"][0],
             json!({"id": "sandbox_1", "name": "a", "status": null, "gpu": null,
-                   "created_at": null, "created_by": "—", "usd_per_hour": null})
+                   "created_at": null, "created_by": "—", "ttl_ends_at": "—",
+                   "usd_per_hour": null})
         );
         let header = render(&rows).lines().next().unwrap().to_string();
         assert_eq!(
@@ -1351,6 +1360,7 @@ mod tests {
                 "id",
                 "name",
                 "status",
+                "ttl_ends_at",
                 "usd_per_hour"
             ]
         );
