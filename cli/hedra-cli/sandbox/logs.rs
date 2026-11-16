@@ -177,6 +177,7 @@ struct Logs<'a> {
 }
 
 /// Where a sandbox is, for reading its output.
+#[derive(Debug, PartialEq, Eq)]
 enum Phase {
     NeverRan,
     Starting,
@@ -192,9 +193,11 @@ fn phase(s: &Sandbox, replica: i64) -> Phase {
         SandboxStatus::Ended | SandboxStatus::Stopping => Phase::Stopped,
         SandboxStatus::Creating => Phase::Starting,
         _ => match stream::replica_at(s, replica).map(|i| &i.status) {
-            None | Some(SandboxInstanceStatus::Starting) => Phase::Starting,
             Some(SandboxInstanceStatus::Running) => Phase::Running,
-            Some(_) => Phase::Stopped,
+            Some(SandboxInstanceStatus::Stopped | SandboxInstanceStatus::Failed) => Phase::Stopped,
+            // Missing, starting, or a status this build does not know, such
+            // as `restarting`: it may yet run, so `-f` waits for it.
+            _ => Phase::Starting,
         },
     }
 }
@@ -283,6 +286,15 @@ impl Logs<'_> {
                     return Ended::Done;
                 }
                 Phase::Stopped => return self.stored_tail(&id, &s).await,
+                // A replica that ran and is between runs, as one restarting
+                // is, has the output of its last run.
+                Phase::Starting
+                    if !self.follow
+                        && stream::replica_at(&s, self.replica)
+                            .is_some_and(|i| i.started_at.is_some()) =>
+                {
+                    return self.stored_tail(&id, &s).await
+                }
                 Phase::Starting if !self.follow => {
                     stream::note(format_args!(
                         "{} has no output yet.",
@@ -767,6 +779,30 @@ pub(crate) fn rfc3339(at: Timestamp) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A replica restarting, or in another status this build does not know,
+    /// may yet run: `-f` waits for it rather than reading it as stopped.
+    #[test]
+    fn a_restarting_replica_is_starting_not_stopped() {
+        let with = |status: &str| -> Sandbox {
+            serde_json::from_value(serde_json::json!({
+                "id": "sandbox_1", "name": "box", "gpu": "h100:1", "gpu_model": "h100",
+                "replicas": 1, "status": "active", "created_at": "2026-11-03T12:00:00Z",
+                "env_keys": [], "instances": [{"replica": 0, "status": status}],
+                "billing": {"usd_per_hour": 1.0, "paid_usd": 0.0, "settled": false},
+            }))
+            .unwrap()
+        };
+        for (status, expected) in [
+            ("starting", Phase::Starting),
+            ("restarting", Phase::Starting),
+            ("running", Phase::Running),
+            ("stopped", Phase::Stopped),
+            ("failed", Phase::Stopped),
+        ] {
+            assert_eq!(phase(&with(status), 0), expected, "{status}");
+        }
+    }
 
     #[test]
     fn resume_is_one_nanosecond_after_the_last_chunk() {

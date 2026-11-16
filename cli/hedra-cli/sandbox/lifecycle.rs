@@ -11,7 +11,7 @@ use hedra_cli_sdk::api::{
 use hedra_cli_sdk::RequestOptions;
 use tokio::time::Instant;
 
-use super::api::{attempt, Api, CallError, ATTEMPT};
+use super::api::{attempt, Answer, Api, CallError, ATTEMPT};
 use super::error::{escape_controls, Class, Failure};
 use super::render::{human_duration, stop_reason};
 
@@ -22,7 +22,8 @@ pub(crate) const READY_BUDGET: Duration = Duration::from_secs(20 * 60);
 /// A wait for a sandbox someone else created: the pool's 15 minutes.
 pub(crate) const START_BUDGET: Duration = Duration::from_secs(15 * 60);
 
-/// [`START_BUDGET`] for `logs -f`'s wait. Test hook (debug builds only):
+/// [`START_BUDGET`] for the waits of `logs -f`, `attach`, `port-forward`
+/// and `restart`. Test hook (debug builds only):
 /// `HEDRA_CLI_TEST_START_BUDGET_MS` sets it in milliseconds.
 pub(crate) fn start_budget() -> Duration {
     #[cfg(debug_assertions)]
@@ -39,7 +40,8 @@ const STOP_DEADLINE: Duration = Duration::from_secs(5 * 60);
 /// Between the create's and the stop's retries, whose deadlines run to
 /// minutes: the cap spares a struggling route without leaving it untried for
 /// long.
-const ROUTE_BACKOFF: Backoff = Backoff::new(Duration::from_secs(1), Duration::from_secs(16));
+pub(crate) const ROUTE_BACKOFF: Backoff =
+    Backoff::new(Duration::from_secs(1), Duration::from_secs(16));
 /// The longest wait taken from an envelope's `retry_after`.
 const MAX_RETRY_AFTER: Duration = Duration::from_secs(30);
 
@@ -58,7 +60,8 @@ fn within(limit: Duration, deadline: Instant) -> Duration {
     limit.min(deadline.saturating_duration_since(Instant::now()))
 }
 
-fn describe(error: &CallError) -> String {
+/// A failed call in a few words, for a line that names the cause.
+pub(crate) fn describe(error: &CallError) -> String {
     match error {
         CallError::Http(e) if !e.message().is_empty() => {
             format!("HTTP {}: {}", e.status, escape_controls(e.message()))
@@ -263,12 +266,12 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
         _ => return Readiness::Starting,
     }
     let all = s.instances.as_deref().unwrap_or_default();
-    let instances: Vec<_> = match waiter {
-        Waiter::Reader(replica) => all.iter().filter(|i| i.replica == replica).collect(),
-        Waiter::Stops => all.iter().collect(),
+    let instances: Vec<_> = match waiter.replica() {
+        Some(replica) => all.iter().filter(|i| i.replica == replica).collect(),
+        None => all.iter().collect(),
     };
     let needed = match waiter {
-        Waiter::Reader(_) => 1,
+        Waiter::Reader(_) | Waiter::Restart(_) => 1,
         Waiter::Stops => s.replicas.max(1),
     };
     if let Some(failed) = instances
@@ -346,6 +349,18 @@ pub(crate) enum Waiter {
     Reader(i64),
     /// A caller that stops the sandbox itself when the wait fails.
     Stops,
+    /// `restart`, waiting for the one replica it restarted to run again.
+    Restart(i64),
+}
+
+impl Waiter {
+    /// The one replica a reader or a restart follows; None for every one.
+    fn replica(self) -> Option<i64> {
+        match self {
+            Waiter::Reader(replica) | Waiter::Restart(replica) => Some(replica),
+            Waiter::Stops => None,
+        }
+    }
 }
 
 /// Polls `GET /sandboxes/{id}` until the sandbox is ready or cannot be,
@@ -383,34 +398,126 @@ pub(crate) async fn wait_ready_or_last(
     waiter: Waiter,
     say: &mut dyn FnMut(&str),
 ) -> Result<Sandbox, WaitFailed> {
+    wait_until(api, id, name, started, timing, waiter, &mut |_| true, say)
+        .await
+        .map(|a| a.sandbox)
+}
+
+/// Whether a read shows that the restart of `replica` began: the replica is
+/// listed and not running, or the read lists instances but not that one, or
+/// it runs since another start than `before`, its start before the restart.
+///
+/// The wait relies on the route's contract (ENG-13053): from the moment the
+/// restart is recorded until the new process runs, the route's answer and
+/// every read show the replica not `running`. The start-time arm is for a
+/// view that moves `started_at` with each start; v3's keeps the first.
+/// A read with no instances, as `stop` answers when its lookup fails, shows
+/// nothing either way.
+pub(crate) fn restart_began(s: &Sandbox, replica: i64, before: Option<StartedAt>) -> bool {
+    if s.instances.is_none() {
+        return false;
+    }
+    match super::stream::replica_at(s, replica) {
+        None => true,
+        Some(i) if !matches!(i.status, SandboxInstanceStatus::Running) => true,
+        Some(i) => before.is_some() && i.started_at != before,
+    }
+}
+
+/// When an instance started running, as the API reads it.
+pub(crate) type StartedAt =
+    hedra_cli_sdk::api::prelude::DateTime<hedra_cli_sdk::api::prelude::FixedOffset>;
+
+/// Polls an accepted restart of `replica` until that replica runs again,
+/// or cannot, passing each change once to `say`. `accepted` is the
+/// sandbox the restart route answered, and `before` the replica's start
+/// before the restart: a read counts as running again only once this read,
+/// or one before it, showed the restart begin ([`restart_began`]), so the
+/// wait does not end on a read taken before the replica went down.
+#[allow(clippy::too_many_arguments)]
+pub(crate) async fn wait_restarted(
+    api: &Api,
+    accepted: &Sandbox,
+    name: &str,
+    replica: i64,
+    before: Option<StartedAt>,
+    started: Instant,
+    timing: &Timing,
+    say: &mut dyn FnMut(&str),
+) -> Result<Answer, WaitFailed> {
+    let mut began = restart_began(accepted, replica, before);
+    let mut gate = |s: &Sandbox| {
+        began |= restart_began(s, replica, before);
+        began
+    };
+    wait_until(
+        api,
+        &accepted.id,
+        name,
+        started,
+        timing,
+        Waiter::Restart(replica),
+        &mut gate,
+        say,
+    )
+    .await
+}
+
+/// The loop under [`wait_ready_or_last`] and [`wait_restarted`]: a read
+/// [`readiness`] calls ready ends the wait only when `gate` passes it too.
+#[allow(clippy::too_many_arguments)]
+async fn wait_until(
+    api: &Api,
+    id: &str,
+    name: &str,
+    started: Instant,
+    timing: &Timing,
+    waiter: Waiter,
+    gate: &mut dyn FnMut(&Sandbox) -> bool,
+    say: &mut dyn FnMut(&str),
+) -> Result<Answer, WaitFailed> {
     let deadline = started + timing.ready_budget;
     let mut last: Option<Box<Sandbox>> = None;
     let mut last_line = String::new();
     let mut last_elapsed = Instant::now();
+    // The last read was ready but the gate held it: a restart not seen yet.
+    let mut held = false;
     loop {
         let poll = Instant::now();
-        match attempt(ATTEMPT, api.client.get(id, None)).await {
-            Ok(sandbox) => {
-                let line = progress(&sandbox);
+        match api.read(id, ATTEMPT).await {
+            Ok(answer) => {
+                let line = progress(&answer.sandbox);
                 if line != last_line {
                     say(&escape_controls(&line));
                     last_line = line;
                 }
-                match readiness(&sandbox, waiter) {
+                // The gate sees every read, so a restart that begins and
+                // ends between two ready reads is still counted.
+                let passed = gate(&answer.sandbox);
+                held = false;
+                match readiness(&answer.sandbox, waiter) {
+                    Readiness::Ready if passed => {
+                        let took = human_duration(started.elapsed().as_secs() as i64);
+                        say(&match waiter {
+                            Waiter::Restart(replica) => format!(
+                                "{} is running again, {took} after the restart.",
+                                super::stream::subject(name, replica)
+                            ),
+                            _ => format!("`{name}` is ready, {took} after the create."),
+                        });
+                        return Ok(answer);
+                    }
                     Readiness::Ready => {
-                        say(&format!(
-                            "`{name}` is ready, {} after the create.",
-                            human_duration(started.elapsed().as_secs() as i64)
-                        ));
-                        return Ok(sandbox);
+                        held = true;
+                        last = Some(Box::new(answer.sandbox));
                     }
                     Readiness::Failed(failure) => {
                         return Err(WaitFailed {
                             failure,
-                            last: Some(Box::new(sandbox)),
+                            last: Some(Box::new(answer.sandbox)),
                         })
                     }
-                    Readiness::Starting => last = Some(Box::new(sandbox)),
+                    Readiness::Starting => last = Some(Box::new(answer.sandbox)),
                 }
             }
             Err(e) => match &e {
@@ -430,24 +537,40 @@ pub(crate) async fn wait_ready_or_last(
         }
         if Instant::now() >= deadline {
             let took = human_duration(started.elapsed().as_secs() as i64);
-            let line = match waiter {
-                Waiter::Reader(replica) => format!(
-                    "{} is still starting after {took}. Check on it with `{}`.",
-                    super::stream::subject(name, replica),
-                    super::render::get_command(id)
+            let failure = match waiter {
+                // Running all along, as far as the reads showed: whether it
+                // restarted is unknown, as after a request with no answer.
+                Waiter::Restart(replica) if held => Failure::new(
+                    Class::Unavailable,
+                    format!(
+                        "{} reads running, but hedra-cli did not see it restart in {took}. \
+                         Check on it with `{}`.",
+                        super::stream::subject(name, replica),
+                        super::render::get_command(id)
+                    ),
                 ),
-                Waiter::Stops => format!("`{name}` is still starting after {took}."),
+                Waiter::Reader(replica) | Waiter::Restart(replica) => Failure::new(
+                    Class::NotReady,
+                    format!(
+                        "{} is still starting after {took}. Check on it with `{}`.",
+                        super::stream::subject(name, replica),
+                        super::render::get_command(id)
+                    ),
+                ),
+                Waiter::Stops => Failure::new(
+                    Class::NotReady,
+                    format!("`{name}` is still starting after {took}."),
+                ),
             };
-            return Err(WaitFailed {
-                failure: Failure::new(Class::NotReady, line),
-                last,
-            });
+            return Err(WaitFailed { failure, last });
         }
         if last_elapsed.elapsed() >= timing.elapsed_every {
-            say(&format!(
-                "Still starting, {} so far.",
-                human_duration(started.elapsed().as_secs() as i64)
-            ));
+            let so_far = human_duration(started.elapsed().as_secs() as i64);
+            say(&if held {
+                format!("Waiting to see the restart, {so_far} so far.")
+            } else {
+                format!("Still starting, {so_far} so far.")
+            });
             last_elapsed = Instant::now();
         }
         let every = if started.elapsed() < timing.fast_for {
@@ -649,6 +772,57 @@ mod tests {
             "Replica 1 of `train` stopped before it was ready. \
              Run `hedra-cli sandbox logs sandbox_1 --replica 1` for its output."
         );
+    }
+
+    /// Which reads show a restart of replica 0 begin, given its start before
+    /// the restart.
+    #[test]
+    fn what_shows_a_restart_beginning() {
+        let at = |t: &str| Some(StartedAt::parse_from_rfc3339(t).unwrap());
+        let before = at("2026-11-03T12:01:00Z");
+        let read = |instances: serde_json::Value| sandbox("active", instances, None);
+        let one = |status: &str, started: &str| {
+            read(json!([{"replica": 0, "status": status, "started_at": started}]))
+        };
+        let same = "2026-11-03T12:01:00Z";
+        let later = "2026-11-03T13:00:00Z";
+        for (s, before, began, why) in [
+            (
+                one("running", same),
+                before,
+                false,
+                "running since the same start",
+            ),
+            (
+                one("running", later),
+                before,
+                true,
+                "running since a later start",
+            ),
+            (
+                one("running", later),
+                None,
+                false,
+                "no start to compare against",
+            ),
+            (one("restarting", same), before, true, "down"),
+            (one("starting", same), before, true, "down"),
+            (one("stopped", same), before, true, "down"),
+            (
+                read(json!([{"replica": 1, "status": "running"}])),
+                before,
+                true,
+                "listed without it",
+            ),
+            (
+                read(json!(null)),
+                before,
+                false,
+                "no instances: shows nothing",
+            ),
+        ] {
+            assert_eq!(restart_began(&s, 0, before), began, "{why}");
+        }
     }
 
     #[test]
