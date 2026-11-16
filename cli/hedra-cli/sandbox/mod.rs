@@ -2,13 +2,11 @@
 //! `attach`, `cp` and `port-forward`, which hold a stream open to the sandbox
 //! through the broker; and `restart`, which restarts one replica and waits
 //! for it to run again. Each is grafted into the generated `sandbox` group
-//! beside the generated control commands (`ls`, `get`, `create`, `stop`, …).
-//! `end_time` rewrites two of their values: `create`'s `--ttl-seconds` and
-//! `update`'s `--ttl-ends-at`.
+//! beside the generated control commands (`ls`, `get`, `create`, `stop`, …),
+//! which this module does not touch.
 
 mod api;
 mod cp;
-mod end_time;
 mod error;
 mod exec;
 mod forward;
@@ -28,7 +26,6 @@ use fern_cli_sdk::error::CliError;
 use fern_cli_sdk::openapi::AppContext;
 
 use api::{attempt, Api};
-pub(crate) use end_time::{rewrite_ttl_ends_at, rewrite_ttl_seconds};
 use error::{Class, Failure};
 use names::Target;
 
