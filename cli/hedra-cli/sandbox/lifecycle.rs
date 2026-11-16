@@ -221,13 +221,21 @@ impl Default for Timing {
 }
 
 /// One line for what a poll saw: the sandbox's status and each replica's,
-/// with an unknown status's controls escaped.
-fn progress(s: &Sandbox) -> String {
+/// a replica marked `restarting` read as restarting, with an unknown
+/// status's controls escaped.
+fn progress(a: &Answer) -> String {
+    let s = &a.sandbox;
     let replicas: Vec<String> = s
         .instances
         .iter()
         .flatten()
-        .map(|i| format!("replica {} {}", i.replica, i.status))
+        .map(|i| {
+            if restarting(&a.raw, i.replica) {
+                format!("replica {} restarting", i.replica)
+            } else {
+                format!("replica {} {}", i.replica, i.status)
+            }
+        })
         .collect();
     let line = if replicas.is_empty() {
         format!("{} is {}.", s.name, s.status)
@@ -403,56 +411,57 @@ pub(crate) async fn wait_ready_or_last(
         .map(|a| a.sandbox)
 }
 
+/// Whether `raw`, a sandbox as the API answered it, lists `replica` with
+/// `restarting: true`. v3 marks an instance being replaced in place with
+/// that field and keeps its `status` `running` and its first `started_at`,
+/// so the field is the only sign of a restart in a read. Read from the raw
+/// answer until a regeneration types it on `SandboxInstance`.
+pub(crate) fn restarting(raw: &serde_json::Value, replica: i64) -> bool {
+    raw["instances"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .any(|i| i["replica"] == replica && i["restarting"] == true)
+}
+
 /// Whether a read shows that the restart of `replica` began: the replica is
-/// listed and not running, or the read lists instances but not that one, or
-/// it runs since another start than `before`, its start before the restart.
-///
-/// The wait relies on the route's contract (ENG-13053): from the moment the
-/// restart is recorded until the new process runs, the route's answer and
-/// every read show the replica not `running`. The start-time arm is for a
-/// view that moves `started_at` with each start; v3's keeps the first.
-/// A read with no instances, as `stop` answers when its lookup fails, shows
-/// nothing either way.
-pub(crate) fn restart_began(s: &Sandbox, replica: i64, before: Option<StartedAt>) -> bool {
-    if s.instances.is_none() {
+/// marked `restarting`, or is listed and not running, or the read lists
+/// instances but not that one. A read with no instances, as `stop` answers
+/// when its lookup fails, shows nothing either way.
+pub(crate) fn restart_began(a: &Answer, replica: i64) -> bool {
+    if a.sandbox.instances.is_none() {
         return false;
     }
-    match super::stream::replica_at(s, replica) {
+    match super::stream::replica_at(&a.sandbox, replica) {
         None => true,
         Some(i) if !matches!(i.status, SandboxInstanceStatus::Running) => true,
-        Some(i) => before.is_some() && i.started_at != before,
+        Some(_) => restarting(&a.raw, replica),
     }
 }
 
-/// When an instance started running, as the API reads it.
-pub(crate) type StartedAt =
-    hedra_cli_sdk::api::prelude::DateTime<hedra_cli_sdk::api::prelude::FixedOffset>;
-
 /// Polls an accepted restart of `replica` until that replica runs again,
-/// or cannot, passing each change once to `say`. `accepted` is the
-/// sandbox the restart route answered, and `before` the replica's start
-/// before the restart: a read counts as running again only once this read,
-/// or one before it, showed the restart begin ([`restart_began`]), so the
-/// wait does not end on a read taken before the replica went down.
-#[allow(clippy::too_many_arguments)]
+/// or cannot, passing each change once to `say`. `accepted` is the route's
+/// answer. A read counts as running again only once it, or a read before
+/// it, showed the restart begin ([`restart_began`]), and only while it no
+/// longer marks the replica `restarting`, so the wait does not end on a
+/// read taken before the replica went down or while it is being replaced.
 pub(crate) async fn wait_restarted(
     api: &Api,
-    accepted: &Sandbox,
+    accepted: &Answer,
     name: &str,
     replica: i64,
-    before: Option<StartedAt>,
     started: Instant,
     timing: &Timing,
     say: &mut dyn FnMut(&str),
 ) -> Result<Answer, WaitFailed> {
-    let mut began = restart_began(accepted, replica, before);
-    let mut gate = |s: &Sandbox| {
-        began |= restart_began(s, replica, before);
+    let mut began = restart_began(accepted, replica);
+    let mut gate = |a: &Answer| {
+        began |= restart_began(a, replica);
         began
     };
     wait_until(
         api,
-        &accepted.id,
+        &accepted.sandbox.id,
         name,
         started,
         timing,
@@ -473,7 +482,7 @@ async fn wait_until(
     started: Instant,
     timing: &Timing,
     waiter: Waiter,
-    gate: &mut dyn FnMut(&Sandbox) -> bool,
+    gate: &mut dyn FnMut(&Answer) -> bool,
     say: &mut dyn FnMut(&str),
 ) -> Result<Answer, WaitFailed> {
     let deadline = started + timing.ready_budget;
@@ -486,16 +495,26 @@ async fn wait_until(
         let poll = Instant::now();
         match api.read(id, ATTEMPT).await {
             Ok(answer) => {
-                let line = progress(&answer.sandbox);
+                let line = progress(&answer);
                 if line != last_line {
                     say(&escape_controls(&line));
                     last_line = line;
                 }
                 // The gate sees every read, so a restart that begins and
                 // ends between two ready reads is still counted.
-                let passed = gate(&answer.sandbox);
+                let passed = gate(&answer);
                 held = false;
-                match readiness(&answer.sandbox, waiter) {
+                let readiness = match (readiness(&answer.sandbox, waiter), waiter) {
+                    // A replica being replaced reads `running`; it is not
+                    // ready until the read stops marking it `restarting`.
+                    (Readiness::Ready, Waiter::Restart(replica))
+                        if restarting(&answer.raw, replica) =>
+                    {
+                        Readiness::Starting
+                    }
+                    (r, _) => r,
+                };
+                match readiness {
                     Readiness::Ready if passed => {
                         let took = human_duration(started.elapsed().as_secs() as i64);
                         say(&match waiter {
@@ -774,55 +793,59 @@ mod tests {
         );
     }
 
-    /// Which reads show a restart of replica 0 begin, given its start before
-    /// the restart.
+    /// A sandbox as the API answers it, typed and raw.
+    fn answer_of(instances: serde_json::Value) -> Answer {
+        let raw = serde_json::to_value(sandbox("active", json!(null), None))
+            .map(|mut v| {
+                v["instances"] = instances;
+                v
+            })
+            .unwrap();
+        Answer {
+            sandbox: serde_json::from_value(raw.clone()).unwrap(),
+            raw,
+        }
+    }
+
+    /// Which reads show a restart of replica 0 begin. v3 keeps a replica
+    /// being replaced `running` and marks it `restarting: true`.
     #[test]
     fn what_shows_a_restart_beginning() {
-        let at = |t: &str| Some(StartedAt::parse_from_rfc3339(t).unwrap());
-        let before = at("2026-11-03T12:01:00Z");
-        let read = |instances: serde_json::Value| sandbox("active", instances, None);
-        let one = |status: &str, started: &str| {
-            read(json!([{"replica": 0, "status": status, "started_at": started}]))
+        let one = |status: &str, restarting: Option<bool>| {
+            let mut i = json!({"replica": 0, "status": status,
+                               "started_at": "2026-11-03T12:01:00Z"});
+            if let Some(r) = restarting {
+                i["restarting"] = json!(r);
+            }
+            answer_of(json!([i]))
         };
-        let same = "2026-11-03T12:01:00Z";
-        let later = "2026-11-03T13:00:00Z";
-        for (s, before, began, why) in [
+        for (a, began, why) in [
+            (one("running", None), false, "running, no field"),
             (
-                one("running", same),
-                before,
+                one("running", Some(false)),
                 false,
-                "running since the same start",
+                "running, not restarting",
             ),
+            (one("running", Some(true)), true, "running, restarting"),
+            (one("starting", None), true, "down"),
+            (one("stopped", None), true, "down"),
             (
-                one("running", later),
-                before,
-                true,
-                "running since a later start",
-            ),
-            (
-                one("running", later),
-                None,
-                false,
-                "no start to compare against",
-            ),
-            (one("restarting", same), before, true, "down"),
-            (one("starting", same), before, true, "down"),
-            (one("stopped", same), before, true, "down"),
-            (
-                read(json!([{"replica": 1, "status": "running"}])),
-                before,
+                answer_of(json!([{"replica": 1, "status": "running", "restarting": true}])),
                 true,
                 "listed without it",
             ),
-            (
-                read(json!(null)),
-                before,
-                false,
-                "no instances: shows nothing",
-            ),
+            (answer_of(json!(null)), false, "no instances: shows nothing"),
         ] {
-            assert_eq!(restart_began(&s, 0, before), began, "{why}");
+            assert_eq!(restart_began(&a, 0), began, "{why}");
         }
+        // Another replica restarting is not this one.
+        let other = answer_of(json!([
+            {"replica": 0, "status": "running"},
+            {"replica": 1, "status": "running", "restarting": true},
+        ]));
+        assert!(!restart_began(&other, 0));
+        assert!(restarting(&other.raw, 1));
+        assert!(!restarting(&other.raw, 0));
     }
 
     #[test]

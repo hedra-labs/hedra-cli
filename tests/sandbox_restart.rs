@@ -1,9 +1,10 @@
 //! `sandbox restart`, run as the built binary against a mock v3 API.
 //!
 //! The embedded spec predates `POST /sandboxes/{sandbox}/restart`, so the
-//! mock stands in for the route as ENG-13053 shapes it: a `replica` query
-//! parameter, and the sandbox in answer, as `stop` answers, with the
-//! replica reading `restarting` until it runs again.
+//! mock stands in for the route as diffusion#9253 shapes it: a `replica`
+//! query parameter, and the sandbox in answer, as `stop` answers, with the
+//! replica reading `status: running` and `restarting: true` until the new
+//! container runs.
 //!
 //! Hand-written and .fernignore-protected (the `tests/` entry).
 
@@ -20,11 +21,19 @@ fn restart_path() -> String {
     format!("/v3/sandboxes/{ID}/restart")
 }
 
+/// Two instances. "restarting" is how v3 answers a replica being replaced
+/// in place: `status: running` with `restarting: true`.
 fn two(zero: &str, one: &str) -> Value {
-    json!([
-        {"replica": 0, "status": zero, "started_at": "2026-11-03T12:01:00Z"},
-        {"replica": 1, "status": one, "started_at": "2026-11-03T12:01:00Z"},
-    ])
+    let instance = |replica: i64, status: &str| {
+        let restarting = status == "restarting";
+        json!({
+            "replica": replica,
+            "status": if restarting { "running" } else { status },
+            "restarting": restarting,
+            "started_at": "2026-11-03T12:01:00Z",
+        })
+    };
+    json!([instance(0, zero), instance(1, one)])
 }
 
 fn box_of(status: &str, instances: Value) -> Value {
@@ -163,7 +172,7 @@ async fn no_wait_prints_the_routes_answer_without_reading_again() {
         "{err}"
     );
     let printed: Value = serde_json::from_str(&stdout(&out)).expect("JSON on stdout");
-    assert_eq!(printed["instances"][1]["status"], "restarting");
+    assert_eq!(printed["instances"][1]["restarting"], true);
     assert_eq!(
         requests_to(&server, "GET", &format!("/v3/sandboxes/{ID}"))
             .await

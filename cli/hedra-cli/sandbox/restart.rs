@@ -108,8 +108,7 @@ pub(crate) async fn restart(
     say: &mut dyn FnMut(&str),
 ) -> Outcome {
     let name = target.as_str();
-    // The read resolves a name, and gives the replica's start, which the
-    // wait compares a later read's against.
+    // The read resolves a name, and finds the replica.
     let before = match target {
         Target::Name(name) => names::resolve_name(api, name).await?,
         Target::Id(id) => {
@@ -135,7 +134,6 @@ pub(crate) async fn restart(
             return Err(f);
         }
     }
-    let started_at = stream::replica_at(&before, replica).and_then(|i| i.started_at);
     let started = Instant::now();
     let accepted = request(api, &before.id, name, replica, timing).await?;
     let subject = stream::subject(name, replica);
@@ -149,33 +147,25 @@ pub(crate) async fn restart(
     say(&format!(
         "{subject} is restarting; waiting for it to run again."
     ));
-    lifecycle::wait_restarted(
-        api,
-        &accepted.sandbox,
-        name,
-        replica,
-        started_at,
-        started,
-        &timing.wait,
-        say,
-    )
-    .await
-    .map_err(|w: WaitFailed| {
-        // A sandbox that stopped meanwhile, or whose replica stopped, gets
-        // the line and next step a read before the restart would give. One
-        // still starting, or never seen to restart, keeps the wait's line,
-        // as does a wait whose read failed for good.
-        w.last
-            .and_then(|now| stream::not_running(&now, name, replica))
-            .unwrap_or(w.failure)
-    })
+    lifecycle::wait_restarted(api, &accepted, name, replica, started, &timing.wait, say)
+        .await
+        .map_err(|w: WaitFailed| {
+            // A sandbox that stopped meanwhile, or whose replica stopped, gets
+            // the line and next step a read before the restart would give. One
+            // still starting, or never seen to restart, keeps the wait's line,
+            // as does a wait whose read failed for good.
+            w.last
+                .and_then(|now| stream::not_running(&now, name, replica))
+                .unwrap_or(w.failure)
+        })
 }
 
-/// `POST /sandboxes/{id}/restart?replica=N`. A 429 is retried, for up to
-/// the timing's `limit_wait` of waiting in all, each wait at least the
-/// backoff's: it was not acted on. Nothing else is, since a restart is not
-/// idempotent: a retry after an attempt that got no answer could restart
-/// the replica a second time, as it comes back up.
+/// `POST /sandboxes/{id}/restart?replica=N`. A 429, and a 409
+/// `ALREADY_IN_PROGRESS` for a sandbox still being created, are retried for
+/// up to the timing's `limit_wait` of waiting in all, each wait at least
+/// the backoff's: neither was acted on. Nothing else is, since a restart is
+/// not idempotent: a retry after an attempt that got no answer could
+/// restart the replica a second time, as it comes back up.
 async fn request(
     api: &Api,
     id: &str,
@@ -185,13 +175,21 @@ async fn request(
 ) -> Result<Answer, Failure> {
     let mut limited = Duration::ZERO;
     let mut backoff = ROUTE_BACKOFF;
+    let mut said_creating = false;
     loop {
         let e = match api.restart(id, replica, timing.attempt).await {
             Ok(answer) => return Ok(answer),
             Err(e) => e,
         };
         if let CallError::Http(h) = &e {
-            if h.status == 429 {
+            let creating = h.is(409, "ALREADY_IN_PROGRESS");
+            if creating && !said_creating {
+                stream::note(format_args!(
+                    "`{name}` is still being created; waiting to restart it."
+                ));
+                said_creating = true;
+            }
+            if h.status == 429 || creating {
                 // A `retry_after` of 0 would otherwise send the next
                 // attempt at once, and count nothing against the budget.
                 let wait = retry_wait(&e, backoff.wait()).max(backoff.wait());
@@ -207,15 +205,20 @@ async fn request(
     }
 }
 
+/// The restart route's 404 while it is turned off for the API.
+const RESTARTS_NOT_AVAILABLE: &str = "Sandbox restarts are not available.";
+
 /// What a restart request that failed means.
 fn failure(e: &CallError, id: &str, name: &str, replica: i64) -> Failure {
     match e {
-        // A 404 that is neither the sandbox's nor the feature's is the
-        // route's own: an API without the restart route.
+        // An API whose restart route is turned off answers
+        // RESTARTS_NOT_AVAILABLE; one without the route, its own 404. Either
+        // is neither the sandbox's 404 nor the feature's.
         CallError::Http(h)
             if h.status == 404
-                && h.message() != SANDBOX_NOT_FOUND
-                && h.message() != SANDBOXES_NOT_AVAILABLE =>
+                && (h.message() == RESTARTS_NOT_AVAILABLE
+                    || (h.message() != SANDBOX_NOT_FOUND
+                        && h.message() != SANDBOXES_NOT_AVAILABLE)) =>
         {
             Failure::new(
                 Class::Rejected,
@@ -266,11 +269,19 @@ mod tests {
         })
     }
 
+    /// Two instances. "restarting" is how v3 answers a replica being
+    /// replaced in place: `status: running` with `restarting: true`.
     fn two(zero: &str, one: &str) -> serde_json::Value {
-        json!([
-            {"replica": 0, "status": zero, "started_at": "2026-11-03T12:01:00Z"},
-            {"replica": 1, "status": one, "started_at": "2026-11-03T12:01:00Z"},
-        ])
+        let instance = |replica: i64, status: &str| {
+            let restarting = status == "restarting";
+            json!({
+                "replica": replica,
+                "status": if restarting { "running" } else { status },
+                "restarting": restarting,
+                "started_at": "2026-11-03T12:01:00Z",
+            })
+        };
+        json!([instance(0, zero), instance(1, one)])
     }
 
     fn short() -> RestartTiming {
@@ -462,18 +473,36 @@ mod tests {
         assert_eq!(f.class, Class::Unavailable, "{}", f.message);
     }
 
-    /// A later start than the one before the restart counts as the
-    /// restart, though no read caught the replica down.
+    /// A replica still marked `restarting` reads `running` but is not ready:
+    /// the wait goes on until a read stops marking it, and then ends.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_later_start_counts_as_the_restart() {
-        let mut later = sandbox("active", two("running", "running"));
-        later["instances"][0]["started_at"] = json!("2026-11-03T13:00:00Z");
+    async fn a_running_replica_still_restarting_is_waited_for() {
         let server = server(
-            vec![sandbox("active", two("running", "running")), later],
-            ok(sandbox("active", two("running", "running"))),
+            vec![
+                sandbox("active", two("running", "running")),
+                sandbox("active", two("restarting", "running")),
+                sandbox("active", two("restarting", "running")),
+                sandbox("active", two("running", "running")),
+            ],
+            ok(sandbox("active", two("restarting", "running"))),
         )
         .await;
-        go(&server, 0, true).await.0.unwrap();
+        let (outcome, lines) = go(&server, 0, true).await;
+        outcome.unwrap();
+        // The answer, then two reads still restarting, before the one that
+        // ends the wait.
+        let gets = server
+            .received_requests()
+            .await
+            .unwrap()
+            .into_iter()
+            .filter(|r| r.method.as_str() == "GET")
+            .count();
+        assert_eq!(gets, 4, "{lines:?}");
+        assert!(
+            lines.iter().any(|l| l.contains("replica 0 restarting")),
+            "{lines:?}"
+        );
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -487,9 +516,9 @@ mod tests {
         let answer = outcome.unwrap();
         assert_eq!(
             answer.sandbox.instances.unwrap()[0].status.to_string(),
-            "restarting"
+            "running"
         );
-        assert_eq!(answer.raw["instances"][0]["status"], "restarting");
+        assert_eq!(answer.raw["instances"][0]["restarting"], true);
         assert_eq!(lines.len(), 1, "{lines:?}");
         assert!(
             lines[0].ends_with(&format!(
@@ -705,6 +734,44 @@ mod tests {
         let f = go(&server, 0, true).await.0.unwrap_err();
         assert_eq!(f.class, Class::Rejected);
         assert_eq!(f.message, "This Hedra API cannot restart a replica yet.");
+    }
+
+    /// The route turned off for the API answers its own 404, which reads as
+    /// an API that cannot restart yet.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_route_turned_off_says_so() {
+        let server = server(
+            vec![sandbox("active", two("running", "running"))],
+            ResponseTemplate::new(404).set_body_json(json!({
+                "error": {"code": "NOT_FOUND", "message": RESTARTS_NOT_AVAILABLE},
+            })),
+        )
+        .await;
+        let f = go(&server, 0, true).await.0.unwrap_err();
+        assert_eq!(f.class, Class::Rejected);
+        assert_eq!(f.message, "This Hedra API cannot restart a replica yet.");
+    }
+
+    /// A sandbox still being created is refused 409 `ALREADY_IN_PROGRESS`,
+    /// which nothing acted on, so it is retried as a 429 is.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_sandbox_still_being_created_is_retried() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .respond_with(ok(sandbox("active", two("running", "running"))))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(answer(409, "ALREADY_IN_PROGRESS", Some(0)))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .respond_with(ok(sandbox("active", two("restarting", "running"))))
+            .mount(&server)
+            .await;
+        go(&server, 0, false).await.0.unwrap();
+        assert_eq!(posts(&server).await.len(), 2);
     }
 
     #[tokio::test(flavor = "multi_thread")]

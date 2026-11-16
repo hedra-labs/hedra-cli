@@ -331,8 +331,10 @@ restarts replica N. The replica keeps its replica number, and the other replicas
 running. Replica numbers follow the rules under [Replicas](#replicas), so check
 `sandbox get` first if the platform has replaced an instance.
 
-By default the command waits until the replica reads `running` again, printing its
-progress on stderr, and then prints the sandbox on stdout, as `sandbox get` prints it,
+By default the command waits until the replica runs again: `sandbox get` lists a
+replica being restarted as `running` with `restarting: true`, and the wait ends when
+`restarting` is false again. It prints its progress on stderr, and then prints the
+sandbox on stdout, as `sandbox get` prints it,
 `--format`, `--query` and `--quiet` included. With `--no-wait` it prints the sandbox
 as soon as Hedra accepts the restart.
 
@@ -343,8 +345,8 @@ as soon as Hedra accepts the restart.
 - Exit 17 means the restart may have happened, so check `sandbox get` before you retry.
   The command exits 17 when a request gets no answer, a timeout (408) or a 5xx, which
   it does not retry, since a second request could restart the replica again. It also
-  exits 17 when the replica reads `running` for the whole wait and hedra-cli never
-  sees it go down.
+  exits 17 when no read during the whole wait shows the replica restarting.
+- A sandbox still being created is retried for up to a minute, then exits 17.
 
 ```bash
 hedra-cli sandbox restart train --replica 1

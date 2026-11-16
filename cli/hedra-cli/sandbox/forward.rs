@@ -371,18 +371,13 @@ async fn read_sandbox(api: &Api, target: &Target) -> Read {
     }
 }
 
-/// Created, or active with `replica` not yet running: it may yet run. A
-/// status this build does not know, such as `restarting`, may yet run too.
+/// Created, or active with `replica` not yet running: it may yet run.
 fn starting(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> bool {
     match s.status {
         SandboxStatus::Creating => true,
-        SandboxStatus::Active => !matches!(
+        SandboxStatus::Active => matches!(
             stream::replica_at(s, replica).map(|i| &i.status),
-            Some(
-                SandboxInstanceStatus::Running
-                    | SandboxInstanceStatus::Stopped
-                    | SandboxInstanceStatus::Failed
-            )
+            None | Some(SandboxInstanceStatus::Starting)
         ),
         _ => false,
     }
@@ -448,28 +443,6 @@ mod tests {
         assert!(parse_ports("70000").is_err());
         for bad in ["+80", "80:+80", "", ":80", "8 0", "-1"] {
             assert!(parse_ports(bad).is_err(), "{bad}");
-        }
-    }
-
-    /// A replica restarting, or in another status this build does not know,
-    /// is waited for, as one starting is; only a running, stopped or failed
-    /// one is not.
-    #[test]
-    fn a_restarting_replica_is_waited_for() {
-        let with = |status: &str| -> hedra_cli_sdk::api::Sandbox {
-            serde_json::from_value(serde_json::json!({
-                "id": "sandbox_1", "name": "box", "gpu": "h100:1", "gpu_model": "h100",
-                "replicas": 1, "status": "active", "created_at": "2026-11-03T12:00:00Z",
-                "env_keys": [], "instances": [{"replica": 0, "status": status}],
-                "billing": {"usd_per_hour": 1.0, "paid_usd": 0.0, "settled": false},
-            }))
-            .unwrap()
-        };
-        for status in ["starting", "restarting"] {
-            assert!(starting(&with(status), 0), "{status}");
-        }
-        for status in ["running", "stopped", "failed"] {
-            assert!(!starting(&with(status), 0), "{status}");
         }
     }
 }
