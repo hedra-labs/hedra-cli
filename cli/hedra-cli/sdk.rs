@@ -73,6 +73,7 @@ pub fn client(ctx: &AppContext) -> hedra_cli_sdk::api::ApiClient {
         sandbox: hedra_cli_sdk::api::SandboxClient {
             http_client: http_client.clone(),
             secrets: hedra_cli_sdk::api::resources::sandbox::SecretsClient { http_client: http_client.clone() },
+            env: hedra_cli_sdk::api::resources::sandbox::EnvClient { http_client: http_client.clone() },
         },
         run_a_model: hedra_cli_sdk::api::RunAModelClient { http_client: http_client.clone() },
     }
