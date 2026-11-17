@@ -101,12 +101,19 @@ fn upscale(source_image: &str) -> Outcome {
     ])
 }
 
-fn relight(images: &[&str]) -> Outcome {
-    let mut args = vec!["jobs", "submit-eyeline-id-relight"];
+fn edit_video(images: &[&str]) -> Outcome {
+    let mut args = vec!["jobs", "submit-kling-o3-edit"];
     for image in images {
         args.extend(["--input.images", image]);
     }
-    args.extend(["--input.prompt", "p", "--input.source-video", "asset_video"]);
+    args.extend([
+        "--input.prompt",
+        "p",
+        "--input.resolution",
+        "720p",
+        "--input.source-video",
+        "asset_video",
+    ]);
     submit(&args)
 }
 
@@ -175,7 +182,7 @@ fn any_other_string_is_rejected_before_sending() {
 #[test]
 fn repeated_array_items_are_each_expanded() {
     let url_ref = json!({ "source": "url", "url": "https://x.test/c.png" });
-    let outcome = relight(&["asset_a", "https://x.test/b.png", &url_ref.to_string()]);
+    let outcome = edit_video(&["asset_a", "https://x.test/b.png", &url_ref.to_string()]);
     let input = &outcome.body()["input"];
     assert_eq!(
         input["images"],
@@ -194,7 +201,7 @@ fn repeated_array_items_are_each_expanded() {
 
 #[test]
 fn a_bad_array_item_is_rejected_before_sending() {
-    assert_rejected(&relight(&["asset_a", "nope"]), "--input.images (item 2)");
+    assert_rejected(&edit_video(&["asset_a", "nope"]), "--input.images (item 2)");
 }
 
 // ---------------------------------------------------------------------------

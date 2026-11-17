@@ -292,7 +292,7 @@ mod tests {
             slots.into_iter().collect::<Vec<_>>(),
             vec![("input.source_image".to_string(), Slot::Single)]
         );
-        let slots = media_slots(spec, "post", "/models/eyeline-id-relight");
+        let slots = media_slots(spec, "post", "/models/kling-o3-edit");
         assert_eq!(slots.get("input.images"), Some(&Slot::Items));
         assert_eq!(slots.get("input.source_video"), Some(&Slot::Single));
     }

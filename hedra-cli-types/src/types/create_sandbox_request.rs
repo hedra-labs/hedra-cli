@@ -22,7 +22,7 @@ pub struct CreateSandboxRequest {
     /// What runs in place of the image's entrypoint; at most 16384 bytes written as JSON. Absent runs the image's `ENTRYPOINT`/`CMD`. The main process's stdin stays open, as under `docker run -i`, so a shell or an interpreter waits for input. The sandbox ends when the main process exits unless `restart` restarts it; set `idle` for a sandbox with no main process.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    /// Run no main process: the sandbox starts with nothing running and stays up for sessions until you stop it, or, when you give them, `ttl_seconds` ends or it is idle for `idle_ttl_seconds`. Not with `command`; `restart` has no effect. The image's entrypoint is not run.
+    /// Run no main process: the sandbox starts with nothing running and stays up for sessions until you stop it, `ttl_seconds` ends or it is idle for `idle_ttl_seconds`. Not with `command`; `restart` has no effect. The image's entrypoint is not run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle: Option<bool>,
     /// When the command is restarted.
@@ -31,13 +31,13 @@ pub struct CreateSandboxRequest {
     /// Environment variables for every instance; at most 32768 bytes written as JSON, no empty key or key containing `=`, and no key starting `SANDBOX_`, which the sandbox reserves. Answers return the keys only, as `env_keys`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, String>>,
-    /// The sandbox's lifetime in seconds, counted from create, 120 to 31,536,000 (365 days); every instance is stopped when it ends. Leave it out for a sandbox that runs until you stop it, its command exits, or the wallet cannot pay a lease.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub ttl_seconds: Option<i64>,
-    /// For an `idle` sandbox only: end it, with `end_reason` `idle_ttl_ended`, once it has had no activity for this many seconds, 120 to 31,536,000. Activity is an exec or shell session, from its start until its process exits, and a request to its `url`, until its response ends; a port-forward, an attach, and a process left running after its session ends are not. With more than one replica, the instances stop together once every one is idle. The stop can land a minute or so after the limit. Leave it out for no idle limit.
+    /// The sandbox's lifetime in seconds, counted from create, 120 to 86,400 (24 hours). Required; every instance is stopped when it ends. Longer reservations require a sales contract with Hedra; contact sales@hedra.com.
+    #[serde(default)]
+    pub ttl_seconds: i64,
+    /// For an `idle` sandbox only: end it, with `end_reason` `idle_ttl_ended`, once it has had no activity for this many seconds, 120 to 31,536,000. Activity is an exec or shell session, from its start until its process exits, and a request to its `url` or `internet_url`, until its response ends; a port-forward, an attach, and a process left running after its session ends are not. With `auth` `none`, a request from any caller counts. With more than one replica, the instances stop together once every one is idle. The stop can land a minute or so after the limit. Leave it out for no idle limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle_ttl_seconds: Option<i64>,
-    /// The port to serve at the sandbox's `url`; at most 1. With `ports`, `name` never contains `--`. `POST /sandboxes/{sandbox}/endpoint-token` mints the token `url` requires.
+    /// The port to serve at the sandbox's `url`; at most 1. With `ports`, `name` never contains `--`. A recreate under the same `name` on another GPU model can get a new `url`; endpoint tokens minted for the name keep working.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ports: Option<Vec<SandboxPort>>,
     /// The names of workspace secrets every instance receives, each as an environment variable of its own name; at most 32. `GET /sandboxes/secrets` lists the names your workspace holds.
@@ -149,6 +149,7 @@ impl CreateSandboxRequestBuilder {
     /// - [`name`](CreateSandboxRequestBuilder::name)
     /// - [`image`](CreateSandboxRequestBuilder::image)
     /// - [`gpu`](CreateSandboxRequestBuilder::gpu)
+    /// - [`ttl_seconds`](CreateSandboxRequestBuilder::ttl_seconds)
     pub fn build(self) -> Result<CreateSandboxRequest, BuildError> {
         Ok(CreateSandboxRequest {
             name: self.name.ok_or_else(|| BuildError::missing_field("name"))?,
@@ -160,7 +161,7 @@ impl CreateSandboxRequestBuilder {
             idle: self.idle,
             restart: self.restart,
             env: self.env,
-            ttl_seconds: self.ttl_seconds,
+            ttl_seconds: self.ttl_seconds.ok_or_else(|| BuildError::missing_field("ttl_seconds"))?,
             idle_ttl_seconds: self.idle_ttl_seconds,
             ports: self.ports,
             secrets: self.secrets,

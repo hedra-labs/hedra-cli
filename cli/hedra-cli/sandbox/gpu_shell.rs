@@ -81,7 +81,7 @@ fn request(shell: &GpuShell, name: &str) -> CreateSandboxRequest {
         idle_ttl_seconds: Some(IDLE_TTL_SECONDS),
         restart: None,
         env: None,
-        ttl_seconds: Some(shell.ttl_seconds),
+        ttl_seconds: shell.ttl_seconds,
         ports: None,
         secrets: None,
         egress: None,
@@ -871,7 +871,7 @@ mod tests {
         );
         assert_eq!(r.idle, Some(true));
         assert_eq!(r.idle_ttl_seconds, Some(IDLE_TTL_SECONDS));
-        assert_eq!(r.ttl_seconds, Some(DEFAULT_MAX_DURATION));
+        assert_eq!(r.ttl_seconds, DEFAULT_MAX_DURATION);
         assert_eq!(r.command, None);
         // No `--replicas` leaves the route's default of one.
         assert_eq!(r.replicas, None);

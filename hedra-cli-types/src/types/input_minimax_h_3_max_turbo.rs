@@ -24,15 +24,15 @@ pub struct InputMinimaxH3MaxTurbo {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
+    /// Output aspect ratio.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputMinimaxH3MaxTurboAspectRatio>,
     /// Start frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3MaxTurboStartImage>,
     /// End frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3MaxTurboEndImage>,
-    /// Output aspect ratio.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputMinimaxH3MaxTurboAspectRatio>,
 }
 
 impl InputMinimaxH3MaxTurbo {
@@ -49,9 +49,9 @@ pub struct InputMinimaxH3MaxTurboBuilder {
     resolution: Option<InputMinimaxH3MaxTurboResolution>,
     duration_ms: Option<i64>,
     enhance_prompt: Option<bool>,
+    aspect_ratio: Option<InputMinimaxH3MaxTurboAspectRatio>,
     start_image: Option<InputMinimaxH3MaxTurboStartImage>,
     end_image: Option<InputMinimaxH3MaxTurboEndImage>,
-    aspect_ratio: Option<InputMinimaxH3MaxTurboAspectRatio>,
 }
 
 impl InputMinimaxH3MaxTurboBuilder {
@@ -80,6 +80,11 @@ impl InputMinimaxH3MaxTurboBuilder {
         self
     }
 
+    pub fn aspect_ratio(mut self, value: InputMinimaxH3MaxTurboAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
     pub fn start_image(mut self, value: InputMinimaxH3MaxTurboStartImage) -> Self {
         self.start_image = Some(value);
         self
@@ -87,11 +92,6 @@ impl InputMinimaxH3MaxTurboBuilder {
 
     pub fn end_image(mut self, value: InputMinimaxH3MaxTurboEndImage) -> Self {
         self.end_image = Some(value);
-        self
-    }
-
-    pub fn aspect_ratio(mut self, value: InputMinimaxH3MaxTurboAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
         self
     }
 
@@ -107,9 +107,9 @@ impl InputMinimaxH3MaxTurboBuilder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             enhance_prompt: self.enhance_prompt,
+            aspect_ratio: self.aspect_ratio,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
         })
     }
 }

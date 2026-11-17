@@ -18,7 +18,10 @@ impl SandboxClient {
     }
 
     /// Every GPU model your workspace can run, at its price after your
-    /// discount. 404 while sandboxes are not enabled for your workspace.
+    /// discount. With self-serve enabled, the first list initializes your sandbox
+    /// account without starting a sandbox or charging for GPU usage. Setup can
+    /// return a retryable 503; a later list retries unfinished setup. 404 when
+    /// sandboxes are disabled or your workspace is ineligible.
     ///
     /// # Arguments
     ///
@@ -51,7 +54,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -60,7 +63,9 @@ impl SandboxClient {
     }
 
     /// How many more GPUs your workspace's sandboxes can hold under its GPU
-    /// quota. 404 while sandboxes are not enabled for your workspace.
+    /// quota. With self-serve enabled, the first read initializes your sandbox
+    /// account, as the GPU list does. 404 when sandboxes are disabled or your
+    /// workspace is ineligible.
     ///
     /// # Arguments
     ///
@@ -90,7 +95,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -99,8 +104,7 @@ impl SandboxClient {
     }
 
     /// Revoke every session JWT and endpoint token of your workspace's
-    /// sandboxes, every member's included; mint new ones after it answers. Only
-    /// a workspace owner or admin can rotate the key.
+    /// sandboxes, every member's included; mint new ones after it answers.
     ///
     /// # Arguments
     ///
@@ -133,7 +137,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -147,17 +151,19 @@ impl SandboxClient {
             .await
     }
 
-    /// Your sandboxes in this workspace, newest first, without `instances`
+    /// Your sandboxes, or with `members=true` every sandbox in your
+    /// workspace, each with its `created_by`, newest first, without `instances`
     /// and `started_at`: the creating, active and stopping ones, or every one
-    /// with `all=true`. A cursor resumes only under the `name` and `all` it was
-    /// issued with.
+    /// with `all=true`. A cursor resumes only under the `name`, `all` and
+    /// `members` it was issued with.
     ///
     /// # Arguments
     ///
     /// * `limit` - Maximum items per page.
     /// * `cursor` - Opaque cursor from the previous page's `next_cursor`; omit for the first page.
-    /// * `name` - Only sandboxes with exactly this name. A name is unique among your creating, active and stopping sandboxes, so without `all=true` the page holds at most one.
+    /// * `name` - Only sandboxes with exactly this name. A name is unique among one creator's creating, active and stopping sandboxes, so without `all=true` the page holds at most one per creator.
     /// * `all` - With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes.
+    /// * `members` - With `true`, every sandbox in your workspace, whoever created it; with `false`, the default, only the sandboxes you created. Any member of the workspace may pass `true`.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns
@@ -196,7 +202,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -209,6 +215,7 @@ impl SandboxClient {
                     .serialize("cursor", request.cursor.clone())
                     .serialize("name", request.name.clone())
                     .bool("all", request.all.clone())
+                    .bool("members", request.members.clone())
                     .build(),
                 options,
             )
@@ -218,8 +225,9 @@ impl SandboxClient {
     /// Start one instance per replica, paying the first lease from the API
     /// wallet before any instance is created. The sandbox runs until you stop
     /// it, its command exits, the wallet cannot pay a lease, or its
-    /// `ttl_seconds` ends, when you give one. 404 while sandboxes are not enabled
-    /// for your workspace.
+    /// required `ttl_seconds` ends (120–86,400 seconds). Longer reservations
+    /// require a sales contract with Hedra; contact sales@hedra.com. 404 while
+    /// sandboxes are not enabled for your workspace.
     ///
     /// # Arguments
     ///
@@ -248,13 +256,13 @@ impl SandboxClient {
     ///                 name: "name".to_string(),
     ///                 image: "image".to_string(),
     ///                 gpu: "gpu".to_string(),
+    ///                 ttl_seconds: 1,
     ///                 replicas: None,
     ///                 resources: None,
     ///                 command: None,
     ///                 idle: None,
     ///                 restart: None,
     ///                 env: None,
-    ///                 ttl_seconds: None,
     ///                 idle_ttl_seconds: None,
     ///                 ports: None,
     ///                 secrets: None,
@@ -274,7 +282,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -288,11 +296,12 @@ impl SandboxClient {
             .await
     }
 
-    /// One sandbox with its instances and its charge so far.
+    /// One sandbox in your workspace, whoever created it, with its instances
+    /// and its charge so far.
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns
@@ -323,7 +332,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -339,11 +348,12 @@ impl SandboxClient {
 
     /// Stop every instance. Answers the sandbox, also when it is already
     /// stopping, ended or failed; settlement refunds the unused part of its
-    /// lease once every instance has stopped.
+    /// lease once every instance has stopped. Any sandbox in your workspace,
+    /// whoever created it.
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns
@@ -374,7 +384,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -389,11 +399,12 @@ impl SandboxClient {
     }
 
     /// The newest log output of one instance, and whether older output was
-    /// cut.
+    /// cut. The instance is `replica`'s running one, else the one that ended
+    /// last.
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `replica` - The instance's replica number, from 0.
     /// * `since` - Only output written at or after this instant: an RFC 3339 timestamp with an offset and up to nanoseconds, such as `2026-11-02T18:32:30.123456789Z`. It is rounded up to a whole microsecond.
     /// * `options` - Additional request options such as headers, timeout, etc.
@@ -436,7 +447,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -453,11 +464,12 @@ impl SandboxClient {
             .await
     }
 
-    /// The lifecycle events of one instance.
+    /// The lifecycle events of one instance: `replica`'s running one, else
+    /// the one that ended last.
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `replica` - The instance's replica number, from 0.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
@@ -499,7 +511,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -523,7 +535,7 @@ impl SandboxClient {
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `replica` - The instance's replica number, from 0.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
@@ -565,7 +577,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client
@@ -583,13 +595,21 @@ impl SandboxClient {
 
     /// A token for the `url` of an `active` sandbox created with `ports`, sent
     /// as `Authorization: Bearer`, and `browser_url`, the link that opens `url`
-    /// in a browser. Both work for every replica until the end of the sandbox's
-    /// `ttl_seconds` or 30 days after the mint, whichever is earlier; rotating
-    /// the signing key revokes them.
+    /// in a browser, and for a sandbox with an `internet_url`, that address and
+    /// its browser link too. All work for every replica and later sandboxes of the same
+    /// sandbox name in the same workspace by the same owner until the original
+    /// `expires_at`: the sandbox's customer TTL end at mint time or 30 days after
+    /// the mint, whichever is earlier. Rotating the signing key revokes
+    /// them; stopping, recreating or changing the image does not. Another sandbox
+    /// name isolates the replacement without revoking the earlier endpoint token.
+    /// A port created with `auth` `token` requires the token, as does every port
+    /// created before `auth` existed; recreate the sandbox to choose `auth`. A
+    /// port with `auth` `none` needs neither the token nor `browser_url`: clients
+    /// and browsers reach it at `url`.
     ///
     /// # Arguments
     ///
-    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest.
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
     /// * `options` - Additional request options such as headers, timeout, etc.
     ///
     /// # Returns
@@ -620,7 +640,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.22.0".to_string());
+                .or_insert_with(|| "3.24.7".to_string());
             Some(o)
         };
         self.http_client

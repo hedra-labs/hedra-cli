@@ -192,18 +192,6 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-dreamina-31`
-
-Polished, print-ready stills when the brief is a finished image rather than a sketch.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/dreamina-31`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
 #### `hedra-cli jobs submit-elevenlabs-audio-isolation`
 
 Strip background noise from a recording, keeping the speech.
@@ -320,30 +308,6 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-eyeline-id-relight`
-
-Relight a video from a relit first frame, keeping the scene, the subjects and the original performance.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/eyeline-id-relight`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-eyeline-id-restyle`
-
-Restyle a video's scene, lighting and look from an edited first frame while keeping the people in it recognizably themselves.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/eyeline-id-restyle`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
 #### `hedra-cli jobs submit-flux-11-pro`
 
 Premium color depth and clarity when you want campaign-ready art that feels handcrafted.
@@ -370,11 +334,35 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-flux-3`
 
-Video with native audio, straight from a prompt.
+Set a still in motion, with native audio.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/flux-3`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-flux-3-image`
+
+Black Forest Labs' flagship image model: renders from a prompt or edits and combines up to ten images, with accurate text. Each resolution is an area at any aspect ratio: 768px that of a 768x768 image, 1K about 1 megapixel, 1.5K about 2, 2K about 4 and 4K about 16.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/flux-3-image`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-flux-3-image-klein`
+
+The fast, low-cost FLUX.3 image model, built for editing: renders from a prompt or edits and combines up to ten images. Each resolution is an area at any aspect ratio: 768px that of a 768x768 image, 1K about 1 megapixel, 1.5K about 2, 2K about 4 and 4K about 16.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/flux-3-image-klein`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -546,6 +534,18 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
+#### `hedra-cli jobs submit-gemini-omni-flash-12`
+
+Gemini's fast multimodal video model — cinematic clips of up to 15 seconds with native audio, from a prompt, a keyframe pair, or reference images, up to 4K.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/gemini-omni-flash-12`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 #### `hedra-cli jobs submit-gpt-image-15`
 
 Reads a long, specific brief closely — the choice when the prompt carries the detail.
@@ -697,30 +697,6 @@ Ideogram 4.5 renders accurate typography for posters, logos and designs, and edi
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/ideogram-v4-5`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-imagen3`
-
-Google's earlier photoreal generator, kept for parity.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/imagen3`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-imagen4`
-
-Google's photoreal model—natural lighting, lifelike skin, and pro-grade sharpness in every shot.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/imagen4`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -894,7 +870,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-ltx-2-3`
 
-Clips up to 4K with synchronized native audio, for final output.
+Animate a start frame up to 4K, optionally toward an end frame, with native audio.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -906,7 +882,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-ltx-2-5`
 
-Clips up to 20 seconds with synchronized native audio, on the quick path.
+Clips up to 20 seconds with synchronized native audio, from a prompt, a start frame, or a start and end frame, or cut to a supplied audio track — on the quick path.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -1134,7 +1110,7 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 
 #### `hedra-cli jobs submit-pixverse-v6`
 
-Stylized 1080p clips up to 15 seconds, with native audio.
+Animate a still into a stylized 1080p clip up to 15 seconds, with native audio.
 
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
@@ -1175,42 +1151,6 @@ Vector-clean graphics and crisp logos on demand.
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/recraft-v3`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-reve-21`
-
-Generate images from a text prompt with strong prompt adherence, layout intelligence, and accurate text rendering
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/reve-21`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-reve-21-edit`
-
-Edit one source image from a natural-language instruction, keeping the rest of the image intact
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/reve-21-edit`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-reve-21-remix`
-
-Compose up to eight reference images into a new image from a text prompt
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/reve-21-remix`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1321,6 +1261,18 @@ The top Seedream tier — layer-separable output, precise edits to a source imag
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/seedream-50-pro`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
+#### `hedra-cli jobs submit-seedream-55`
+
+Stills at 1.5K or 2K from a prompt, or edits and blends of source images.
+
+Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
+
+`POST /models/seedream-55`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1441,18 +1393,6 @@ Remove a video's background and return transparent WebM.
 Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
 
 `POST /models/veed-video-background-removal`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
-#### `hedra-cli jobs submit-veo-2`
-
-Google's earlier cinematic generator, kept for existing workflows.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/veo-2`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
@@ -1748,9 +1688,9 @@ OpenAI-compatible Responses API. Each request runs as a chat completion, and is 
 Start one instance per replica, paying the first lease from the API
 wallet before any instance is created. The sandbox runs until you stop
 it, its command exits, the wallet cannot pay a lease, or its
-required `ttl_seconds` ends (120–86,400 seconds). Longer reservations require
-a sales contract with Hedra; contact sales@hedra.com. 404 while sandboxes are not enabled
-for your workspace.
+required `ttl_seconds` ends (120–86,400 seconds). Longer reservations
+require a sales contract with Hedra; contact sales@hedra.com. 404 while
+sandboxes are not enabled for your workspace.
 
 `POST /sandboxes`
 
@@ -1760,38 +1700,44 @@ for your workspace.
 
 #### `hedra-cli sandbox events`
 
-The lifecycle events of one instance.
+The lifecycle events of one instance: `replica`'s running one, else
+the one that ended last.
 
 `GET /sandboxes/{sandbox}/events`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 | `--replica` | `integer` | No | The instance's replica number, from 0. |
 
 #### `hedra-cli sandbox get`
 
-One sandbox with its instances and its charge so far.
+One sandbox in your workspace, whoever created it, with its instances
+and its charge so far.
 
 `GET /sandboxes/{sandbox}`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 
 #### `hedra-cli sandbox gpus`
 
 Every GPU model your workspace can run, at its price after your
-discount. 404 while sandboxes are not enabled for your workspace.
+discount. With self-serve enabled, the first list initializes your sandbox
+account without starting a sandbox or charging for GPU usage. Setup can
+return a retryable 503; a later list retries unfinished setup. 404 when
+sandboxes are disabled or your workspace is ineligible.
 
 `GET /sandboxes/gpus`
 
 #### `hedra-cli sandbox ls`
 
-Your sandboxes in this workspace, newest first, without `instances`
+Your sandboxes, or with `members=true` every sandbox in your
+workspace, each with its `created_by`, newest first, without `instances`
 and `started_at`: the creating, active and stopping ones, or every one
-with `all=true`. A cursor resumes only under the `name` and `all` it was
-issued with.
+with `all=true`. A cursor resumes only under the `name`, `all` and
+`members` it was issued with.
 
 `GET /sandboxes`
 
@@ -1799,34 +1745,37 @@ issued with.
 |------|------|----------|-------------|
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
-| `--name` | `string` | No | Only sandboxes with exactly this name. A name is unique among your creating, active and stopping sandboxes, so without `all=true` the page holds at most one. |
+| `--name` | `string` | No | Only sandboxes with exactly this name. A name is unique among one creator's creating, active and stopping sandboxes, so without `all=true` the page holds at most one per creator. |
 | `--all` | `boolean` | No | With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes. |
+| `--members` | `boolean` | No | With `true`, every sandbox in your workspace, whoever created it; with `false`, the default, only the sandboxes you created. Any member of the workspace may pass `true`. |
 
 #### `hedra-cli sandbox quota`
 
 How many more GPUs your workspace's sandboxes can hold under its GPU
-quota. 404 while sandboxes are not enabled for your workspace.
+quota. With self-serve enabled, the first read initializes your sandbox
+account, as the GPU list does. 404 when sandboxes are disabled or your
+workspace is ineligible.
 
 `GET /sandboxes/quota`
 
 #### `hedra-cli sandbox rotate-signing-key`
 
 Revoke every session JWT and endpoint token of your workspace's
-sandboxes, every member's included; mint new ones after it answers. Only
-a workspace owner or admin can rotate the key.
+sandboxes, every member's included; mint new ones after it answers.
 
 `POST /sandboxes/signing-key/rotate`
 
 #### `hedra-cli sandbox saved-logs`
 
 The newest log output of one instance, and whether older output was
-cut.
+cut. The instance is `replica`'s running one, else the one that ended
+last.
 
 `GET /sandboxes/{sandbox}/logs`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 | `--replica` | `integer` | No | The instance's replica number, from 0. |
 | `--since` | `string` | No | Only output written at or after this instant: an RFC 3339 timestamp with an offset and up to nanoseconds, such as `2026-11-02T18:32:30.123456789Z`. It is rounded up to a whole microsecond. |
 
@@ -1842,34 +1791,43 @@ holds `sandboxes:exec`. Mint a new one for each stream opened after
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 | `--replica` | `integer` | No | The instance's replica number, from 0. |
 
 #### `hedra-cli sandbox stop`
 
 Stop every instance. Answers the sandbox, also when it is already
 stopping, ended or failed; settlement refunds the unused part of its
-lease once every instance has stopped.
+lease once every instance has stopped. Any sandbox in your workspace,
+whoever created it.
 
 `POST /sandboxes/{sandbox}/stop`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 
 #### `hedra-cli sandbox token`
 
 A token for the `url` of an `active` sandbox created with `ports`, sent
 as `Authorization: Bearer`, and `browser_url`, the link that opens `url`
-in a browser. Both work for every replica until the end of the sandbox's
-`ttl_seconds` or 30 days after the mint, whichever is earlier; rotating
-the signing key revokes them.
+in a browser, and for a sandbox with an `internet_url`, that address and
+its browser link too. All work for every replica and later sandboxes of the same
+sandbox name in the same workspace by the same owner until the original
+`expires_at`: the sandbox's customer TTL end at mint time or 30 days after
+the mint, whichever is earlier. Rotating the signing key revokes
+them; stopping, recreating or changing the image does not. Another sandbox
+name isolates the replacement without revoking the earlier endpoint token.
+A port created with `auth` `token` requires the token, as does every port
+created before `auth` existed; recreate the sandbox to choose `auth`. A
+port with `auth` `none` needs neither the token nor `browser_url`: clients
+and browsers reach it at `url`.
 
 `POST /sandboxes/{sandbox}/endpoint-token`
 
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), or its name: your creating, active or stopping sandbox of that name, else your newest. |
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 
 ---
 
@@ -1884,7 +1842,7 @@ never returned.
 
 #### `hedra-cli sandbox secrets rm`
 
-Delete a secret. Only a workspace owner or admin can delete one.
+Delete a secret.
 
 `DELETE /sandboxes/secrets/{name}`
 
@@ -1896,7 +1854,7 @@ Delete a secret. Only a workspace owner or admin can delete one.
 
 Store a secret that any member's sandbox can name in `secrets`: 201
 for a new name, 200 when it replaces the value of a name your workspace
-holds. Only a workspace owner or admin can set one.
+holds.
 
 `POST /sandboxes/secrets`
 

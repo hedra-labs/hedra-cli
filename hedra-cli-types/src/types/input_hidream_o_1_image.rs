@@ -40,7 +40,7 @@ pub struct InputHidreamO1Image {
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputHidreamO1ImageResolution>,
-    /// Quality level to generate at. `standard` — the full model, at 50 denoising steps. `dev` — HiDream's distilled checkpoint, at 28 denoising steps instead of 50 — quicker and cheaper for the same prompt.
+    /// Quality level to generate at. `standard` — the full model, at 50 denoising steps. `dev` — HiDream's distilled checkpoint, at 28 denoising steps instead of 50 — quicker, and cheaper from a prompt alone.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<InputHidreamO1ImageQuality>,
 }

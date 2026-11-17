@@ -9,6 +9,9 @@ pub struct SandboxInstance {
     #[serde(default)]
     pub replica: i64,
     pub status: SandboxInstanceStatus,
+    /// True from a restart's answer until the instance's new container runs, and while the platform replaces a running instance's container in place. `status` stays `running` and `started_at` is kept.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub restarting: Option<bool>,
     /// When the instance started running; null while it starts.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -35,6 +38,7 @@ impl SandboxInstance {
 pub struct SandboxInstanceBuilder {
     replica: Option<i64>,
     status: Option<SandboxInstanceStatus>,
+    restarting: Option<bool>,
     started_at: Option<DateTime<FixedOffset>>,
     stopped_at: Option<DateTime<FixedOffset>>,
     failure_reason: Option<SandboxFailureReason>,
@@ -48,6 +52,11 @@ impl SandboxInstanceBuilder {
 
     pub fn status(mut self, value: SandboxInstanceStatus) -> Self {
         self.status = Some(value);
+        self
+    }
+
+    pub fn restarting(mut self, value: bool) -> Self {
+        self.restarting = Some(value);
         self
     }
 
@@ -74,6 +83,7 @@ impl SandboxInstanceBuilder {
         Ok(SandboxInstance {
             replica: self.replica.ok_or_else(|| BuildError::missing_field("replica"))?,
             status: self.status.ok_or_else(|| BuildError::missing_field("status"))?,
+            restarting: self.restarting,
             started_at: self.started_at,
             stopped_at: self.stopped_at,
             failure_reason: self.failure_reason,

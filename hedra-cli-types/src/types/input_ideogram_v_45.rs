@@ -18,18 +18,18 @@ pub struct InputIdeogramV45 {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
-    /// Images to edit or blend. 1 to 5 images, each at most 30 MB.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub images: Option<Vec<InputIdeogramV45ImagesItem>>,
-    /// Seed for reproducible output; omit for a random seed.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub seed: Option<i64>,
     /// Output aspect ratio.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub aspect_ratio: Option<InputIdeogramV45AspectRatio>,
     /// Output resolution.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub resolution: Option<InputIdeogramV45Resolution>,
+    /// Images to edit or blend. 1 to 5 images, each at most 30 MB.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub images: Option<Vec<InputIdeogramV45ImagesItem>>,
+    /// Seed for reproducible output; omit for a random seed.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub seed: Option<i64>,
     /// Quality level to generate at. `low` — the least rendering effort, for quick exploration. `medium` — middle rendering effort, the everyday choice. `high` — the most rendering effort, for poster-ready text and layout.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<InputIdeogramV45Quality>,
@@ -47,10 +47,10 @@ pub struct InputIdeogramV45Builder {
     prompt: Option<String>,
     num_outputs: Option<i64>,
     enhance_prompt: Option<bool>,
-    images: Option<Vec<InputIdeogramV45ImagesItem>>,
-    seed: Option<i64>,
     aspect_ratio: Option<InputIdeogramV45AspectRatio>,
     resolution: Option<InputIdeogramV45Resolution>,
+    images: Option<Vec<InputIdeogramV45ImagesItem>>,
+    seed: Option<i64>,
     quality: Option<InputIdeogramV45Quality>,
 }
 
@@ -70,16 +70,6 @@ impl InputIdeogramV45Builder {
         self
     }
 
-    pub fn images(mut self, value: Vec<InputIdeogramV45ImagesItem>) -> Self {
-        self.images = Some(value);
-        self
-    }
-
-    pub fn seed(mut self, value: i64) -> Self {
-        self.seed = Some(value);
-        self
-    }
-
     pub fn aspect_ratio(mut self, value: InputIdeogramV45AspectRatio) -> Self {
         self.aspect_ratio = Some(value);
         self
@@ -87,6 +77,16 @@ impl InputIdeogramV45Builder {
 
     pub fn resolution(mut self, value: InputIdeogramV45Resolution) -> Self {
         self.resolution = Some(value);
+        self
+    }
+
+    pub fn images(mut self, value: Vec<InputIdeogramV45ImagesItem>) -> Self {
+        self.images = Some(value);
+        self
+    }
+
+    pub fn seed(mut self, value: i64) -> Self {
+        self.seed = Some(value);
         self
     }
 
@@ -103,10 +103,10 @@ impl InputIdeogramV45Builder {
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
             num_outputs: self.num_outputs,
             enhance_prompt: self.enhance_prompt,
-            images: self.images,
-            seed: self.seed,
             aspect_ratio: self.aspect_ratio,
             resolution: self.resolution,
+            images: self.images,
+            seed: self.seed,
             quality: self.quality,
         })
     }
