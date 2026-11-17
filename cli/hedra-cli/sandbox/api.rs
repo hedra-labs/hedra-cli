@@ -10,7 +10,7 @@ use fern_cli_sdk::openapi::discovery::RetriesConfig;
 use fern_cli_sdk::openapi::AppContext;
 use fern_cli_sdk::sdk_executor::{CliExecutor, SdkError, SdkRequestExecutor};
 use hedra_cli_sdk::api::resources::sandbox::SecretsClient;
-use hedra_cli_sdk::api::{SandboxClient, SavedLogsQueryRequest};
+use hedra_cli_sdk::api::{Sandbox, SandboxClient, SavedLogsQueryRequest};
 use hedra_cli_sdk::{ApiError, ClientConfig, HttpClient, RequestExecutor};
 
 use super::error::{Class, Failure, HttpError};
@@ -173,6 +173,59 @@ impl Api {
         self.date.lock().ok().and_then(|d| *d)
     }
 
+    /// `POST /sandboxes/{sandbox}/restart?replica=N` (operationId
+    /// `sandboxes_restart`), which restarts that one replica in place and
+    /// answers the sandbox, as `stop` does. One attempt under `limit`.
+    ///
+    /// The embedded spec predates the route, so the call goes through the
+    /// generated client's HTTP client, and reads errors as its generated
+    /// methods do. The executor adds the auth and global headers, the spec
+    /// version among them, to every request it sends; a generated method
+    /// also sets the spec version itself, which this call leaves to the
+    /// executor. Once a regeneration from a spec with the route gives
+    /// `SandboxClient` a `restart` method, this calls that instead: the
+    /// sandbox module's regeneration test fails until it does.
+    pub(crate) async fn restart(
+        &self,
+        sandbox_id: &str,
+        replica: i64,
+        limit: Duration,
+    ) -> Result<Answer, CallError> {
+        Answer::parse(
+            attempt(
+                limit,
+                self.client.http_client.execute_request(
+                    reqwest::Method::POST,
+                    &format!("sandboxes/{sandbox_id}/restart"),
+                    None,
+                    Some(vec![("replica".to_string(), replica.to_string())]),
+                    None,
+                ),
+            )
+            .await?,
+        )
+    }
+
+    /// `GET /sandboxes/{sandbox}`, as the generated `get` sends it but for
+    /// the spec version the executor adds, keeping the answer as it came
+    /// beside the typed sandbox. An answer that is not a sandbox, an empty
+    /// body among them, is Unreadable.
+    pub(crate) async fn read(&self, sandbox: &str, limit: Duration) -> Result<Answer, CallError> {
+        Answer::parse(
+            attempt(
+                limit,
+                self.client.http_client.execute_request(
+                    reqwest::Method::GET,
+                    &format!("sandboxes/{sandbox}"),
+                    None,
+                    None,
+                    None,
+                ),
+            )
+            .await?,
+        )
+    }
+
     /// `GET /sandboxes/{sandbox}/logs?replica=N`, the stored copy of that
     /// replica's output.
     pub(crate) async fn logs(
@@ -233,6 +286,27 @@ impl Api {
             debug: false,
             date: Arc::new(std::sync::Mutex::new(None)),
         }
+    }
+}
+
+/// A sandbox the API answered: typed, and as it came, which is what a verb
+/// prints, so a field this build's types do not know, a null, and the
+/// API's own spelling of a time or a number all reach stdout as the
+/// generated commands print them.
+#[derive(Debug, Clone)]
+pub(crate) struct Answer {
+    pub(crate) sandbox: Sandbox,
+    pub(crate) raw: serde_json::Value,
+}
+
+impl Answer {
+    /// A typed copy of `raw`; an answer that is not a sandbox is
+    /// Unreadable, as the generated client's own parse failure is.
+    fn parse(raw: serde_json::Value) -> Result<Self, CallError> {
+        use serde::Deserialize as _;
+        let sandbox =
+            Sandbox::deserialize(&raw).map_err(|e| CallError::Unreadable(e.to_string()))?;
+        Ok(Self { sandbox, raw })
     }
 }
 

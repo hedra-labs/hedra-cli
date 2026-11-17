@@ -106,10 +106,11 @@ async fn exec_relays_output_byte_for_byte_and_passes_the_exit_code_through() {
 
 /// Text from the `about` of stream verbs, to find them where their names
 /// may be common words.
-const ABOUTS: [(&str, &str); 3] = [
+const ABOUTS: [(&str, &str); 4] = [
     ("exec", "relaying its stdin"),
     ("cp", "in or out of a sandbox"),
     ("port-forward", "Forward a local port"),
+    ("restart", "Restart one replica of a sandbox"),
 ];
 
 /// The stream verbs are listed and run with no environment variable of their
@@ -121,7 +122,15 @@ async fn the_stream_verbs_are_listed_and_run_with_no_environment_variable() {
     let server = MockServer::start().await;
     let run = Run::new(&server);
     let help = stdout(&run.run(&["sandbox", "--help"]));
-    for verb in ["exec", "shell", "logs", "attach", "cp", "port-forward"] {
+    for verb in [
+        "exec",
+        "shell",
+        "logs",
+        "attach",
+        "cp",
+        "port-forward",
+        "restart",
+    ] {
         assert!(
             help.lines()
                 .any(|l| l.trim_start().starts_with(&format!("{verb} "))),
