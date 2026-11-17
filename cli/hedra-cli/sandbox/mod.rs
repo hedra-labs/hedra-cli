@@ -7,7 +7,6 @@
 
 mod api;
 mod cp;
-pub(crate) mod env;
 mod error;
 mod exec;
 mod forward;

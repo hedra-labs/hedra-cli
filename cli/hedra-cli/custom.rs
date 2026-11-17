@@ -110,15 +110,9 @@ fn configure(app: CliApp) -> CliApp {
         fern_cli_sdk::auth::auto_store(),
     )));
 
-    // The request-side checks, in the one parameter transform the runtime
-    // takes, so both apply in every output format: `--input.source-image
-    // asset_…` / `https://…` as shorthand for the MediaRef object, and
-    // `sandbox create --env` values refused unless each is a string or
-    // `{"ref": "NAME"}`.
-    fern_cli_sdk::openapi::executor::set_param_transform(|method, params| {
-        media_refs::expand(method, params)?;
-        sandbox::env::check_create_env(method, params)
-    });
+    // `--input.source-image asset_…` / `https://…` as shorthand for the
+    // MediaRef object. Request-side, so it applies in every output format.
+    media_refs::install();
 
     // `sandbox session` mints a session token, which a developer has no use
     // for, so it stays out of the text `--help`. `--help --format json`,
@@ -135,19 +129,6 @@ fn configure(app: CliApp) -> CliApp {
     for (command, handler) in sandbox::commands() {
         app = app.command_under(&[sandbox::GROUP], command, handler);
     }
-
-    // `sandbox env set` in place of the generated leaf, which takes the value
-    // as `--value`; this one reads it from stdin or `--from-file`. And a
-    // Secret's `value` dropped from the generated `env` commands' answers in
-    // every format, should one ever carry it. Both before the early return,
-    // so a piped run has them too.
-    app = app
-        .command_under(
-            &sandbox::env::GROUP,
-            sandbox::env::set_command(),
-            Box::new(sandbox::env::set),
-        )
-        .transform_response(&["sandbox", "env", "*"], sandbox::env::redact_secret_values);
 
     if resolve_format_from_argv() != OutputFormat::Table {
         return app;
