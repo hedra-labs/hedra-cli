@@ -324,6 +324,21 @@ sandbox through the sandbox broker, and `restart` waits for the replica it resta
 
 Each verb's `--help` lists its exit codes.
 
+#### Stop a sandbox when its work is done
+
+Hedra charges a sandbox's GPU time until the sandbox stops. `sandbox get` shows which of
+these ended it:
+
+- **A job that runs to completion:** make it the `--command`. The sandbox ends when the
+  command exits (`exited`, or `instance_failed` for a nonzero exit), unless `--restart`
+  restarts it.
+- **A job you run with `exec`:** create the sandbox with `--idle true --idle-ttl-seconds N`,
+  and it stops `N` seconds after the last session ends (`idle_ttl_ended`). Keep the job in
+  the foreground: a process left running after its session ends is not activity.
+- **A program outside the sandbox:** have it run `sandbox stop --sandbox <SANDBOX>`
+  (`caller_stopped`). An endpoint token cannot stop a sandbox.
+- **Nothing else:** `--ttl-seconds` stops it at its end time (`ttl_ended`).
+
 #### Restarting a replica
 
 `hedra-cli sandbox restart <SANDBOX>` restarts replica 0 in place, and `--replica N`
