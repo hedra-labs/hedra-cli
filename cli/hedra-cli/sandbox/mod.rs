@@ -814,9 +814,11 @@ mod tests {
     /// well as a leaf, without a warning, so a regeneration that adds one
     /// named like a grafted verb fails here instead of losing it.
     ///
-    /// `restart` is expected to fail here: the regeneration that adds
-    /// `POST /sandboxes/{sandbox}/restart` generates `sandbox restart
-    /// --sandbox`, which the graft replaces on purpose.
+    /// `restart` is the exception: `POST /sandboxes/{sandbox}/restart`
+    /// generates `sandbox restart --sandbox`, which the graft replaces on
+    /// purpose, since the generated command neither waits nor takes
+    /// `--no-wait`. reference.md describes the graft, not the generated
+    /// command.
     #[test]
     fn no_generated_sandbox_command_shares_a_grafted_verbs_name() {
         let cli = generated_tree();
@@ -824,17 +826,15 @@ mod tests {
             .find_subcommand(GROUP)
             .expect("the generated sandbox group");
         assert!(group.find_subcommand("get").is_some());
-        for verb in VERBS {
-            let follow_up = if verb == "restart" {
-                "; the spec now has the restart route: switch `Api::restart` (api.rs) to the \
-                 generated `SandboxClient::restart`, check reference.md against the grafted \
-                 command, then let this test allow `restart`"
-            } else {
-                ""
-            };
+        assert!(
+            group.find_subcommand("restart").is_some(),
+            "the generated `sandbox restart` is gone; check reference.md against the grafted \
+             command"
+        );
+        for verb in VERBS.into_iter().filter(|v| *v != "restart") {
             assert!(
                 group.find_subcommand(verb).is_none(),
-                "`sandbox {verb}` is generated too{follow_up}"
+                "`sandbox {verb}` is generated too"
             );
         }
         let grafted: Vec<String> = commands()
