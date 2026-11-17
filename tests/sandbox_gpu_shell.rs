@@ -231,7 +231,7 @@ async fn it_creates_an_idle_sandbox_and_stops_it_when_the_shell_exits() {
     assert_eq!(sent.len(), 1);
     let body = &sent[0];
     assert_eq!(body["idle"], true);
-    assert_eq!(body["idle_ttl_seconds"], 900);
+    assert_eq!(body["stop_after_inactive_seconds"], 900);
     assert_eq!(body["ttl_seconds"], 7200);
     assert_eq!(body["gpu"], "h100:1");
     assert_eq!(body["image"], "pytorch/pytorch");

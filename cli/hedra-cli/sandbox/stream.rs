@@ -1834,7 +1834,7 @@ mod tests {
                 OUTPUT,
             ),
             (read("ended", Some("ttl_ended"), ran.clone()), OUTPUT),
-            (read("ended", Some("idle_ttl_ended"), ran.clone()), OUTPUT),
+            (read("ended", Some("inactive"), ran.clone()), OUTPUT),
             (read("ended", Some("lease_lapsed"), ran.clone()), OUTPUT),
             (read("ended", Some("access_removed"), ran.clone()), OUTPUT),
             (read("ended", None, ran.clone()), OUTPUT),
