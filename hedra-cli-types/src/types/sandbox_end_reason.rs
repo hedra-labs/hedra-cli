@@ -14,7 +14,7 @@ pub enum SandboxEndReason {
     Unpaid,
     LeaseLapsed,
     AccessRemoved,
-    IdleTtlEnded,
+    Inactive,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -30,7 +30,7 @@ impl Serialize for SandboxEndReason {
             Self::Unpaid => serializer.serialize_str("unpaid"),
             Self::LeaseLapsed => serializer.serialize_str("lease_lapsed"),
             Self::AccessRemoved => serializer.serialize_str("access_removed"),
-            Self::IdleTtlEnded => serializer.serialize_str("idle_ttl_ended"),
+            Self::Inactive => serializer.serialize_str("inactive"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -47,7 +47,7 @@ impl<'de> Deserialize<'de> for SandboxEndReason {
             "unpaid" => Ok(Self::Unpaid),
             "lease_lapsed" => Ok(Self::LeaseLapsed),
             "access_removed" => Ok(Self::AccessRemoved),
-            "idle_ttl_ended" => Ok(Self::IdleTtlEnded),
+            "inactive" => Ok(Self::Inactive),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -63,7 +63,7 @@ impl fmt::Display for SandboxEndReason {
             Self::Unpaid => write!(f, "unpaid"),
             Self::LeaseLapsed => write!(f, "lease_lapsed"),
             Self::AccessRemoved => write!(f, "access_removed"),
-            Self::IdleTtlEnded => write!(f, "idle_ttl_ended"),
+            Self::Inactive => write!(f, "inactive"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }
