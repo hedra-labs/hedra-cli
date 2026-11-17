@@ -17,14 +17,6 @@ pub struct InputLtx23 {
     /// Generation prompt. From 1 to 5000 characters.
     #[serde(default)]
     pub prompt: String,
-    /// Output resolution.
-    pub resolution: InputLtx23Resolution,
-    /// Whether to generate native audio for the video.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub generate_audio: Option<bool>,
-    /// Duration in ms.
-    #[serde(default)]
-    pub duration_ms: i64,
     /// Output aspect ratio.
     pub aspect_ratio: InputLtx23AspectRatio,
     /// Start frame. At most 10.4 MB.
@@ -33,6 +25,14 @@ pub struct InputLtx23 {
     /// End frame. At most 10.4 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputLtx23EndImage>,
+    /// Output resolution.
+    pub resolution: InputLtx23Resolution,
+    /// Whether to generate native audio for the video.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub generate_audio: Option<bool>,
+    /// Duration in ms.
+    #[serde(default)]
+    pub duration_ms: i64,
     /// Quality level to generate at. `fast` — tuned for turnaround, for iteration. `pro` — the higher-fidelity tier, for final output.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub quality: Option<InputLtx23Quality>,
@@ -49,12 +49,12 @@ impl InputLtx23 {
 pub struct InputLtx23Builder {
     num_outputs: Option<i64>,
     prompt: Option<String>,
-    resolution: Option<InputLtx23Resolution>,
-    generate_audio: Option<bool>,
-    duration_ms: Option<i64>,
     aspect_ratio: Option<InputLtx23AspectRatio>,
     start_image: Option<InputLtx23StartImage>,
     end_image: Option<InputLtx23EndImage>,
+    resolution: Option<InputLtx23Resolution>,
+    generate_audio: Option<bool>,
+    duration_ms: Option<i64>,
     quality: Option<InputLtx23Quality>,
 }
 
@@ -66,21 +66,6 @@ impl InputLtx23Builder {
 
     pub fn prompt(mut self, value: impl Into<String>) -> Self {
         self.prompt = Some(value.into());
-        self
-    }
-
-    pub fn resolution(mut self, value: InputLtx23Resolution) -> Self {
-        self.resolution = Some(value);
-        self
-    }
-
-    pub fn generate_audio(mut self, value: bool) -> Self {
-        self.generate_audio = Some(value);
-        self
-    }
-
-    pub fn duration_ms(mut self, value: i64) -> Self {
-        self.duration_ms = Some(value);
         self
     }
 
@@ -99,6 +84,21 @@ impl InputLtx23Builder {
         self
     }
 
+    pub fn resolution(mut self, value: InputLtx23Resolution) -> Self {
+        self.resolution = Some(value);
+        self
+    }
+
+    pub fn generate_audio(mut self, value: bool) -> Self {
+        self.generate_audio = Some(value);
+        self
+    }
+
+    pub fn duration_ms(mut self, value: i64) -> Self {
+        self.duration_ms = Some(value);
+        self
+    }
+
     pub fn quality(mut self, value: InputLtx23Quality) -> Self {
         self.quality = Some(value);
         self
@@ -107,19 +107,19 @@ impl InputLtx23Builder {
     /// Consumes the builder and constructs a [`InputLtx23`].
     /// This method will fail if any of the following fields are not set:
     /// - [`prompt`](InputLtx23Builder::prompt)
+    /// - [`aspect_ratio`](InputLtx23Builder::aspect_ratio)
     /// - [`resolution`](InputLtx23Builder::resolution)
     /// - [`duration_ms`](InputLtx23Builder::duration_ms)
-    /// - [`aspect_ratio`](InputLtx23Builder::aspect_ratio)
     pub fn build(self) -> Result<InputLtx23, BuildError> {
         Ok(InputLtx23 {
             num_outputs: self.num_outputs,
             prompt: self.prompt.ok_or_else(|| BuildError::missing_field("prompt"))?,
-            resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
-            generate_audio: self.generate_audio,
-            duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             aspect_ratio: self.aspect_ratio.ok_or_else(|| BuildError::missing_field("aspect_ratio"))?,
             start_image: self.start_image,
             end_image: self.end_image,
+            resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
+            generate_audio: self.generate_audio,
+            duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             quality: self.quality,
         })
     }

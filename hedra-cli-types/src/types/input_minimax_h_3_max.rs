@@ -25,15 +25,15 @@ pub struct InputMinimaxH3Max {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
+    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image, else the first reference video.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputMinimaxH3MaxAspectRatio>,
     /// Start frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3MaxStartImage>,
     /// End frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3MaxEndImage>,
-    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image, else the first reference video.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputMinimaxH3MaxAspectRatio>,
     /// Reference images. 1 to 4 images, each from 256px to 1024px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMinimaxH3MaxImagesItem>>,
@@ -59,9 +59,9 @@ pub struct InputMinimaxH3MaxBuilder {
     resolution: Option<InputMinimaxH3MaxResolution>,
     duration_ms: Option<i64>,
     enhance_prompt: Option<bool>,
+    aspect_ratio: Option<InputMinimaxH3MaxAspectRatio>,
     start_image: Option<InputMinimaxH3MaxStartImage>,
     end_image: Option<InputMinimaxH3MaxEndImage>,
-    aspect_ratio: Option<InputMinimaxH3MaxAspectRatio>,
     images: Option<Vec<InputMinimaxH3MaxImagesItem>>,
     videos: Option<Vec<InputMinimaxH3MaxVideosItem>>,
     audios: Option<Vec<InputMinimaxH3MaxAudiosItem>>,
@@ -93,6 +93,11 @@ impl InputMinimaxH3MaxBuilder {
         self
     }
 
+    pub fn aspect_ratio(mut self, value: InputMinimaxH3MaxAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
     pub fn start_image(mut self, value: InputMinimaxH3MaxStartImage) -> Self {
         self.start_image = Some(value);
         self
@@ -100,11 +105,6 @@ impl InputMinimaxH3MaxBuilder {
 
     pub fn end_image(mut self, value: InputMinimaxH3MaxEndImage) -> Self {
         self.end_image = Some(value);
-        self
-    }
-
-    pub fn aspect_ratio(mut self, value: InputMinimaxH3MaxAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
         self
     }
 
@@ -135,9 +135,9 @@ impl InputMinimaxH3MaxBuilder {
             resolution: self.resolution.ok_or_else(|| BuildError::missing_field("resolution"))?,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             enhance_prompt: self.enhance_prompt,
+            aspect_ratio: self.aspect_ratio,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             images: self.images,
             videos: self.videos,
             audios: self.audios,

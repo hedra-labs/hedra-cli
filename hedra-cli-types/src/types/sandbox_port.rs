@@ -11,6 +11,9 @@ pub struct SandboxPort {
     /// An absolute HTTP path on `port` that the readiness probe requests, at most 256 characters.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub health: Option<String>,
+    /// Who can call the port. `none`, the default: any client that reaches `url` or `internet_url`, and any authentication is your server's own. `token`: only a client that also sends an endpoint token from `POST /sandboxes/{sandbox}/endpoint-token` with each request. Each create sets it: a create that leaves it out serves the port to any caller, also when an earlier sandbox of the same name used `token`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub auth: Option<SandboxPortAuth>,
 }
 
 impl SandboxPort {
@@ -24,6 +27,7 @@ impl SandboxPort {
 pub struct SandboxPortBuilder {
     port: Option<i64>,
     health: Option<String>,
+    auth: Option<SandboxPortAuth>,
 }
 
 impl SandboxPortBuilder {
@@ -37,6 +41,11 @@ impl SandboxPortBuilder {
         self
     }
 
+    pub fn auth(mut self, value: SandboxPortAuth) -> Self {
+        self.auth = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`SandboxPort`].
     /// This method will fail if any of the following fields are not set:
     /// - [`port`](SandboxPortBuilder::port)
@@ -44,6 +53,7 @@ impl SandboxPortBuilder {
         Ok(SandboxPort {
             port: self.port.ok_or_else(|| BuildError::missing_field("port"))?,
             health: self.health,
+            auth: self.auth,
         })
     }
 }

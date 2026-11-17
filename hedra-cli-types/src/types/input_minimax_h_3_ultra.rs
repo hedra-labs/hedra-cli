@@ -7,8 +7,8 @@ use super::*;
 /// Accepted field combinations (one per input mode):
 /// (1) requires: duration_ms, prompt, start_image; must omit: aspect_ratio, audios, end_image, images
 /// (2) requires: duration_ms, end_image, prompt, start_image; must omit: aspect_ratio, audios, images
-/// (3) requires: aspect_ratio, duration_ms, images, prompt; must omit: end_image, start_image; accepts aspect_ratio: adaptive | 16:9 | 9:16 | 1:1
-/// (4) requires: aspect_ratio, duration_ms, prompt; must omit: audios, end_image, images, start_image; accepts aspect_ratio: 16:9 | 9:16 | 1:1 | 3:4 | 4:3 | 21:9
+/// (3) requires: aspect_ratio, duration_ms, images, prompt; must omit: end_image, start_image; accepts aspect_ratio: 1:1 | 16:9 | 9:16 | adaptive
+/// (4) requires: aspect_ratio, duration_ms, prompt; must omit: audios, end_image, images, start_image; accepts aspect_ratio: 1:1 | 3:4 | 4:3 | 16:9 | 21:9 | 9:16
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct InputMinimaxH3Ultra {
     /// Number of outputs generated per job. Only 1 is supported.
@@ -26,15 +26,15 @@ pub struct InputMinimaxH3Ultra {
     /// Rewrite the prompt before generation. An LLM expands it into a fuller description and the model receives that text instead of the submitted one; the result's `prompt` reports what ran.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub enhance_prompt: Option<bool>,
+    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
     /// Start frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub start_image: Option<InputMinimaxH3UltraStartImage>,
     /// End frame. From 256px to 5760px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_image: Option<InputMinimaxH3UltraEndImage>,
-    /// Output aspect ratio. Omitted or `adaptive` uses the supported ratio nearest the first reference image.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
     /// Reference images. 1 to 4 images, each from 256px to 1024px on each side, with an aspect ratio from 0.4 to 2.5, and at most 30 MB.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub images: Option<Vec<InputMinimaxH3UltraImagesItem>>,
@@ -57,9 +57,9 @@ pub struct InputMinimaxH3UltraBuilder {
     resolution: Option<InputMinimaxH3UltraResolution>,
     duration_ms: Option<i64>,
     enhance_prompt: Option<bool>,
+    aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
     start_image: Option<InputMinimaxH3UltraStartImage>,
     end_image: Option<InputMinimaxH3UltraEndImage>,
-    aspect_ratio: Option<InputMinimaxH3UltraAspectRatio>,
     images: Option<Vec<InputMinimaxH3UltraImagesItem>>,
     audios: Option<Vec<InputMinimaxH3UltraAudiosItem>>,
 }
@@ -90,6 +90,11 @@ impl InputMinimaxH3UltraBuilder {
         self
     }
 
+    pub fn aspect_ratio(mut self, value: InputMinimaxH3UltraAspectRatio) -> Self {
+        self.aspect_ratio = Some(value);
+        self
+    }
+
     pub fn start_image(mut self, value: InputMinimaxH3UltraStartImage) -> Self {
         self.start_image = Some(value);
         self
@@ -97,11 +102,6 @@ impl InputMinimaxH3UltraBuilder {
 
     pub fn end_image(mut self, value: InputMinimaxH3UltraEndImage) -> Self {
         self.end_image = Some(value);
-        self
-    }
-
-    pub fn aspect_ratio(mut self, value: InputMinimaxH3UltraAspectRatio) -> Self {
-        self.aspect_ratio = Some(value);
         self
     }
 
@@ -126,9 +126,9 @@ impl InputMinimaxH3UltraBuilder {
             resolution: self.resolution,
             duration_ms: self.duration_ms.ok_or_else(|| BuildError::missing_field("duration_ms"))?,
             enhance_prompt: self.enhance_prompt,
+            aspect_ratio: self.aspect_ratio,
             start_image: self.start_image,
             end_image: self.end_image,
-            aspect_ratio: self.aspect_ratio,
             images: self.images,
             audios: self.audios,
         })

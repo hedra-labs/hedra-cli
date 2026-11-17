@@ -11,12 +11,15 @@ pub struct LsQueryRequest {
     /// Opaque cursor from the previous page's `next_cursor`; omit for the first page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
-    /// Only sandboxes with exactly this name. A name is unique among your creating, active and stopping sandboxes, so without `all=true` the page holds at most one.
+    /// Only sandboxes with exactly this name. A name is unique among one creator's creating, active and stopping sandboxes, so without `all=true` the page holds at most one per creator.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
     /// With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub all: Option<bool>,
+    /// With `true`, every sandbox in your workspace, whoever created it; with `false`, the default, only the sandboxes you created. Any member of the workspace may pass `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<bool>,
 }
 
 impl LsQueryRequest {
@@ -32,6 +35,7 @@ pub struct LsQueryRequestBuilder {
     cursor: Option<String>,
     name: Option<String>,
     all: Option<bool>,
+    members: Option<bool>,
 }
 
 impl LsQueryRequestBuilder {
@@ -55,6 +59,11 @@ impl LsQueryRequestBuilder {
         self
     }
 
+    pub fn members(mut self, value: bool) -> Self {
+        self.members = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`LsQueryRequest`].
     pub fn build(self) -> Result<LsQueryRequest, BuildError> {
         Ok(LsQueryRequest {
@@ -62,6 +71,7 @@ impl LsQueryRequestBuilder {
             cursor: self.cursor,
             name: self.name,
             all: self.all,
+            members: self.members,
         })
     }
 }
