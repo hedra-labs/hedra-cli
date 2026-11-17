@@ -1772,10 +1772,16 @@ it.
 
 `POST /sandboxes/{sandbox}/restart`
 
+Usage: `hedra-cli sandbox restart <SANDBOX> [--replica N] [--no-wait]`. By
+default hedra-cli waits for the replica to run again, printing its
+progress, then prints the sandbox; `--no-wait` prints the sandbox as soon
+as Hedra accepts the restart.
+
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
-| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
-| `--replica` | `integer` | No | The instance's replica number, from 0. |
+| `<SANDBOX>` | `string` | Yes | The sandbox's name, or its `sandbox_` id. |
+| `--replica` | `integer` | No | The replica to restart, from 0 (default 0); `hedra-cli sandbox get --sandbox <SANDBOX>` lists them. |
+| `--no-wait` | `boolean` | No | Return once Hedra accepts the restart, without waiting for the replica to run again. |
 
 #### `hedra-cli sandbox rotate-signing-key`
 
