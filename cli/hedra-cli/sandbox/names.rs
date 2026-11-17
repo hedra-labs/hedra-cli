@@ -10,7 +10,13 @@ const ID_PREFIX: &str = "sandbox_";
 const MAX_NAME_LENGTH: usize = 32;
 /// The static segments under `/sandboxes`, which the create route refuses as
 /// names: `GET /sandboxes/gpus` is the GPU list, not a sandbox named `gpus`.
-const RESERVED_NAMES: [&str; 4] = ["gpus", "quota", "secrets", "signing-key"];
+const RESERVED_NAMES: [&str; 5] = [
+    "environment-variables",
+    "gpus",
+    "quota",
+    "secrets",
+    "signing-key",
+];
 
 /// What the caller named: an id, used as given, or a name to resolve.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -202,7 +208,7 @@ mod tests {
 
     #[test]
     fn a_reserved_segment_is_refused_as_a_name() {
-        for reserved in ["gpus", "quota", "secrets", "signing-key"] {
+        for reserved in RESERVED_NAMES {
             let refused = Target::parse(reserved).unwrap_err();
             assert_eq!(
                 refused.class,
