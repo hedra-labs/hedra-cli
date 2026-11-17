@@ -54,7 +54,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -95,7 +95,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -137,7 +137,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -202,7 +202,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -263,7 +263,7 @@ impl SandboxClient {
     ///                 idle: None,
     ///                 restart: None,
     ///                 env: None,
-    ///                 idle_ttl_seconds: None,
+    ///                 stop_after_inactive_seconds: None,
     ///                 ports: None,
     ///                 secrets: None,
     ///                 egress: None,
@@ -282,7 +282,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -332,7 +332,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -384,7 +384,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -452,7 +452,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -517,7 +517,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -581,7 +581,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -647,7 +647,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
@@ -710,7 +710,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.10".to_string());
+                .or_insert_with(|| "3.25.0".to_string());
             Some(o)
         };
         self.http_client
