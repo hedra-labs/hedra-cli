@@ -12,7 +12,6 @@ Full command reference for `hedra-cli`.
 - [`hedra-cli models`](#hedra-cli-models)
 - [`hedra-cli run-a-model`](#hedra-cli-run-a-model)
 - [`hedra-cli sandbox`](#hedra-cli-sandbox)
-- [`hedra-cli sandbox env`](#hedra-cli-sandbox-env)
 - [`hedra-cli sandbox secrets`](#hedra-cli-sandbox-secrets)
 - [`hedra-cli tokens`](#hedra-cli-tokens)
 - [`hedra-cli webhooks`](#hedra-cli-webhooks)
@@ -1848,58 +1847,6 @@ and browsers reach it at `url`.
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
 | `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
-
----
-
-### `hedra-cli sandbox env`
-
-#### `hedra-cli sandbox env get`
-
-One variable: a Config with its `value`, a Secret without one. The
-answer is never cached.
-
-`GET /sandboxes/environment-variables/{name}`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--name` | `string` | Yes | The variable's name. |
-
-#### `hedra-cli sandbox env ls`
-
-Your workspace's Config and Secret variables by name, in one page,
-without their values. Read one Config by name for its value; a Secret's
-value is never returned.
-
-`GET /sandboxes/environment-variables`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--type` | `string` | No | Only variables of this type; omitted is both. |
-
-#### `hedra-cli sandbox env rm`
-
-Delete a variable of either type. A sandbox already running keeps
-it; a later create that references it fails.
-
-`DELETE /sandboxes/environment-variables/{name}`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--name` | `string` | Yes | The variable's name. |
-
-#### `hedra-cli sandbox env set`
-
-Save a Config or Secret variable that any member's sandbox can
-reference in `env` as `{"ref": NAME}`: 201 for a new name, 200 when it
-replaces the value of a name your workspace holds as the same type. A
-sandbox reads the value when it starts; one already running keeps what it
-started with.
-
-`POST /sandboxes/environment-variables`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
 

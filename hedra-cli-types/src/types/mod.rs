@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 165 types for API operations
-//! - **Model Types**: 583 types for data representation
+//! - **Request/Response Types**: 161 types for API operations
+//! - **Model Types**: 581 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -16,7 +16,6 @@ pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery;
 pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery;
 pub mod sandbox_create_sandbox_request_env_value;
-pub mod sandbox_env_get_env_response;
 pub mod api_key_kind;
 pub mod api_key_scope;
 pub mod balance_response;
@@ -66,9 +65,6 @@ pub mod sandbox_egress_mode;
 pub mod sandbox_end_reason;
 pub mod sandbox_endpoint_token;
 pub mod sandbox_env_ref;
-pub mod sandbox_env_var;
-pub mod sandbox_env_var_list_response;
-pub mod sandbox_env_var_type;
 pub mod sandbox_event;
 pub mod sandbox_event_kind;
 pub mod sandbox_event_list_response;
@@ -738,7 +734,6 @@ pub mod log_drain_create;
 pub mod log_drain_update;
 pub mod create_sandbox_request;
 pub mod set_sandbox_secret_request;
-pub mod set_sandbox_env_var_request;
 pub mod upload_request;
 pub mod jobs_list_query_request;
 pub mod get_status_query_request;
@@ -750,12 +745,11 @@ pub mod keys_list_query_request;
 pub mod get_usage_query_request;
 pub mod list_transactions_query_request;
 pub mod list_deliveries_query_request;
-pub mod sandbox_ls_query_request;
+pub mod ls_query_request;
 pub mod restart_query_request;
 pub mod saved_logs_query_request;
 pub mod events_query_request;
 pub mod session_query_request;
-pub mod sandbox_env_ls_query_request;
 
 pub use jobs_jobs_stream_response::JobsStreamResponse;
 pub use webhooks_webhook_job_completed_payload_x_hedra_webhook_event::WebhookJobCompletedPayloadXHedraWebhookEvent;
@@ -765,7 +759,6 @@ pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery::WebhookJ
 pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event::WebhookBillingTopOffFailedPayloadXHedraWebhookEvent;
 pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery::WebhookBillingTopOffFailedPayloadXHedraWebhookRedelivery;
 pub use sandbox_create_sandbox_request_env_value::CreateSandboxRequestEnvValue;
-pub use sandbox_env_get_env_response::GetEnvResponse;
 pub use api_key_kind::ApiKeyKind;
 pub use api_key_scope::ApiKeyScope;
 pub use balance_response::BalanceResponse;
@@ -815,9 +808,6 @@ pub use sandbox_egress_mode::SandboxEgressMode;
 pub use sandbox_end_reason::SandboxEndReason;
 pub use sandbox_endpoint_token::SandboxEndpointToken;
 pub use sandbox_env_ref::SandboxEnvRef;
-pub use sandbox_env_var::SandboxEnvVar;
-pub use sandbox_env_var_list_response::SandboxEnvVarListResponse;
-pub use sandbox_env_var_type::SandboxEnvVarType;
 pub use sandbox_event::SandboxEvent;
 pub use sandbox_event_kind::SandboxEventKind;
 pub use sandbox_event_list_response::SandboxEventListResponse;
@@ -1487,7 +1477,6 @@ pub use log_drain_create::LogDrainCreate;
 pub use log_drain_update::LogDrainUpdate;
 pub use create_sandbox_request::CreateSandboxRequest;
 pub use set_sandbox_secret_request::SetSandboxSecretRequest;
-pub use set_sandbox_env_var_request::SetSandboxEnvVarRequest;
 pub use upload_request::UploadRequest;
 pub use jobs_list_query_request::JobsListQueryRequest;
 pub use get_status_query_request::GetStatusQueryRequest;
@@ -1499,10 +1488,9 @@ pub use keys_list_query_request::KeysListQueryRequest;
 pub use get_usage_query_request::GetUsageQueryRequest;
 pub use list_transactions_query_request::ListTransactionsQueryRequest;
 pub use list_deliveries_query_request::ListDeliveriesQueryRequest;
-pub use sandbox_ls_query_request::SandboxLsQueryRequest;
+pub use ls_query_request::LsQueryRequest;
 pub use restart_query_request::RestartQueryRequest;
 pub use saved_logs_query_request::SavedLogsQueryRequest;
 pub use events_query_request::EventsQueryRequest;
 pub use session_query_request::SessionQueryRequest;
-pub use sandbox_env_ls_query_request::SandboxEnvLsQueryRequest;
 

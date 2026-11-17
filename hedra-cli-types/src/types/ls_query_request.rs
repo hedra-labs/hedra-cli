@@ -4,7 +4,7 @@ use super::*;
 
 /// Query parameters for ls
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq, Eq, Hash)]
-pub struct SandboxLsQueryRequest {
+pub struct LsQueryRequest {
     /// Maximum items per page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub limit: Option<i64>,
@@ -22,15 +22,15 @@ pub struct SandboxLsQueryRequest {
     pub members: Option<bool>,
 }
 
-impl SandboxLsQueryRequest {
-    pub fn builder() -> SandboxLsQueryRequestBuilder {
-        <SandboxLsQueryRequestBuilder as Default>::default()
+impl LsQueryRequest {
+    pub fn builder() -> LsQueryRequestBuilder {
+        <LsQueryRequestBuilder as Default>::default()
     }
 }
 
 #[derive(Clone, PartialEq, Default, Debug)]
 #[non_exhaustive]
-pub struct SandboxLsQueryRequestBuilder {
+pub struct LsQueryRequestBuilder {
     limit: Option<i64>,
     cursor: Option<String>,
     name: Option<String>,
@@ -38,7 +38,7 @@ pub struct SandboxLsQueryRequestBuilder {
     members: Option<bool>,
 }
 
-impl SandboxLsQueryRequestBuilder {
+impl LsQueryRequestBuilder {
     pub fn limit(mut self, value: i64) -> Self {
         self.limit = Some(value);
         self
@@ -64,9 +64,9 @@ impl SandboxLsQueryRequestBuilder {
         self
     }
 
-    /// Consumes the builder and constructs a [`SandboxLsQueryRequest`].
-    pub fn build(self) -> Result<SandboxLsQueryRequest, BuildError> {
-        Ok(SandboxLsQueryRequest {
+    /// Consumes the builder and constructs a [`LsQueryRequest`].
+    pub fn build(self) -> Result<LsQueryRequest, BuildError> {
+        Ok(LsQueryRequest {
             limit: self.limit,
             cursor: self.cursor,
             name: self.name,

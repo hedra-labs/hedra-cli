@@ -4,12 +4,9 @@ use reqwest::Method;
 
 pub mod secrets;
 pub use secrets::SecretsClient;
-pub mod env;
-pub use env::EnvClient;
 pub struct SandboxClient {
     pub http_client: HttpClient,
     pub secrets: SecretsClient,
-    pub env: EnvClient,
 }
 
 impl SandboxClient {
@@ -17,7 +14,6 @@ impl SandboxClient {
         Ok(Self {
             http_client: HttpClient::new(config.clone())?,
             secrets: SecretsClient::new(config.clone())?,
-            env: EnvClient::new(config.clone())?,
         })
     }
 
@@ -189,7 +185,7 @@ impl SandboxClient {
     ///     client
     ///         .sandbox
     ///         .ls(
-    ///             &SandboxLsQueryRequest {
+    ///             &LsQueryRequest {
     ///                 ..Default::default()
     ///             },
     ///             None,
@@ -199,7 +195,7 @@ impl SandboxClient {
     /// ```
     pub async fn ls(
         &self,
-        request: &SandboxLsQueryRequest,
+        request: &LsQueryRequest,
         options: Option<RequestOptions>,
     ) -> Result<SandboxListResponse, ApiError> {
         let options = {
