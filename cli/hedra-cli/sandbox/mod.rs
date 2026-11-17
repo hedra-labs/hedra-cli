@@ -1,6 +1,7 @@
 //! The sandbox stream verbs: `exec`, `shell` (and `shell --gpu`), `logs`,
 //! `attach`, `cp` and `port-forward`, which hold a stream open to the sandbox
-//! through the broker. Each is grafted into the generated `sandbox` group
+//! through the broker; and `restart`, which restarts one replica and waits
+//! for it to run again. Each is grafted into the generated `sandbox` group
 //! beside the generated control commands (`ls`, `get`, `create`, `stop`, …),
 //! which this module does not touch.
 
@@ -15,6 +16,7 @@ mod lifecycle;
 mod logs;
 mod names;
 mod render;
+mod restart;
 mod stream;
 
 use std::collections::HashMap;
@@ -53,7 +55,8 @@ Exit codes:
  143  terminated
  255  the output failed, or hedra-cli panicked; exec, shell, cp: any failure of hedra-cli's own, not the command's";
 
-/// The stream verbs' commands, each grafted under `sandbox` with its handler.
+/// The hand-written verbs' commands, each grafted under `sandbox` with its
+/// handler.
 pub(crate) fn commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)> {
     vec![
         (exec_command(), Box::new(|m, ctx| dispatch("exec", m, ctx))),
@@ -70,6 +73,10 @@ pub(crate) fn commands() -> Vec<(Command, fern_cli_sdk::app::CliCommandHandler)>
         (
             port_forward_command(),
             Box::new(|m, ctx| dispatch("port-forward", m, ctx)),
+        ),
+        (
+            restart_command(),
+            Box::new(|m, ctx| dispatch("restart", m, ctx)),
         ),
     ]
 }
@@ -271,6 +278,50 @@ fn port_forward_command() -> Command {
         .arg(replica_arg())
 }
 
+/// The exit-code table's line for 17, which every verb but `restart` prints.
+const UNAVAILABLE_RETRY: &str = "  17  Hedra or the network is unavailable; retry";
+
+/// `restart`'s exit codes: as the stream verbs', but a 17 may follow a
+/// restart that happened, and a retry would restart the replica again.
+fn restart_exit_codes() -> String {
+    EXIT_CODES.replace(
+        UNAVAILABLE_RETRY,
+        "  17  Hedra or the network is unavailable, or the restart was not seen; it may have \
+         happened, so check `hedra-cli sandbox get --sandbox <SANDBOX>` before retrying",
+    )
+}
+
+fn restart_command() -> Command {
+    Command::new("restart")
+        .about("Restart one replica of a sandbox in place, and wait for it to run again")
+        .long_about(
+            "Restart one replica of a sandbox in place. The replica keeps its replica number, \
+             and the other replicas keep running.\n\n\
+             By default hedra-cli waits for the replica to run again, printing its progress, \
+             then prints the sandbox; --no-wait prints the sandbox as soon as Hedra accepts \
+             the restart.",
+        )
+        .after_long_help(restart_exit_codes())
+        .arg(sandbox_arg())
+        .arg(replica_arg().help(
+            "The replica to restart, from 0; `hedra-cli sandbox get --sandbox <SANDBOX>` lists them",
+        ))
+        .arg(
+            Arg::new("no-wait")
+                .long("no-wait")
+                .action(ArgAction::SetTrue)
+                .help("Return once Hedra accepts the restart, without waiting for the replica to run again"),
+        )
+}
+
+/// The global output flags (`--format`, `--human`, `--query`, `--quiet`) as
+/// the generated commands read them, for `restart`'s stdout; a bad format
+/// or query is refused before any request.
+fn output_pipeline(m: &ArgMatches) -> Result<fern_cli_sdk::formatter::OutputPipeline, Failure> {
+    fern_cli_sdk::formatter::OutputPipeline::from_matches(m, "hedra-cli")
+        .map_err(|e| Failure::rejected(error::escape_controls(&e.to_string())))
+}
+
 /// A verb's handler: the verb, then its exit code.
 /// Every verb exits from here, since its stdout is the sandbox's output and
 /// its errors go to stderr.
@@ -315,6 +366,22 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
     }
     let api = std::sync::Arc::new(Api::new(ctx, flag("debug")));
     let code = match verb {
+        "restart" => match target(m).and_then(|t| output_pipeline(m).map(|p| (t, p))) {
+            Ok((t, pipeline)) => unwinding(json_errors, || {
+                run_async(restart::run(
+                    &api,
+                    &t,
+                    replica(m),
+                    !flag("no-wait"),
+                    json_errors,
+                    &pipeline,
+                ))
+            }),
+            Err(f) => {
+                let code = f.class.code();
+                fail(f, code);
+            }
+        },
         "cp" => {
             let arg = |n: &str| m.get_one::<std::ffi::OsString>(n).expect("required");
             match stream::transport_config(ctx.http_config()) {
@@ -453,6 +520,9 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
     }
     if verb == "port-forward" {
         forward::parse_ports(m.get_one::<String>("ports").expect("required"))?;
+    }
+    if verb == "restart" {
+        output_pipeline(m)?;
     }
     eprintln!("Sent no request (--dry-run).");
     Ok(())
@@ -715,7 +785,15 @@ mod tests {
 
     /// The verbs this module grafts into the generated group, in
     /// [`commands`]'s order.
-    const VERBS: [&str; 6] = ["exec", "shell", "logs", "attach", "cp", "port-forward"];
+    const VERBS: [&str; 7] = [
+        "exec",
+        "shell",
+        "logs",
+        "attach",
+        "cp",
+        "port-forward",
+        "restart",
+    ];
 
     /// `SSL_CERT_FILE` feeds the trust store the client is built with, so a
     /// bad one is among the settings the refusal names.
@@ -735,15 +813,26 @@ mod tests {
 
     /// A graft replaces a generated subcommand of the same name, a group as
     /// well as a leaf, without a warning, so a regeneration that adds one
-    /// named like a stream verb fails here instead of losing it.
+    /// named like a grafted verb fails here instead of losing it.
+    ///
+    /// `restart` is the exception: `POST /sandboxes/{sandbox}/restart`
+    /// generates `sandbox restart --sandbox`, which the graft replaces on
+    /// purpose, since the generated command neither waits nor takes
+    /// `--no-wait`. reference.md describes the graft, not the generated
+    /// command.
     #[test]
-    fn no_generated_sandbox_command_shares_a_stream_verbs_name() {
+    fn no_generated_sandbox_command_shares_a_grafted_verbs_name() {
         let cli = generated_tree();
         let group = cli
             .find_subcommand(GROUP)
             .expect("the generated sandbox group");
         assert!(group.find_subcommand("get").is_some());
-        for verb in VERBS {
+        assert!(
+            group.find_subcommand("restart").is_some(),
+            "the generated `sandbox restart` is gone; check reference.md against the grafted \
+             command"
+        );
+        for verb in VERBS.into_iter().filter(|v| *v != "restart") {
             assert!(
                 group.find_subcommand(verb).is_none(),
                 "`sandbox {verb}` is generated too"
@@ -837,17 +926,18 @@ mod tests {
         assert!(parse(&["train", "--max-duration", "8h"]).is_err());
     }
 
-    /// Every stream verb takes `--replica N`, replica 0 by default, and says
-    /// so in its help; a negative replica is a usage error.
+    /// Every grafted verb takes `--replica N`, replica 0 by default, and
+    /// says so in its help; a negative replica is a usage error.
     #[test]
-    fn every_stream_verb_takes_a_replica_defaulting_to_zero() {
-        let args: [(&str, &[&str]); 6] = [
+    fn every_grafted_verb_takes_a_replica_defaulting_to_zero() {
+        let args: [(&str, &[&str]); 7] = [
             ("exec", &["train", "--", "true"]),
             ("shell", &["train"]),
             ("logs", &["train"]),
             ("attach", &["train"]),
             ("cp", &["./a", "train:/b"]),
             ("port-forward", &["train", "8080"]),
+            ("restart", &["train"]),
         ];
         for (command, (verb, rest)) in commands().into_iter().map(|(c, _)| c).zip(args) {
             assert_eq!(command.get_name(), verb);
@@ -864,11 +954,35 @@ mod tests {
             assert!(parse(&["--replica", "x"]).is_err(), "{verb}");
             let help = command.clone().render_long_help().to_string();
             assert!(help.contains("--replica <N>"), "{verb}: {help}");
-            assert!(
-                help.contains("The replica to reach, from 0"),
-                "{verb}: {help}"
-            );
+            let says = if verb == "restart" {
+                "The replica to restart, from 0"
+            } else {
+                "The replica to reach, from 0"
+            };
+            assert!(help.contains(says), "{verb}: {help}");
         }
+    }
+
+    #[test]
+    fn restart_takes_no_wait_and_lists_the_exit_codes() {
+        let parse = |args: &[&str]| {
+            restart_command()
+                .try_get_matches_from(std::iter::once("restart").chain(args.iter().copied()))
+        };
+        assert!(!parse(&["train"]).unwrap().get_flag("no-wait"));
+        assert!(parse(&["train", "--no-wait"]).unwrap().get_flag("no-wait"));
+        assert!(parse(&[]).is_err());
+        let help = restart_command().render_long_help().to_string();
+        assert!(help.contains("--no-wait"), "{help}");
+        // Every code the other verbs list, but 17 says to check before a
+        // retry, since the restart may have happened.
+        assert!(EXIT_CODES.contains(UNAVAILABLE_RETRY));
+        assert!(!help.contains(UNAVAILABLE_RETRY), "{help}");
+        assert!(help.contains("check `hedra-cli sandbox get"), "{help}");
+        assert_eq!(
+            restart_exit_codes().lines().count(),
+            EXIT_CODES.lines().count()
+        );
     }
 
     #[test]

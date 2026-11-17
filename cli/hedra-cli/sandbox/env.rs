@@ -16,7 +16,9 @@
 //! [`check_create_env`] checks `sandbox create`'s `env` before any request:
 //! each value is a literal string, or `{"ref": "NAME"}` naming a saved
 //! variable, under the same key (`MODEL_URL: {ref: MODEL_URL}`) or another one
-//! (`OPENAI_API_KEY: {ref: OPENAI_KEY}`).
+//! (`OPENAI_API_KEY: {ref: OPENAI_KEY}`). Whether a GPU model's pools take a
+//! Secret at all is the API's to say: the generated `sandbox gpus` prints its
+//! `secrets_supported`, and a create refused for it names that field.
 
 use std::io::{IsTerminal, Read};
 use std::path::Path;
@@ -114,7 +116,9 @@ pub(crate) fn set_command() -> Command {
              a Config at most 64 KiB, and neither may hold a NUL.\n\n\
              A sandbox reads a variable only when its create names it in `env` as \
              {\"ref\": \"NAME\"}, when it starts: a running sandbox keeps the value it started \
-             with, and a new or restarted one reads the saved value.",
+             with, and a new or restarted one reads the saved value. A create that references \
+             a Secret can be refused on a GPU model whose `secrets_supported` is false in \
+             `hedra-cli sandbox gpus`; a Config reference works on every model.",
         )
         .after_long_help(SET_EXAMPLES)
         .arg(

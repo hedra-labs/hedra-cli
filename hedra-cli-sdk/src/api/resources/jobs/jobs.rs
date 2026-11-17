@@ -60,7 +60,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -164,7 +164,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -223,7 +223,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -271,7 +271,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -321,7 +321,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -428,7 +428,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -504,79 +504,13 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
             .execute_request(
                 Method::POST,
                 "models/creatify-aurora",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Polished, print-ready stills when the brief is a finished image rather than a sketch.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_dreamina31(
-    ///             &SubmitBodyDreamina31 {
-    ///                 input: InputDreamina31 {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputDreamina31AspectRatio::Sixteen9,
-    ///                     resolution: InputDreamina31Resolution::FiveHundredFortyP,
-    ///                     seed: None,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_dreamina31(
-        &self,
-        request: &SubmitBodyDreamina31,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/dreamina-31",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -636,7 +570,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -701,7 +635,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -764,7 +698,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -827,7 +761,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -892,7 +826,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -955,7 +889,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1018,7 +952,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1081,7 +1015,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1144,7 +1078,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1211,161 +1145,13 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
             .execute_request(
                 Method::POST,
                 "models/elevenlabs-voice-clone",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Relight a video from a relit first frame, keeping the scene, the subjects and the original performance.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_eyeline_id_relight(
-    ///             &SubmitBodyEyelineIDRelight {
-    ///                 input: InputEyelineIDRelight {
-    ///                     num_outputs: None,
-    ///                     prompt: "prompt".to_string(),
-    ///                     source_video: InputEyelineIDRelightSourceVideo::URL {
-    ///                         data: InputEyelineIDRelightSourceVideoURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     },
-    ///                     images: vec![InputEyelineIDRelightImagesItem::URL {
-    ///                         data: InputEyelineIDRelightImagesItemURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     }],
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_eyeline_id_relight(
-        &self,
-        request: &SubmitBodyEyelineIdRelight,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/eyeline-id-relight",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Restyle a video's scene, lighting and look from an edited first frame while keeping the people in it recognizably themselves.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_eyeline_id_restyle(
-    ///             &SubmitBodyEyelineIDRestyle {
-    ///                 input: InputEyelineIDRestyle {
-    ///                     num_outputs: None,
-    ///                     prompt: "prompt".to_string(),
-    ///                     source_video: InputEyelineIDRestyleSourceVideo::URL {
-    ///                         data: InputEyelineIDRestyleSourceVideoURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     },
-    ///                     images: vec![InputEyelineIDRestyleImagesItem::URL {
-    ///                         data: InputEyelineIDRestyleImagesItemURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     }],
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_eyeline_id_restyle(
-        &self,
-        request: &SubmitBodyEyelineIdRestyle,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/eyeline-id-restyle",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -1426,7 +1212,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1493,7 +1279,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1561,7 +1347,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1627,7 +1413,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1694,7 +1480,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1762,7 +1548,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1830,7 +1616,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1899,7 +1685,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -1961,7 +1747,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2031,7 +1817,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2101,7 +1887,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2170,7 +1956,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2240,7 +2026,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2310,7 +2096,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2377,7 +2163,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2445,7 +2231,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2513,7 +2299,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2581,7 +2367,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2643,7 +2429,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2710,7 +2496,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2778,7 +2564,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2858,7 +2644,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -2938,7 +2724,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3014,7 +2800,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3085,7 +2871,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3153,7 +2939,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3215,143 +3001,13 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
             .execute_request(
                 Method::POST,
                 "models/ideogram-v4-5",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Google's earlier photoreal generator, kept for parity.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_imagen3(
-    ///             &SubmitBodyImagen3 {
-    ///                 input: InputImagen3 {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputImagen3AspectRatio::Sixteen9,
-    ///                     resolution: None,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_imagen3(
-        &self,
-        request: &SubmitBodyImagen3,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/imagen3",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Google's photoreal model—natural lighting, lifelike skin, and pro-grade sharpness in every shot.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_imagen4(
-    ///             &SubmitBodyImagen4 {
-    ///                 input: InputImagen4 {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputImagen4AspectRatio::Sixteen9,
-    ///                     resolution: InputImagen4Resolution::OneK,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_imagen4(
-        &self,
-        request: &SubmitBodyImagen4,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/imagen4",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -3405,7 +3061,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3473,7 +3129,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3541,7 +3197,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3617,7 +3273,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3686,7 +3342,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3763,7 +3419,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3831,7 +3487,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3903,7 +3559,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -3973,7 +3629,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4043,7 +3699,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4116,7 +3772,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4192,7 +3848,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4261,7 +3917,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4328,7 +3984,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4397,7 +4053,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4467,7 +4123,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4532,7 +4188,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4599,7 +4255,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4669,7 +4325,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4740,7 +4396,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4817,7 +4473,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4885,7 +4541,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -4948,7 +4604,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5011,7 +4667,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5074,7 +4730,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5137,7 +4793,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5200,7 +4856,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5266,7 +4922,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5333,7 +4989,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5403,7 +5059,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5472,7 +5128,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5540,7 +5196,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5616,7 +5272,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5691,7 +5347,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5760,7 +5416,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5830,7 +5486,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5900,7 +5556,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -5965,220 +5621,13 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
             .execute_request(
                 Method::POST,
                 "models/recraft-v3",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Generate images from a text prompt with strong prompt adherence, layout intelligence, and accurate text rendering
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_reve21(
-    ///             &SubmitBodyReve21 {
-    ///                 input: InputReve21 {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputReve21AspectRatio::Four1,
-    ///                     output_format: None,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_reve21(
-        &self,
-        request: &SubmitBodyReve21,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/reve-21",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Edit one source image from a natural-language instruction, keeping the rest of the image intact
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_reve21edit(
-    ///             &SubmitBodyReve21Edit {
-    ///                 input: InputReve21Edit {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputReve21EditAspectRatio::Four1,
-    ///                     images: vec![InputReve21EditImagesItem::URL {
-    ///                         data: InputReve21EditImagesItemURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     }],
-    ///                     output_format: None,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_reve21edit(
-        &self,
-        request: &SubmitBodyReve21Edit,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/reve-21-edit",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Compose up to eight reference images into a new image from a text prompt
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_reve21remix(
-    ///             &SubmitBodyReve21Remix {
-    ///                 input: InputReve21Remix {
-    ///                     prompt: "prompt".to_string(),
-    ///                     num_outputs: None,
-    ///                     enhance_prompt: None,
-    ///                     aspect_ratio: InputReve21RemixAspectRatio::Four1,
-    ///                     images: vec![InputReve21RemixImagesItem::URL {
-    ///                         data: InputReve21RemixImagesItemURL {
-    ///                             url: "url".to_string(),
-    ///                             ..Default::default()
-    ///                         },
-    ///                     }],
-    ///                     output_format: None,
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_reve21remix(
-        &self,
-        request: &SubmitBodyReve21Remix,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/reve-21-remix",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -6242,7 +5691,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6311,7 +5760,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6383,7 +5832,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6454,7 +5903,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6520,7 +5969,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6586,7 +6035,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6653,7 +6102,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6720,7 +6169,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6787,7 +6236,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6857,7 +6306,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6924,7 +6373,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -6995,7 +6444,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7065,7 +6514,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7132,7 +6581,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7201,7 +6650,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7270,7 +6719,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7340,7 +6789,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7416,7 +6865,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7484,75 +6933,13 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
             .execute_request(
                 Method::POST,
                 "models/veed-video-background-removal",
-                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
-                None,
-                options,
-            )
-            .await
-    }
-
-    /// Google's earlier cinematic generator, kept for existing workflows.
-    ///
-    /// Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-    ///
-    /// # Arguments
-    ///
-    /// * `options` - Additional request options such as headers, timeout, etc.
-    ///
-    /// # Returns
-    ///
-    /// JSON response from the API
-    ///
-    /// # Examples
-    ///
-    /// ```no_run
-    /// use hedra_cli_sdk::prelude::*;
-    ///
-    /// #[tokio::main]
-    /// async fn main() {
-    ///     let config = ClientConfig {
-    ///         token: Some("<token>".to_string()),
-    ///         ..Default::default()
-    ///     };
-    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
-    ///     client
-    ///         .jobs
-    ///         .submit_veo2(
-    ///             &SubmitBodyVeo2 {
-    ///                 input: InputVeo2 {
-    ///                     prompt: "prompt".to_string(),
-    ///                     ..Default::default()
-    ///                 },
-    ///                 webhook: None,
-    ///             },
-    ///             None,
-    ///         )
-    ///         .await;
-    /// }
-    /// ```
-    pub async fn submit_veo2(
-        &self,
-        request: &SubmitBodyVeo2,
-        options: Option<RequestOptions>,
-    ) -> Result<SubmitResponse, ApiError> {
-        let options = {
-            let mut o = options.unwrap_or_default();
-            o.additional_headers
-                .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
-            Some(o)
-        };
-        self.http_client
-            .execute_request(
-                Method::POST,
-                "models/veo-2",
                 Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
@@ -7616,7 +7003,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7689,7 +7076,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7758,7 +7145,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7830,7 +7217,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7900,7 +7287,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -7973,7 +7360,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8037,7 +7424,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8101,7 +7488,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8172,7 +7559,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8241,7 +7628,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8310,7 +7697,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8382,7 +7769,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -8446,7 +7833,7 @@ impl JobsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.8".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client

@@ -690,6 +690,14 @@ fn set_does_not_retry_a_server_error() {
 // sandbox create --env
 // ---------------------------------------------------------------------------
 
+/// The API's answer to an `env.<key>` the sandbox service refused, which
+/// lists the causes (diffusion's `_ENV_KEY_REFUSAL`).
+const REFERENCE_REFUSAL: &str = "The sandbox service refused `env.OPENAI_API_KEY`. For a \
+     `{\"ref\": NAME}`: NAME is no variable your workspace saved \
+     (`GET /sandboxes/environment-variables`), or `env` and `secrets` together pass a limit \
+     (15 Secrets or 128 KiB of Config), or a Secret reference needs a pool that isolates your \
+     workspace (`GET /sandboxes/gpus` answers `secrets_supported` for each GPU model).";
+
 fn create(env: &str) -> Outcome {
     let created = json!({
         "id": "sandbox_0123456789abcdef",
@@ -758,7 +766,7 @@ fn create_refuses_a_malformed_env_value_without_quoting_it() {
 }
 
 #[test]
-fn create_reports_an_unknown_reference() {
+fn create_reports_a_refused_reference_with_its_causes() {
     let o = run(
         &[
             "sandbox",
@@ -780,18 +788,59 @@ fn create_reports_an_unknown_reference() {
             400,
             json!({"error": {
                 "code": "INVALID_REQUEST",
-                "message": "env.OPENAI_API_KEY: the sandbox could not use this environment variable reference.",
+                "message": REFERENCE_REFUSAL,
                 "param": "env.OPENAI_API_KEY",
                 "retryable": false
             }}),
         ),
     );
     assert_eq!(o.code(), Some(1), "{}", o.text());
-    assert!(
-        o.all_output().contains("env.OPENAI_API_KEY"),
-        "{}",
-        o.text()
+    // The refusal names the key and where support is listed.
+    for part in ["env.OPENAI_API_KEY", "secrets_supported"] {
+        assert!(o.all_output().contains(part), "{part}: {}", o.text());
+    }
+}
+
+/// `sandbox gpus` is generated, so it prints whatever the list answers:
+/// `secrets_supported` true, false, and null where it is unknown.
+#[test]
+fn gpus_says_whether_each_model_takes_secrets() {
+    let gpu = |model: &str, secrets: Value| {
+        json!({
+            "gpu_model": model,
+            "vendor": "nvidia",
+            "gpu_memory_gb": 80,
+            "usd_per_gpu_hour": 2.5,
+            "available": true,
+            "gpu_counts": [1],
+            "internet": false,
+            "secrets_supported": secrets
+        })
+    };
+    let list = json!({"data": [
+        gpu("h100", json!(true)),
+        gpu("rtx4090", json!(false)),
+        gpu("b300", Value::Null)
+    ]});
+
+    let o = run(
+        &["sandbox", "gpus", "--format", "json"],
+        answer(200, list.clone()),
     );
+    assert_eq!(o.code(), Some(0), "{}", o.text());
+    assert_eq!(o.request().method.as_str(), "GET");
+    assert_eq!(path_of(o.request()), "/sandboxes/gpus");
+    let supported: Vec<Value> = o.json()["data"]
+        .as_array()
+        .expect("data")
+        .iter()
+        .map(|g| g["secrets_supported"].clone())
+        .collect();
+    assert_eq!(supported, [json!(true), json!(false), Value::Null]);
+
+    let o = run(&["sandbox", "gpus", "--format", "table"], answer(200, list));
+    assert_eq!(o.code(), Some(0), "{}", o.text());
+    assert!(o.stdout().contains("secrets_supported"), "{}", o.text());
 }
 
 // ---------------------------------------------------------------------------

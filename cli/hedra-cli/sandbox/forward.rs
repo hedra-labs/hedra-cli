@@ -294,8 +294,7 @@ pub(crate) async fn run(
     }
     stream::say_line(format!(
         "Forwarding {} to port {remote} in `{name}`. Any local user can connect to it, and so \
-         can web pages in your browser, and it skips the sandbox's endpoint token; forward only \
-         servers that have their own auth.",
+         can web pages in your browser; forward only servers that have their own auth.",
         listening(&bound)
     ))
     .await;

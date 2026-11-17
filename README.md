@@ -307,8 +307,9 @@ would make the selected workspace not the one actually used.
 
 GPU sandboxes. The control commands (`create`, `ls`, `get`, `stop`, `gpus`, `quota`,
 `events`, `secrets`, …) come from the API spec; [reference.md](reference.md) lists their
-flags. The stream verbs below are hand-written. Each one keeps a stream open to the
-sandbox through the sandbox broker. `SANDBOX` is a name or a `sandbox_` id.
+flags. The verbs below are hand-written. Each stream verb keeps a stream open to the
+sandbox through the sandbox broker, and `restart` waits for the replica it restarts.
+`SANDBOX` is a name or a `sandbox_` id.
 
 | Command | Description |
 |---------|-------------|
@@ -319,8 +320,53 @@ sandbox through the sandbox broker. `SANDBOX` is a name or a `sandbox_` id.
 | `hedra-cli sandbox attach <SANDBOX>` | The same as `logs -f` |
 | `hedra-cli sandbox cp <SRC> <DST>` | Copy files in or out; one side is `<SANDBOX>:<PATH>` |
 | `hedra-cli sandbox port-forward <SANDBOX> <LOCAL:REMOTE>` | Forward a local port to a port in the sandbox until Ctrl-C |
+| `hedra-cli sandbox restart <SANDBOX> [--replica N] [--no-wait]` | Restart one replica in place and wait for it to run again |
 
 Each verb's `--help` lists its exit codes.
+
+#### Stop a sandbox when its work is done
+
+Hedra charges a sandbox's GPU time until the sandbox stops. `sandbox get` shows which of
+these ended it:
+
+- **A job that runs to completion:** make it the `--command`. The sandbox ends when the
+  command exits (`exited`, or `instance_failed` for a nonzero exit), unless `--restart`
+  restarts it.
+- **A job you run with `exec`:** create the sandbox with `--idle true --idle-ttl-seconds N`,
+  and it stops `N` seconds after the last session ends (`idle_ttl_ended`). Keep the job in
+  the foreground: a process left running after its session ends is not activity.
+- **A program outside the sandbox:** have it run `sandbox stop --sandbox <SANDBOX>`
+  (`caller_stopped`). An endpoint token cannot stop a sandbox.
+- **Nothing else:** `--ttl-seconds` stops it at its end time (`ttl_ended`).
+
+#### Restarting a replica
+
+`hedra-cli sandbox restart <SANDBOX>` restarts replica 0 in place, and `--replica N`
+restarts replica N. The replica keeps its replica number, and the other replicas keep
+running. Replica numbers follow the rules under [Replicas](#replicas), so check
+`sandbox get` first if the platform has replaced an instance.
+
+By default the command waits until the replica runs again: `sandbox get` lists a
+replica being restarted as `running` with `restarting: true`, and the wait ends when
+`restarting` is false again. It prints its progress on stderr, and then prints the
+sandbox on stdout, as `sandbox get` prints it,
+`--format`, `--query` and `--quiet` included. With `--no-wait` it prints the sandbox
+as soon as Hedra accepts the restart.
+
+- A replica the sandbox does not have exits 19, and a sandbox that is stopping, has
+  ended or has failed exits 13. Both are refused before the restart is requested.
+- A replica still starting after 15 minutes exits 13, as the stream verbs' start wait
+  does.
+- Exit 17 means the restart may have happened, so check `sandbox get` before you retry.
+  The command exits 17 when a request gets no answer, a timeout (408) or a 5xx, which
+  it does not retry, since a second request could restart the replica again. It also
+  exits 17 when no read during the whole wait shows the replica restarting.
+- A sandbox still being created is retried for up to a minute, then exits 17.
+
+```bash
+hedra-cli sandbox restart train --replica 1
+hedra-cli sandbox restart train --replica 1 --no-wait
+```
 
 #### Replicas
 
@@ -346,18 +392,17 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
 - **A replica the sandbox does not have is refused before any stream opens,** and the
   message says how many replicas the sandbox has. That means an `N` the sandbox does
   not list and that is at or past both its `replicas` and its count of listed
-  instances. `exec`, `shell` and `cp` exit 255; `logs`, `attach` and `port-forward`
-  exit 19. With `shell --gpu`, `--replica` must be below `--replicas`, and this is
+  instances. `exec`, `shell` and `cp` exit 255; `logs`, `attach`, `port-forward` and
+  `restart` exit 19. With `shell --gpu`, `--replica` must be below `--replicas`, and this is
   checked before the create, so nothing is paid for.
-- **Replaced instances shift the numbers.** When the platform replaces a lost
-  instance, `instances` lists the replacement beside the old one, so a sandbox can
-  list more instances than its `replicas`. Each running instance it lists can be
-  reached by its number. A stopped one can still be read with `logs` and `attach`,
-  while `exec`, `shell`, `cp` and `port-forward` report that it stopped. The numbers
-  are positions in that list, though, so a replacement can change which instance a
-  number names. Check
-  `hedra-cli sandbox get --sandbox <SANDBOX>` before reaching a replica after one
-  was lost.
+- **A replacement keeps its replica's number.** When the platform replaces a lost
+  instance, the replacement takes the lost instance's number and `instances` lists
+  only the replacement, so `--replica N` keeps reaching replica N. The replaced
+  instance's own output can no longer be read: `logs --replica N` reads the
+  replacement's.
+- **A stopped replica stays listed.** When every instance of a replica has stopped,
+  `instances` still lists the one that stopped last. `logs` and `attach` read its
+  output, while `exec`, `shell`, `cp` and `port-forward` report that it stopped.
 
 ### Built-in commands
 
