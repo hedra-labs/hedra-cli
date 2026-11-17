@@ -9,7 +9,7 @@ use std::time::Duration;
 use fern_cli_sdk::openapi::discovery::RetriesConfig;
 use fern_cli_sdk::openapi::AppContext;
 use fern_cli_sdk::sdk_executor::{CliExecutor, SdkError, SdkRequestExecutor};
-use hedra_cli_sdk::api::resources::sandbox::SecretsClient;
+use hedra_cli_sdk::api::resources::sandbox::{EnvClient, SecretsClient};
 use hedra_cli_sdk::api::{Sandbox, SandboxClient, SavedLogsQueryRequest};
 use hedra_cli_sdk::{ApiError, ClientConfig, HttpClient, RequestExecutor};
 
@@ -328,6 +328,9 @@ fn client(executor: Arc<dyn RequestExecutor>, base_url: &str) -> SandboxClient {
     let http_client = HttpClient::with_executor(executor, config);
     SandboxClient {
         secrets: SecretsClient {
+            http_client: http_client.clone(),
+        },
+        env: EnvClient {
             http_client: http_client.clone(),
         },
         http_client,
