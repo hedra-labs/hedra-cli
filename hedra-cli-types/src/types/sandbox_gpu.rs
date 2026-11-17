@@ -27,6 +27,9 @@ pub struct SandboxGpu {
     /// Whether a sandbox of this model created with `ports` gets an `internet_url`, an address reachable from the public internet. `false` means its only address is `url`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub internet: Option<bool>,
+    /// Whether a sandbox of this model may name `secrets` or reference a saved Secret from `env` (`{"ref": NAME}`); null when that is unknown. `false` means a create that does either can be refused. A reference to a saved Config and a literal `env` value work either way.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub secrets_supported: Option<bool>,
 }
 
 impl SandboxGpu {
@@ -45,6 +48,7 @@ pub struct SandboxGpuBuilder {
     available: Option<bool>,
     gpu_counts: Option<Vec<i64>>,
     internet: Option<bool>,
+    secrets_supported: Option<bool>,
 }
 
 impl SandboxGpuBuilder {
@@ -83,6 +87,11 @@ impl SandboxGpuBuilder {
         self
     }
 
+    pub fn secrets_supported(mut self, value: bool) -> Self {
+        self.secrets_supported = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`SandboxGpu`].
     /// This method will fail if any of the following fields are not set:
     /// - [`gpu_model`](SandboxGpuBuilder::gpu_model)
@@ -97,6 +106,7 @@ impl SandboxGpuBuilder {
             available: self.available,
             gpu_counts: self.gpu_counts,
             internet: self.internet,
+            secrets_supported: self.secrets_supported,
         })
     }
 }

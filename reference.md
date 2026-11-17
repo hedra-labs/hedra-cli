@@ -1758,6 +1758,25 @@ workspace is ineligible.
 
 `GET /sandboxes/quota`
 
+#### `hedra-cli sandbox restart`
+
+Restart one running replica's instance in place: its command starts
+again in a new container, which prefers the machine it ran on; when that
+machine is full it waits for capacity, and can fail `no_capacity`. The
+time until the new container runs is billed. The other replicas keep
+running, and the sandbox keeps its lease and its `ttl_seconds`. Answers
+the sandbox; read it again to follow the restart, during which the
+replica's `restarting` is true. Restarting a replica that is already
+restarting changes nothing. Any sandbox in your workspace, whoever created
+it.
+
+`POST /sandboxes/{sandbox}/restart`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
+| `--replica` | `integer` | No | The instance's replica number, from 0. |
+
 #### `hedra-cli sandbox rotate-signing-key`
 
 Revoke every session JWT and endpoint token of your workspace's

@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct CreateSandboxRequest {
-    /// The sandbox's name: lowercase letters, digits and hyphens, starting and ending with a letter or digit, at most 32 characters, and not `gpus`, `quota`, `secrets`, `signing-key`. Unique among your creating, active and stopping sandboxes, and usable in place of the id in a sandbox's path.
+    /// The sandbox's name: lowercase letters, digits and hyphens, starting and ending with a letter or digit, at most 32 characters, and not `environment-variables`, `gpus`, `quota`, `secrets`, `signing-key`. Unique among your creating, active and stopping sandboxes, and usable in place of the id in a sandbox's path.
     #[serde(default)]
     pub name: String,
     /// The image reference to run.
@@ -28,9 +28,9 @@ pub struct CreateSandboxRequest {
     /// When the command is restarted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub restart: Option<SandboxRestartPolicy>,
-    /// Environment variables for every instance; at most 32768 bytes written as JSON, no empty key or key containing `=`, and no key starting `SANDBOX_`, which the sandbox reserves. Answers return the keys only, as `env_keys`.
+    /// Environment variables for every instance, by name. Each value is a string, or `{"ref": NAME}` naming a saved workspace environment variable, Config or Secret, whose value each instance reads when it starts; at most 128 references. At most 32768 bytes written as JSON, no empty key or key containing `=`, and no key starting `SANDBOX_`, which the sandbox reserves. A reference's key also follows the variable name rule and is not one of the names `secrets` lists. Answers return the keys only, as `env_keys`.
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub env: Option<HashMap<String, String>>,
+    pub env: Option<HashMap<String, CreateSandboxRequestEnvValue>>,
     /// The sandbox's lifetime in seconds, counted from create, 120 to 86,400 (24 hours). Required; every instance is stopped when it ends. Longer reservations require a sales contract with Hedra; contact sales@hedra.com.
     #[serde(default)]
     pub ttl_seconds: i64,
@@ -65,7 +65,7 @@ pub struct CreateSandboxRequestBuilder {
     command: Option<Vec<String>>,
     idle: Option<bool>,
     restart: Option<SandboxRestartPolicy>,
-    env: Option<HashMap<String, String>>,
+    env: Option<HashMap<String, CreateSandboxRequestEnvValue>>,
     ttl_seconds: Option<i64>,
     idle_ttl_seconds: Option<i64>,
     ports: Option<Vec<SandboxPort>>,
@@ -114,7 +114,7 @@ impl CreateSandboxRequestBuilder {
         self
     }
 
-    pub fn env(mut self, value: HashMap<String, String>) -> Self {
+    pub fn env(mut self, value: HashMap<String, CreateSandboxRequestEnvValue>) -> Self {
         self.env = Some(value);
         self
     }

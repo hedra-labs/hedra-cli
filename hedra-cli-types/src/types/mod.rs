@@ -5,8 +5,8 @@
 //!
 //! ## Type Categories
 //!
-//! - **Request/Response Types**: 159 types for API operations
-//! - **Model Types**: 580 types for data representation
+//! - **Request/Response Types**: 161 types for API operations
+//! - **Model Types**: 581 types for data representation
 
 pub mod jobs_jobs_stream_response;
 pub mod webhooks_webhook_job_completed_payload_x_hedra_webhook_event;
@@ -15,6 +15,7 @@ pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery;
 pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event;
 pub mod webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery;
+pub mod sandbox_create_sandbox_request_env_value;
 pub mod api_key_kind;
 pub mod api_key_scope;
 pub mod balance_response;
@@ -63,6 +64,7 @@ pub mod sandbox_egress;
 pub mod sandbox_egress_mode;
 pub mod sandbox_end_reason;
 pub mod sandbox_endpoint_token;
+pub mod sandbox_env_ref;
 pub mod sandbox_event;
 pub mod sandbox_event_kind;
 pub mod sandbox_event_list_response;
@@ -744,6 +746,7 @@ pub mod get_usage_query_request;
 pub mod list_transactions_query_request;
 pub mod list_deliveries_query_request;
 pub mod ls_query_request;
+pub mod restart_query_request;
 pub mod saved_logs_query_request;
 pub mod events_query_request;
 pub mod session_query_request;
@@ -755,6 +758,7 @@ pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_event::WebhookJobFai
 pub use webhooks_webhook_job_failed_payload_x_hedra_webhook_redelivery::WebhookJobFailedPayloadXHedraWebhookRedelivery;
 pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_event::WebhookBillingTopOffFailedPayloadXHedraWebhookEvent;
 pub use webhooks_webhook_billing_top_off_failed_payload_x_hedra_webhook_redelivery::WebhookBillingTopOffFailedPayloadXHedraWebhookRedelivery;
+pub use sandbox_create_sandbox_request_env_value::CreateSandboxRequestEnvValue;
 pub use api_key_kind::ApiKeyKind;
 pub use api_key_scope::ApiKeyScope;
 pub use balance_response::BalanceResponse;
@@ -803,6 +807,7 @@ pub use sandbox_egress::SandboxEgress;
 pub use sandbox_egress_mode::SandboxEgressMode;
 pub use sandbox_end_reason::SandboxEndReason;
 pub use sandbox_endpoint_token::SandboxEndpointToken;
+pub use sandbox_env_ref::SandboxEnvRef;
 pub use sandbox_event::SandboxEvent;
 pub use sandbox_event_kind::SandboxEventKind;
 pub use sandbox_event_list_response::SandboxEventListResponse;
@@ -1484,6 +1489,7 @@ pub use get_usage_query_request::GetUsageQueryRequest;
 pub use list_transactions_query_request::ListTransactionsQueryRequest;
 pub use list_deliveries_query_request::ListDeliveriesQueryRequest;
 pub use ls_query_request::LsQueryRequest;
+pub use restart_query_request::RestartQueryRequest;
 pub use saved_logs_query_request::SavedLogsQueryRequest;
 pub use events_query_request::EventsQueryRequest;
 pub use session_query_request::SessionQueryRequest;
