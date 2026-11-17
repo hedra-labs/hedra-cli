@@ -1758,6 +1758,31 @@ workspace is ineligible.
 
 `GET /sandboxes/quota`
 
+#### `hedra-cli sandbox restart`
+
+Restart one running replica's instance in place: its command starts
+again in a new container, which prefers the machine it ran on; when that
+machine is full it waits for capacity, and can fail `no_capacity`. The
+time until the new container runs is billed. The other replicas keep
+running, and the sandbox keeps its lease and its `ttl_seconds`. Answers
+the sandbox; read it again to follow the restart, during which the
+replica's `restarting` is true. Restarting a replica that is already
+restarting changes nothing. Any sandbox in your workspace, whoever created
+it.
+
+`POST /sandboxes/{sandbox}/restart`
+
+Usage: `hedra-cli sandbox restart <SANDBOX> [--replica N] [--no-wait]`. By
+default hedra-cli waits for the replica to run again, printing its
+progress, then prints the sandbox; `--no-wait` prints the sandbox as soon
+as Hedra accepts the restart.
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `<SANDBOX>` | `string` | Yes | The sandbox's name, or its `sandbox_` id. |
+| `--replica` | `integer` | No | The replica to restart, from 0 (default 0); `hedra-cli sandbox get --sandbox <SANDBOX>` lists them. |
+| `--no-wait` | `boolean` | No | Return once Hedra accepts the restart, without waiting for the replica to run again. |
+
 #### `hedra-cli sandbox rotate-signing-key`
 
 Revoke every session JWT and endpoint token of your workspace's

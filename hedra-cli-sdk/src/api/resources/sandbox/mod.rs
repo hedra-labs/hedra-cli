@@ -54,7 +54,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -95,7 +95,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -137,7 +137,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -202,7 +202,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -282,7 +282,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -332,7 +332,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -384,7 +384,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -393,6 +393,76 @@ impl SandboxClient {
                 &format!("sandboxes/{}/stop", sandbox),
                 None,
                 None,
+                options,
+            )
+            .await
+    }
+
+    /// Restart one running replica's instance in place: its command starts
+    /// again in a new container, which prefers the machine it ran on; when that
+    /// machine is full it waits for capacity, and can fail `no_capacity`. The
+    /// time until the new container runs is billed. The other replicas keep
+    /// running, and the sandbox keeps its lease and its `ttl_seconds`. Answers
+    /// the sandbox; read it again to follow the restart, during which the
+    /// replica's `restarting` is true. Restarting a replica that is already
+    /// restarting changes nothing. Any sandbox in your workspace, whoever created
+    /// it.
+    ///
+    /// # Arguments
+    ///
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
+    /// * `replica` - The instance's replica number, from 0.
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .sandbox
+    ///         .restart(
+    ///             &"sandbox".to_string(),
+    ///             &RestartQueryRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
+    pub async fn restart(
+        &self,
+        sandbox: &str,
+        request: &RestartQueryRequest,
+        options: Option<RequestOptions>,
+    ) -> Result<Sandbox, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.24.10".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::POST,
+                &format!("sandboxes/{}/restart", sandbox),
+                None,
+                QueryBuilder::new()
+                    .int("replica", request.replica.clone())
+                    .build(),
                 options,
             )
             .await
@@ -447,7 +517,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -511,7 +581,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -577,7 +647,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client
@@ -640,7 +710,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.24.7".to_string());
+                .or_insert_with(|| "3.24.10".to_string());
             Some(o)
         };
         self.http_client

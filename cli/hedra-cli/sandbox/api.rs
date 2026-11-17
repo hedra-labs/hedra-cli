@@ -177,14 +177,11 @@ impl Api {
     /// `sandboxes_restart`), which restarts that one replica in place and
     /// answers the sandbox, as `stop` does. One attempt under `limit`.
     ///
-    /// The embedded spec predates the route, so the call goes through the
-    /// generated client's HTTP client, and reads errors as its generated
-    /// methods do. The executor adds the auth and global headers, the spec
-    /// version among them, to every request it sends; a generated method
-    /// also sets the spec version itself, which this call leaves to the
-    /// executor. Once a regeneration from a spec with the route gives
-    /// `SandboxClient` a `restart` method, this calls that instead: the
-    /// sandbox module's regeneration test fails until it does.
+    /// Sent as the generated `SandboxClient::restart` sends it, but for the
+    /// spec version the executor adds, and kept raw beside the typed sandbox
+    /// as [`Api::read`] keeps it: `restart --no-wait` prints the answer as it
+    /// came, as the generated `stop` does, and the generated method answers
+    /// only the typed sandbox, which drops nulls and fields it does not know.
     pub(crate) async fn restart(
         &self,
         sandbox_id: &str,

@@ -230,7 +230,7 @@ fn progress(a: &Answer) -> String {
         .iter()
         .flatten()
         .map(|i| {
-            if restarting(&a.raw, i.replica) {
+            if i.restarting == Some(true) {
                 format!("replica {} restarting", i.replica)
             } else {
                 format!("replica {} {}", i.replica, i.status)
@@ -411,17 +411,15 @@ pub(crate) async fn wait_ready_or_last(
         .map(|a| a.sandbox)
 }
 
-/// Whether `raw`, a sandbox as the API answered it, lists `replica` with
-/// `restarting: true`. v3 marks an instance being replaced in place with
-/// that field and keeps its `status` `running` and its first `started_at`,
-/// so the field is the only sign of a restart in a read. Read from the raw
-/// answer until a regeneration types it on `SandboxInstance`.
-pub(crate) fn restarting(raw: &serde_json::Value, replica: i64) -> bool {
-    raw["instances"]
-        .as_array()
-        .into_iter()
+/// Whether `s` lists `replica` with `restarting: true`. v3 marks an
+/// instance being replaced in place with that field and keeps its `status`
+/// `running` and its first `started_at`, so the field is the only sign of
+/// a restart in a read.
+pub(crate) fn restarting(s: &Sandbox, replica: i64) -> bool {
+    s.instances
+        .iter()
         .flatten()
-        .any(|i| i["replica"] == replica && i["restarting"] == true)
+        .any(|i| i.replica == replica && i.restarting == Some(true))
 }
 
 /// Whether a read shows that the restart of `replica` began: the replica is
@@ -435,7 +433,7 @@ pub(crate) fn restart_began(a: &Answer, replica: i64) -> bool {
     match super::stream::replica_at(&a.sandbox, replica) {
         None => true,
         Some(i) if !matches!(i.status, SandboxInstanceStatus::Running) => true,
-        Some(_) => restarting(&a.raw, replica),
+        Some(i) => i.restarting == Some(true),
     }
 }
 
@@ -508,7 +506,7 @@ async fn wait_until(
                     // A replica being replaced reads `running`; it is not
                     // ready until the read stops marking it `restarting`.
                     (Readiness::Ready, Waiter::Restart(replica))
-                        if restarting(&answer.raw, replica) =>
+                        if restarting(&answer.sandbox, replica) =>
                     {
                         Readiness::Starting
                     }
@@ -844,8 +842,8 @@ mod tests {
             {"replica": 1, "status": "running", "restarting": true},
         ]));
         assert!(!restart_began(&other, 0));
-        assert!(restarting(&other.raw, 1));
-        assert!(!restarting(&other.raw, 0));
+        assert!(restarting(&other.sandbox, 1));
+        assert!(!restarting(&other.sandbox, 0));
     }
 
     #[test]
