@@ -234,12 +234,7 @@ pub(crate) fn is_spot(raw: &serde_json::Value) -> bool {
 /// instance. None when the answer does not say.
 fn on_demand_available(raw: &serde_json::Value) -> Option<bool> {
     let at = |v: &serde_json::Value| v.get("on_demand_available").and_then(|a| a.as_bool());
-    at(raw).or_else(|| {
-        raw.get("instances")?
-            .as_array()?
-            .iter()
-            .find_map(|instance| at(instance))
-    })
+    at(raw).or_else(|| raw.get("instances")?.as_array()?.iter().find_map(at))
 }
 
 /// A spot sandbox's No capacity failure: there is no fallback to on-demand,
