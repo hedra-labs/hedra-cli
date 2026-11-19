@@ -161,6 +161,11 @@ fn configure(app: CliApp) -> CliApp {
         // way round, the de-hijacker would turn the `[]` an empty list
         // becomes into an empty string.
         .transform_response(&["sandbox", "ls"], views::sandbox_list)
+        // After the de-hijacker too, which would otherwise leave a single
+        // sandbox's `spot`, an object with no fields, to render as nothing,
+        // and the GPU list's nested `spot` entry as five more columns.
+        .transform_response(&["sandbox", "*"], views::sandbox_spot)
+        .transform_response(&["sandbox", "gpus"], views::sandbox_gpus)
 }
 
 async fn reshape_model_list_table(mut v: Value, _: Vec<String>) -> Result<Value, CliError> {

@@ -315,7 +315,7 @@ sandbox through the sandbox broker, and `restart` waits for the replica it resta
 |---------|-------------|
 | `hedra-cli sandbox exec <SANDBOX> [-t] [-n] [--env K=V] -- <COMMAND>…` | Run a command and relay its stdin, stdout, stderr and exit code |
 | `hedra-cli sandbox shell <SANDBOX>` | Open an interactive shell |
-| `hedra-cli sandbox shell --gpu <MODEL:COUNT> --image <REF> [--replicas N]` | Create a sandbox for one shell, and stop it when the shell ends |
+| `hedra-cli sandbox shell --gpu <MODEL:COUNT> --image <REF> [--replicas N] [--spot]` | Create a sandbox for one shell, and stop it when the shell ends |
 | `hedra-cli sandbox logs <SANDBOX> [-f]` | Print the main process's output; `-f` keeps following it |
 | `hedra-cli sandbox attach <SANDBOX>` | The same as `logs -f` |
 | `hedra-cli sandbox cp <SRC> <DST>` | Copy files in or out; one side is `<SANDBOX>:<PATH>` |
@@ -367,6 +367,29 @@ as soon as Hedra accepts the restart.
 hedra-cli sandbox restart train --replica 1
 hedra-cli sandbox restart train --replica 1 --no-wait
 ```
+
+#### Spot sandboxes
+
+A spot sandbox runs on a GPU its provider can take back, at a lower price.
+`hedra-cli sandbox gpus` lists each model's spot price and whether one is free
+(`spot_usd_per_gpu_hour` and `spot_available`) beside its on-demand ones; a model with no
+spot price is not offered spot.
+
+- **Create one:** `sandbox shell --gpu <MODEL:COUNT> --image <REF> --spot`. `sandbox create`
+  takes the request's `spot` field, an object, once this build's API spec carries it:
+  `--json '{"spot": {}, …}'`.
+- **The provider can take the GPU back at any time,** with about a minute's warning. The
+  sandbox's process is sent SIGTERM, the instance ends with the failure reason
+  `preempted`, its disk is lost, and the charge stops at that moment. Save what matters
+  outside the sandbox as the work goes.
+- **There is no fallback to on-demand.** When no spot GPU is free the sandbox fails with
+  `no_capacity` (exit 14) and nothing is created at the on-demand price. The message says
+  whether an on-demand GPU is free; run the command again without `--spot` to use it.
+- **`sandbox ls` marks a spot sandbox** in its `gpu` column, `b300:1 (spot)`, and
+  `sandbox get` shows `spot`. `--format json` prints `spot` as the API sent it: an object
+  for a spot sandbox, null otherwise.
+- **`shell --gpu --spot` against an API that does not take `spot` yet** stops the sandbox
+  it was given, since that one is on demand, and exits 255.
 
 #### Replicas
 

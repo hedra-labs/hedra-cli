@@ -190,6 +190,20 @@ fn shell_command() -> Command {
                 .value_parser(clap::value_parser!(i64).range(1..=MAX_REPLICAS))
                 .help("With --gpu: how many instances to create, at most your workspace's sandbox quota; 1 by default. Every one stops with the shell"),
         )
+        .arg(
+            Arg::new("spot")
+                .long("spot")
+                .action(ArgAction::SetTrue)
+                .requires("gpu")
+                .help("With --gpu: create a spot sandbox, at the spot price `hedra-cli sandbox gpus` lists")
+                .long_help(
+                    "With --gpu: create a spot sandbox, at the spot price `hedra-cli sandbox gpus` \
+                     lists. Its provider can take the GPU back at any time, with about a minute's \
+                     warning: the sandbox then ends as `preempted`, its disk is lost, and the \
+                     charge stops then. There is no fallback to on-demand: when no spot GPU is \
+                     free the create fails, and nothing is created at the on-demand price.",
+                ),
+        )
         .arg(term_arg())
         .arg(replica_arg().help(
             "The replica to reach, from 0; with --gpu, below --replicas, else \
@@ -554,6 +568,7 @@ fn gpu_shell_args(
         term: m.get_one::<String>("term").cloned(),
         replicas: m.get_one::<i64>("replicas").copied(),
         replica: check_shell_replica(m)?,
+        spot: m.get_flag("spot"),
     };
     let transport = stream::transport_config(ctx.http_config())?;
     // With a bypass list the other verbs refuse an unusable proxy once the
@@ -739,6 +754,7 @@ async fn warnings_before_create(
     api: &Api,
     gpu: &str,
     replicas: i64,
+    spot: bool,
     read: std::time::Duration,
 ) -> Vec<String> {
     let (model, count) = gpu.split_once(':').unwrap_or((gpu, "1"));
@@ -746,21 +762,18 @@ async fn warnings_before_create(
         .parse::<i64>()
         .unwrap_or(1)
         .saturating_mul(replicas.max(1));
-    let (gpus, quota) = tokio::join!(
-        attempt(read, api.client.gpus(None)),
-        attempt(read, api.client.quota(None)),
+    // The list as it came: this build's typed row does not carry `spot`.
+    let list = api.client.http_client.execute_request::<serde_json::Value>(
+        reqwest::Method::GET,
+        "sandboxes/gpus",
+        None,
+        None,
+        None,
     );
+    let (gpus, quota) = tokio::join!(attempt(read, list), attempt(read, api.client.quota(None)),);
     let mut lines = Vec::new();
     if let Ok(gpus) = gpus {
-        if gpus
-            .data
-            .iter()
-            .any(|g| g.gpu_model == model && g.available == Some(false))
-        {
-            lines.push(format!(
-                "No {model} is free right now, so the sandbox may wait up to 15 minutes for one."
-            ));
-        }
+        lines.extend(capacity_warning(&gpus, model, spot));
     }
     if let Ok(quota) = quota {
         if count > quota.gpu_quota_remaining {
@@ -776,6 +789,36 @@ async fn warnings_before_create(
         }
     }
     lines
+}
+
+/// What the GPU list says of `model` before a create: that none is free, on
+/// demand or, for a spot create, spot, whose entry is the row's `spot`; and
+/// for a spot create, that the list offers the model no spot entry at all.
+fn capacity_warning(gpus: &serde_json::Value, model: &str, spot: bool) -> Option<String> {
+    let row = gpus
+        .get("data")?
+        .as_array()?
+        .iter()
+        .find(|g| g.get("gpu_model").and_then(serde_json::Value::as_str) == Some(model))?;
+    let free = |entry: &serde_json::Value| entry.get("available").and_then(|a| a.as_bool());
+    if !spot {
+        return (free(row) == Some(false)).then(|| {
+            format!(
+                "No {model} is free right now, so the sandbox may wait up to 15 minutes for one."
+            )
+        });
+    }
+    match row.get("spot").filter(|s| s.is_object()) {
+        None => Some(format!(
+            "`{}` lists no spot price for {model}, so the create may be refused.",
+            render::GPUS_COMMAND
+        )),
+        Some(entry) if free(entry) == Some(false) => Some(format!(
+            "No spot {model} is free right now, so the sandbox may wait for one, or fail with \
+             no capacity."
+        )),
+        Some(_) => None,
+    }
 }
 
 #[cfg(test)]
@@ -925,6 +968,67 @@ mod tests {
         assert!(parse(&["train", "--max-duration", "8h"]).is_err());
     }
 
+    /// `--spot` is `shell --gpu`'s alone: a shell in a sandbox that exists
+    /// cannot change what it runs on.
+    #[test]
+    fn spot_needs_gpu() {
+        let parse = |args: &[&str]| {
+            shell_command()
+                .try_get_matches_from(std::iter::once("shell").chain(args.iter().copied()))
+        };
+        let spot = parse(&["--gpu", "b300:1", "--image", "i", "--spot"]).unwrap();
+        assert!(spot.get_flag("spot"));
+        let plain = parse(&["--gpu", "b300:1", "--image", "i"]).unwrap();
+        assert!(!plain.get_flag("spot"));
+        assert!(parse(&["train", "--spot"]).is_err());
+        let help = shell_command().render_long_help().to_string();
+        for said in ["about a minute", "disk is lost", "no fallback to on-demand"] {
+            assert!(
+                help.split_whitespace()
+                    .collect::<Vec<_>>()
+                    .join(" ")
+                    .contains(said),
+                "{said}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_capacity_warning_reads_the_entry_the_create_asks_for() {
+        let list = |spot: serde_json::Value| {
+            serde_json::json!({"data": [{"gpu_model": "b300", "usd_per_gpu_hour": 8.25,
+                                         "available": false, "spot": spot}]})
+        };
+        let entry = |available: serde_json::Value| serde_json::json!({"usd_per_gpu_hour": 4.125, "available": available});
+        // On demand: the row's own `available`, whatever spot says.
+        let line = capacity_warning(&list(entry(true.into())), "b300", false).unwrap();
+        assert!(line.starts_with("No b300 is free right now"), "{line}");
+        // Spot: the entry's, whatever on-demand says.
+        assert_eq!(
+            capacity_warning(&list(entry(true.into())), "b300", true),
+            None
+        );
+        assert_eq!(
+            capacity_warning(&list(entry(serde_json::Value::Null)), "b300", true),
+            None
+        );
+        let line = capacity_warning(&list(entry(false.into())), "b300", true).unwrap();
+        assert!(line.starts_with("No spot b300 is free right now"), "{line}");
+        // No spot entry, null or from an API without the field.
+        for gpus in [
+            list(serde_json::Value::Null),
+            serde_json::json!({"data": [{"gpu_model": "b300", "available": true}]}),
+        ] {
+            let line = capacity_warning(&gpus, "b300", true).unwrap();
+            assert!(line.contains("lists no spot price for b300"), "{line}");
+        }
+        // A model the list does not name warns of nothing.
+        assert_eq!(
+            capacity_warning(&list(entry(false.into())), "h100", true),
+            None
+        );
+    }
+
     /// Every grafted verb takes `--replica N`, replica 0 by default, and
     /// says so in its help; a negative replica is a usage error.
     #[test]
@@ -1066,7 +1170,8 @@ mod tests {
         async fn prompt_reads_give_both_warnings() {
             let server = server(Duration::ZERO).await;
             let api = Api::for_tests(&server.uri());
-            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_secs(5)).await;
+            let lines =
+                warnings_before_create(&api, "h100:1", 1, false, Duration::from_secs(5)).await;
             assert_eq!(lines.len(), 2, "{lines:?}");
             assert!(lines[0].contains("No h100 is free"), "{lines:?}");
             assert!(lines[1].contains("0 GPUs left"), "{lines:?}");
@@ -1077,7 +1182,8 @@ mod tests {
             let server = server(Duration::from_secs(3)).await;
             let api = Api::for_tests(&server.uri());
             let started = Instant::now();
-            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_millis(200)).await;
+            let lines =
+                warnings_before_create(&api, "h100:1", 1, false, Duration::from_millis(200)).await;
             assert!(lines.is_empty(), "{lines:?}");
             assert!(started.elapsed() < Duration::from_secs(1));
         }
@@ -1096,14 +1202,16 @@ mod tests {
                 .await;
             let api = Api::for_tests(&server.uri());
             let read = Duration::from_secs(5);
-            assert!(warnings_before_create(&api, "h100:2", 1, read)
+            assert!(warnings_before_create(&api, "h100:2", 1, false, read)
                 .await
                 .is_empty());
-            let lines = warnings_before_create(&api, "h100:1", 4, read).await;
+            let lines = warnings_before_create(&api, "h100:1", 4, false, read).await;
             assert_eq!(lines.len(), 1, "{lines:?}");
             assert!(lines[0].contains("2 GPUs left"), "{lines:?}");
             assert_eq!(
-                warnings_before_create(&api, "h100:2", 2, read).await.len(),
+                warnings_before_create(&api, "h100:2", 2, false, read)
+                    .await
+                    .len(),
                 1
             );
         }
