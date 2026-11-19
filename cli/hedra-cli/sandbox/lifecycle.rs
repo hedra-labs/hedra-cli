@@ -76,6 +76,9 @@ pub(crate) fn describe(error: &CallError) -> String {
 /// A create's outcome.
 pub(crate) enum Created {
     Sandbox(Box<Sandbox>),
+    /// A spot create whose answer is not a spot sandbox: an API from before
+    /// `spot` created it on demand, at the on-demand price.
+    OnDemand(Box<Sandbox>),
     /// A definitive refusal: nothing was created.
     Refused(Failure),
     /// The sandbox may or may not exist.
@@ -94,9 +97,23 @@ pub(crate) fn idempotency_key() -> String {
 /// timeout, a 408 or any 5xx, a 409 `ALREADY_IN_PROGRESS` and, for 60 s of
 /// waiting in all, a 429. Never a 402, since a retry after one is a new create
 /// that runs the wallet's top-off again.
+#[cfg(test)]
 pub(crate) async fn create(
     api: &Api,
     body: &CreateSandboxRequest,
+    key: &str,
+    timing: &Timing,
+) -> Created {
+    create_as(api, body, false, key, timing).await
+}
+
+/// [`create`], with `spot: {}` in the request when `spot` is set: a sandbox
+/// on capacity its provider can take back, at the spot price. The answer to
+/// a spot create that is not a spot sandbox is [`Created::OnDemand`].
+pub(crate) async fn create_as(
+    api: &Api,
+    body: &CreateSandboxRequest,
+    spot: bool,
     key: &str,
     timing: &Timing,
 ) -> Created {
@@ -120,13 +137,18 @@ pub(crate) async fn create(
     };
     let mut backoff = ROUTE_BACKOFF;
     loop {
-        let error = match attempt(
-            timing.create_attempt,
-            api.quiet.create(body, Some(options())),
-        )
-        .await
-        {
-            Ok(sandbox) => return Created::Sandbox(Box::new(sandbox)),
+        let answer = if spot {
+            attempt(timing.create_attempt, create_spot(api, body, options())).await
+        } else {
+            attempt(
+                timing.create_attempt,
+                api.quiet.create(body, Some(options())),
+            )
+            .await
+            .map(|sandbox| Created::Sandbox(Box::new(sandbox)))
+        };
+        let error = match answer {
+            Ok(created) => return created,
             Err(e) => e,
         };
         let subject = Some(body.name.as_str());
@@ -164,6 +186,82 @@ pub(crate) async fn create(
         tokio::time::sleep(wait).await;
         backoff.grow();
     }
+}
+
+/// One `POST /sandboxes` with `spot: {}` beside `body`'s fields, as the
+/// generated `create` sends it but for that field, which this build's
+/// request type does not carry. `spot` is an object and never a boolean: the
+/// route takes its options there later. The answer's own `spot` says whether
+/// the sandbox is one; an API from before the field ignores it and creates
+/// the sandbox on demand.
+async fn create_spot(
+    api: &Api,
+    body: &CreateSandboxRequest,
+    options: RequestOptions,
+) -> Result<Created, hedra_cli_sdk::ApiError> {
+    let mut request = serde_json::to_value(body).map_err(hedra_cli_sdk::ApiError::Serialization)?;
+    if let Some(fields) = request.as_object_mut() {
+        fields.insert("spot".to_string(), serde_json::json!({}));
+    }
+    let raw: serde_json::Value = api
+        .quiet
+        .http_client
+        .execute_request(
+            reqwest::Method::POST,
+            "sandboxes",
+            Some(request),
+            None,
+            Some(options),
+        )
+        .await?;
+    let sandbox: Sandbox =
+        serde_json::from_value(raw.clone()).map_err(hedra_cli_sdk::ApiError::Serialization)?;
+    Ok(if is_spot(&raw) {
+        Created::Sandbox(Box::new(sandbox))
+    } else {
+        Created::OnDemand(Box::new(sandbox))
+    })
+}
+
+/// Whether a sandbox, as the API answered it, is a spot one: `spot` is an
+/// object, null or absent otherwise.
+pub(crate) fn is_spot(raw: &serde_json::Value) -> bool {
+    raw.get("spot").is_some_and(serde_json::Value::is_object)
+}
+
+/// Whether the API says on-demand capacity could hold a spot sandbox that
+/// found none: `on_demand_available`, on the sandbox or on a failed
+/// instance. None when the answer does not say.
+fn on_demand_available(raw: &serde_json::Value) -> Option<bool> {
+    let at = |v: &serde_json::Value| v.get("on_demand_available").and_then(|a| a.as_bool());
+    at(raw).or_else(|| raw.get("instances")?.as_array()?.iter().find_map(at))
+}
+
+/// A spot sandbox's No capacity failure: there is no fallback to on-demand,
+/// so the line says whether running it again without `--spot` would start.
+fn spot_capacity(a: &Answer, failure: Failure) -> Failure {
+    if failure.class != Class::NoCapacity || !is_spot(&a.raw) {
+        return failure;
+    }
+    let gpu = escape_controls(&a.sandbox.gpu);
+    let next = match on_demand_available(&a.raw) {
+        Some(true) => format!(
+            "On-demand `{gpu}` is free: create it again without `--spot`, at the on-demand price."
+        ),
+        Some(false) => format!(
+            "None is free on demand either. Run `{}`.",
+            super::render::GPUS_COMMAND
+        ),
+        None => format!(
+            "A spot sandbox is never moved to on-demand: run `{}`, or create it again without `--spot`.",
+            super::render::GPUS_COMMAND
+        ),
+    };
+    Failure::new(
+        Class::NoCapacity,
+        format!("No spot `{gpu}` is free right now. {next}"),
+    )
+    .with_trace(failure.trace_id)
 }
 
 /// The next step when a create may have made a sandbox it never confirmed.
@@ -301,13 +399,19 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
             Some(SandboxFailureReason::QuotaExceeded) => Class::Limit,
             _ => Class::NotReady,
         };
+        let preempted = reason.is_some_and(super::render::preempted);
         let reason = reason.map_or("no reason given".to_string(), |r| r.to_string());
+        let line = format!(
+            "Replica {} of `{name}` failed to start: {reason}.",
+            failed.replica
+        );
         return Readiness::Failed(Failure::new(
             class,
-            format!(
-                "Replica {} of `{name}` failed to start: {reason}.",
-                failed.replica
-            ),
+            if preempted {
+                format!("{line} {}", super::render::PREEMPTED)
+            } else {
+                line
+            },
         ));
     }
     // Replica 0 first, whose output a plain `logs` reads.
@@ -344,8 +448,17 @@ fn stopped_line(s: &Sandbox, stopped: &SandboxInstance) -> String {
         .as_ref()
         .map(|f| format!(" ({f})"))
         .unwrap_or_default();
+    let preempted = if stopped
+        .failure_reason
+        .as_ref()
+        .is_some_and(super::render::preempted)
+    {
+        format!(" {}", super::render::PREEMPTED)
+    } else {
+        String::new()
+    };
     escape_controls(&format!(
-        "{whose} stopped before it was ready{reason}. {step}"
+        "{whose} stopped before it was ready{reason}.{preempted} {step}"
     ))
 }
 
@@ -530,7 +643,7 @@ async fn wait_until(
                     }
                     Readiness::Failed(failure) => {
                         return Err(WaitFailed {
-                            failure,
+                            failure: spot_capacity(&answer, failure),
                             last: Some(Box::new(answer.sandbox)),
                         })
                     }
@@ -1000,6 +1113,104 @@ mod tests {
         );
     }
 
+    #[test]
+    fn a_preempted_instance_says_what_that_means() {
+        let s = sandbox("active", instance("failed", Some("preempted")), None);
+        let Readiness::Failed(f) = readiness(&s, Waiter::Stops) else {
+            panic!("a preempted instance is a failure");
+        };
+        assert_eq!(f.class, Class::NotReady);
+        assert_eq!(
+            f.message,
+            "Replica 0 of `train` failed to start: preempted. The provider took its GPU back, \
+             and the charge stopped then; its disk is gone."
+        );
+        // Another reason reads as it did.
+        let s = sandbox("active", instance("failed", Some("start_failed")), None);
+        let Readiness::Failed(f) = readiness(&s, Waiter::Stops) else {
+            panic!("a failed instance is a failure");
+        };
+        assert_eq!(
+            f.message,
+            "Replica 0 of `train` failed to start: start_failed."
+        );
+    }
+
+    fn answered(spot: serde_json::Value, extra: serde_json::Value) -> Answer {
+        let mut raw = serde_json::to_value(sandbox(
+            "active",
+            instance("failed", Some("no_capacity")),
+            None,
+        ))
+        .unwrap();
+        raw["spot"] = spot;
+        if let Some(extra) = extra.as_object() {
+            for (key, value) in extra {
+                raw[key] = value.clone();
+            }
+        }
+        Answer {
+            sandbox: serde_json::from_value(raw.clone()).unwrap(),
+            raw,
+        }
+    }
+
+    fn no_capacity(a: &Answer) -> Failure {
+        let Readiness::Failed(f) = readiness(&a.sandbox, Waiter::Stops) else {
+            panic!("no capacity is a failure");
+        };
+        spot_capacity(a, f)
+    }
+
+    #[test]
+    fn a_spot_sandbox_with_no_capacity_says_whether_on_demand_has_room() {
+        let free = no_capacity(&answered(json!({}), json!({"on_demand_available": true})));
+        assert_eq!(free.class, Class::NoCapacity);
+        assert_eq!(
+            free.message,
+            "No spot `h100:1` is free right now. On-demand `h100:1` is free: create it again \
+             without `--spot`, at the on-demand price."
+        );
+        let full = no_capacity(&answered(json!({}), json!({"on_demand_available": false})));
+        assert_eq!(
+            full.message,
+            "No spot `h100:1` is free right now. None is free on demand either. Run \
+             `hedra-cli sandbox gpus`."
+        );
+        // An API that does not say: no promise either way.
+        let unsaid = no_capacity(&answered(json!({}), json!({})));
+        assert_eq!(
+            unsaid.message,
+            "No spot `h100:1` is free right now. A spot sandbox is never moved to on-demand: \
+             run `hedra-cli sandbox gpus`, or create it again without `--spot`."
+        );
+        // On the failed instance, where a later API may put it.
+        let mut on_instance = answered(json!({}), json!({}));
+        on_instance.raw["instances"][0]["on_demand_available"] = json!(true);
+        assert!(no_capacity(&on_instance)
+            .message
+            .contains("On-demand `h100:1` is free"));
+    }
+
+    #[test]
+    fn an_on_demand_sandbox_with_no_capacity_reads_as_before() {
+        for spot in [json!(null), serde_json::Value::Null] {
+            let f = no_capacity(&answered(spot, json!({"on_demand_available": true})));
+            assert_eq!(
+                f.message,
+                "No `h100:1` is free right now. Run `hedra-cli sandbox gpus`."
+            );
+        }
+        // Another failure of a spot sandbox is left alone.
+        let mut a = answered(json!({}), json!({}));
+        a.raw["instances"][0]["failure_reason"] = json!("start_failed");
+        a.sandbox = serde_json::from_value(a.raw.clone()).unwrap();
+        assert_eq!(
+            no_capacity(&a).message,
+            "Replica 0 of `train` failed to start: start_failed."
+        );
+    }
+
     mod against_a_mock {
         use super::*;
         use wiremock::matchers::{method, path};
@@ -1048,6 +1259,102 @@ mod tests {
                 .into_iter()
                 .filter(|r| r.method.as_str() == "POST")
                 .collect()
+        }
+
+        /// `--spot` sends `spot: {}`, an object, beside the request's other
+        /// fields and under the same key, and a spot answer is the sandbox.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_spot_create_sends_spot_as_an_object() {
+            let server = MockServer::start().await;
+            let mut created = row("creating", "pending");
+            created["spot"] = json!({});
+            Mock::given(method("POST"))
+                .and(path("/sandboxes"))
+                .respond_with(ResponseTemplate::new(201).set_body_json(created))
+                .mount(&server)
+                .await;
+            let api = Api::for_tests(&server.uri());
+            let outcome = create_as(&api, &body(), true, "key-1", &short()).await;
+            assert!(matches!(outcome, Created::Sandbox(s) if s.name == "train"));
+            let sent = posts(&server).await;
+            assert_eq!(sent.len(), 1);
+            let request: serde_json::Value = serde_json::from_slice(&sent[0].body).unwrap();
+            assert_eq!(request["spot"], json!({}));
+            assert_eq!(request["name"], "train");
+            assert_eq!(request["gpu"], "h100:1");
+            assert_eq!(
+                sent[0]
+                    .headers
+                    .get("Idempotency-Key")
+                    .unwrap()
+                    .to_str()
+                    .unwrap(),
+                "key-1"
+            );
+        }
+
+        /// An API from before `spot` ignores the field and creates the
+        /// sandbox on demand, which the caller must not take for a spot one.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_spot_create_answered_on_demand_is_told_apart() {
+            for answer in [row("creating", "pending"), {
+                let mut r = row("creating", "pending");
+                r["spot"] = json!(null);
+                r
+            }] {
+                let server = MockServer::start().await;
+                Mock::given(method("POST"))
+                    .and(path("/sandboxes"))
+                    .respond_with(ResponseTemplate::new(201).set_body_json(answer))
+                    .mount(&server)
+                    .await;
+                let api = Api::for_tests(&server.uri());
+                let outcome = create_as(&api, &body(), true, "key-1", &short()).await;
+                assert!(matches!(outcome, Created::OnDemand(s) if s.id == "sandbox_1"));
+            }
+        }
+
+        /// Without `--spot` the request carries no `spot` at all.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn an_on_demand_create_sends_no_spot() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/sandboxes"))
+                .respond_with(ResponseTemplate::new(201).set_body_json(row("creating", "pending")))
+                .mount(&server)
+                .await;
+            let api = Api::for_tests(&server.uri());
+            let outcome = create_as(&api, &body(), false, "key-1", &short()).await;
+            assert!(matches!(outcome, Created::Sandbox(_)));
+            let sent = posts(&server).await;
+            let request: serde_json::Value = serde_json::from_slice(&sent[0].body).unwrap();
+            assert!(request.get("spot").is_none(), "{request}");
+        }
+
+        /// The route's refusal of `spot` creates nothing and is not retried.
+        #[tokio::test(flavor = "multi_thread")]
+        async fn a_refused_spot_create_is_a_refusal() {
+            let server = MockServer::start().await;
+            Mock::given(method("POST"))
+                .and(path("/sandboxes"))
+                .respond_with(ResponseTemplate::new(400).set_body_json(json!({
+                    "error": {"code": "INVALID_ARGUMENT", "message": "m", "param": "spot",
+                              "details": [{"field": "spot", "message": "m",
+                                           "reason": "unsupported_combination"}]},
+                })))
+                .mount(&server)
+                .await;
+            let api = Api::for_tests(&server.uri());
+            let Created::Refused(f) = create_as(&api, &body(), true, "key-1", &short()).await
+            else {
+                panic!("a 400 is a refusal");
+            };
+            assert_eq!(f.class, Class::Rejected);
+            assert!(
+                f.message.starts_with("This GPU model is not offered spot."),
+                "{f:?}"
+            );
+            assert_eq!(posts(&server).await.len(), 1);
         }
 
         #[tokio::test(flavor = "multi_thread")]

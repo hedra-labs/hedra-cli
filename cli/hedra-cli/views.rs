@@ -104,6 +104,18 @@ pub(crate) async fn defuse_arrays(value: Value, _: Vec<String>) -> Result<Value,
     Ok(dehijack(value))
 }
 
+/// `transform_response` hook for `["sandbox", "*"]`, after the
+/// de-hijacker: a single sandbox's `spot`, an object with no fields yet,
+/// reads `true`.
+pub(crate) async fn sandbox_spot(value: Value, _: Vec<String>) -> Result<Value, CliError> {
+    Ok(spot_flag(value))
+}
+
+/// `transform_response` hook for `["sandbox", "gpus"]`.
+pub(crate) async fn sandbox_gpus(value: Value, _: Vec<String>) -> Result<Value, CliError> {
+    Ok(gpu_rows(value))
+}
+
 /// `transform_response` hook for `["sandbox", "ls"]`.
 pub(crate) async fn sandbox_list(value: Value, _: Vec<String>) -> Result<Value, CliError> {
     Ok(sandbox_rows(value))
@@ -391,6 +403,13 @@ fn sandbox_rows(mut value: Value) -> Value {
             let cell = fields.get(key).cloned().unwrap_or(Value::Null);
             row.insert(key.to_string(), cell);
         }
+        // A spot sandbox is marked in its `gpu` cell: a column of its own
+        // would stand empty in every list without one.
+        if fields.get("spot").is_some_and(Value::is_object) {
+            if let Some(Value::String(gpu)) = row.get_mut("gpu") {
+                gpu.push_str(" (spot)");
+            }
+        }
         let created = match fields.get("created_at") {
             Some(Value::String(at)) => Value::String(instant(at)),
             _ => Value::Null,
@@ -405,6 +424,45 @@ fn sandbox_rows(mut value: Value) -> Value {
             .unwrap_or(Value::Null);
         row.insert("usd_per_hour".into(), price);
         *sandbox = Value::Object(row);
+    }
+    value
+}
+
+/// A single sandbox (`get`, `create`, `stop`) with its `spot` object as
+/// `true`: the object has no fields yet, and the renderer shows an empty
+/// object as nothing. A null or absent `spot`, a list and anything else pass
+/// through.
+fn spot_flag(mut value: Value) -> Value {
+    if let Some(spot) = value.get_mut("spot").filter(|s| s.is_object()) {
+        if spot.as_object().is_some_and(Map::is_empty) {
+            *spot = Value::Bool(true);
+        }
+    }
+    value
+}
+
+/// `sandbox gpus` — each model's `spot` entry as two columns beside its
+/// on-demand ones, `spot_usd_per_gpu_hour` and `spot_available`, in place of
+/// the five the renderer would flatten the entry into. A model with no spot
+/// entry shows both empty. A list in which no row has the `spot` field, as an
+/// API from before it answers, passes through unchanged, and `--format json`
+/// keeps the whole entry.
+fn gpu_rows(mut value: Value) -> Value {
+    let Some(Value::Array(rows)) = value.get_mut("data") else {
+        return value;
+    };
+    if !rows.iter().any(|row| row.get("spot").is_some()) {
+        return value;
+    }
+    for row in rows.iter_mut() {
+        let Some(fields) = row.as_object_mut() else {
+            continue;
+        };
+        let spot = fields.remove("spot").unwrap_or(Value::Null);
+        for key in ["usd_per_gpu_hour", "available"] {
+            let cell = spot.get(key).cloned().unwrap_or(Value::Null);
+            fields.insert(format!("spot_{key}"), cell);
+        }
     }
     value
 }
@@ -1329,6 +1387,67 @@ mod tests {
         );
         assert_eq!(lines.next(), None);
         assert!(!rendered.contains("HF_TOKEN") && !rendered.contains("paid_usd"));
+    }
+
+    #[test]
+    fn sandbox_ls_marks_a_spot_sandbox_in_its_gpu_cell() {
+        let mut spot = listed_sandbox();
+        spot["spot"] = json!({});
+        let mut on_demand = listed_sandbox();
+        on_demand["spot"] = Value::Null;
+        let rows = sandbox_rows(json!({"data": [spot, on_demand, listed_sandbox()],
+                                       "next_cursor": null}));
+        assert_eq!(rows["data"][0]["gpu"], "rtx4090:1 (spot)");
+        assert_eq!(rows["data"][1]["gpu"], "rtx4090:1");
+        assert_eq!(rows["data"][2]["gpu"], "rtx4090:1");
+        assert!(rows["data"][0].get("spot").is_none());
+    }
+
+    #[test]
+    fn a_single_spot_sandbox_reads_spot_true() {
+        let mut sandbox = listed_sandbox();
+        sandbox["spot"] = json!({});
+        assert_eq!(spot_flag(sandbox.clone())["spot"], true);
+        let rendered = render(&spot_flag(dehijack(sandbox.clone())));
+        assert_eq!(field(&rendered, "spot").as_deref(), Some("true"));
+        sandbox["spot"] = Value::Null;
+        assert_eq!(spot_flag(sandbox.clone()), sandbox);
+        // A later API's options stay as they came.
+        sandbox["spot"] = json!({"max_usd_per_gpu_hour": 3.0});
+        assert_eq!(spot_flag(sandbox.clone()), sandbox);
+        assert_eq!(spot_flag(listed_sandbox()), listed_sandbox());
+    }
+
+    #[test]
+    fn sandbox_gpus_shows_the_spot_price_and_availability_beside_on_demand() {
+        let list = json!({"data": [
+            {"gpu_model": "b300", "usd_per_gpu_hour": 8.25, "available": false,
+             "spot": {"usd_per_gpu_hour": 4.125, "available": true, "gpu_counts": [1],
+                      "internet": false, "secrets_supported": true}},
+            {"gpu_model": "h100", "usd_per_gpu_hour": 2.5, "available": true, "spot": null},
+        ]});
+        let rows = gpu_rows(list);
+        assert_eq!(
+            rows["data"][0],
+            json!({"gpu_model": "b300", "usd_per_gpu_hour": 8.25, "available": false,
+                   "spot_usd_per_gpu_hour": 4.125, "spot_available": true})
+        );
+        assert_eq!(
+            rows["data"][1],
+            json!({"gpu_model": "h100", "usd_per_gpu_hour": 2.5, "available": true,
+                   "spot_usd_per_gpu_hour": null, "spot_available": null})
+        );
+        let rendered = render(&rows);
+        assert!(rendered.contains("spot_usd_per_gpu_hour"), "{rendered}");
+        assert!(rendered.contains("4.125"), "{rendered}");
+    }
+
+    #[test]
+    fn sandbox_gpus_from_an_api_without_spot_passes_through() {
+        let list = json!({"data": [
+            {"gpu_model": "h100", "usd_per_gpu_hour": 2.5, "available": true},
+        ]});
+        assert_eq!(gpu_rows(list.clone()), list);
     }
 
     #[test]

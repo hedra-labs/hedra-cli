@@ -40,6 +40,21 @@ pub(crate) struct GpuShell {
     pub(crate) replicas: Option<i64>,
     /// `--replica`: the one the shell opens in, below `replicas`.
     pub(crate) replica: i64,
+    /// `--spot`: on capacity the provider can take back, at the spot price.
+    pub(crate) spot: bool,
+}
+
+/// What `--spot` means, said before the create is sent.
+const SPOT_NOTE: &str = "Spot: the provider can take the GPU back at any time, with about a \
+    minute's warning. The sandbox then ends, its disk is lost, and it is not moved to on-demand.";
+
+/// After a `--spot` create that an API from before `spot` answered with an
+/// on-demand sandbox.
+fn on_demand_instead(name: &str) -> Failure {
+    Failure::rejected(format!(
+        "Hedra created `{name}` on demand, not spot, at the on-demand price: this API does not \
+         take `--spot` yet."
+    ))
 }
 
 static CREATED: std::sync::Mutex<Option<(String, String)>> = std::sync::Mutex::new(None);
@@ -120,6 +135,7 @@ pub(crate) async fn run(
             api,
             &shell.gpu,
             shell.replicas.unwrap_or(1),
+            shell.spot,
             super::PRE_CREATE_READ,
         ) => lines,
         sig = signals.next() => return sig.class().code(),
@@ -127,9 +143,12 @@ pub(crate) async fn run(
     for line in warnings {
         note(line);
     }
+    if shell.spot {
+        note(SPOT_NOTE);
+    }
 
     let started = Instant::now();
-    let (sandbox, interrupted) =
+    let (sandbox, interrupted, on_demand) =
         match create(api, &shell, &mut signals, json_errors, &Timing::default()).await {
             Ok(created) => created,
             Err(code) => return code,
@@ -148,6 +167,12 @@ pub(crate) async fn run(
     if let Some(sig) = interrupted {
         // The create was finished only so the sandbox could be stopped.
         return stopper.stop(sig.class().code(), false, &mut signals).await;
+    }
+    if on_demand {
+        // Not what was asked for, and dearer: stop it before it is used.
+        return stopper
+            .stop_after(&on_demand_instead(&name), &mut signals)
+            .await;
     }
 
     let mut say = |l: &str| note(l);
@@ -191,7 +216,7 @@ async fn create(
     signals: &mut impl NextSig,
     json_errors: bool,
     timing: &Timing,
-) -> Result<(Sandbox, Option<Sig>), i32> {
+) -> Result<(Sandbox, Option<Sig>, bool), i32> {
     // The first signal, whose code a finished create exits with, and whether
     // a Ctrl-C has come, so the next abandons the create.
     let mut interrupted: Option<Sig> = None;
@@ -201,7 +226,7 @@ async fn create(
         let key = lifecycle::idempotency_key();
         let body = request(shell, &name);
         note(format_args!("Creating `{name}`."));
-        let created = lifecycle::create(api, &body, &key, timing);
+        let created = lifecycle::create_as(api, &body, shell.spot, &key, timing);
         tokio::pin!(created);
         let abandon = |class| {
             Failure::new(
@@ -246,7 +271,8 @@ async fn create(
             }
         };
         match outcome {
-            Created::Sandbox(s) => return Ok((*s, interrupted)),
+            Created::Sandbox(s) => return Ok((*s, interrupted, false)),
+            Created::OnDemand(s) => return Ok((*s, interrupted, true)),
             Created::Refused(f) if f.reason.as_deref() == Some("ALREADY_EXISTS") => {
                 // A live sandbox of the caller's holds the generated name;
                 // nothing was created.
@@ -645,6 +671,7 @@ mod tests {
             term: None,
             replicas: None,
             replica: 0,
+            spot: false,
         };
         let timing = Timing {
             create_loop: Duration::from_secs(20),
@@ -689,6 +716,7 @@ mod tests {
             term: None,
             replicas: None,
             replica: 0,
+            spot: false,
         };
         let started = std::time::Instant::now();
         let created = tokio::time::timeout(
@@ -725,6 +753,7 @@ mod tests {
             term: None,
             replicas: None,
             replica: 0,
+            spot: false,
         };
         // Signals pop from the end: SIGTERM, then two Ctrl-Cs.
         for signals in [
@@ -866,6 +895,7 @@ mod tests {
                 term: None,
                 replicas: None,
                 replica: 0,
+                spot: false,
             },
             "shell-abcdef",
         );
@@ -887,6 +917,7 @@ mod tests {
                 term: None,
                 replicas: Some(3),
                 replica: 2,
+                spot: false,
             },
             "shell-abcdef",
         );

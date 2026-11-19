@@ -31,6 +31,34 @@ pub(crate) fn stop_reason(s: &Sandbox) -> Option<String> {
     })
 }
 
+/// What `preempted` means, after a line that names it: the sandbox ran on
+/// spot capacity, and nothing of Hedra's or the caller's ended it.
+pub(crate) const PREEMPTED: &str =
+    "The provider took its GPU back, and the charge stopped then; its disk is gone.";
+
+/// Whether an instance failed because its provider took its spot GPU back.
+/// Read from the reason's text, so it holds for a build whose generated
+/// reasons do not name `preempted` yet and for one whose do.
+pub(crate) fn preempted(reason: &hedra_cli_sdk::api::SandboxFailureReason) -> bool {
+    reason.to_string() == "preempted"
+}
+
+/// [`PREEMPTED`] with a leading space when the instance at `replica` was
+/// preempted, or, when that one has no failure, any instance was; else
+/// nothing.
+pub(crate) fn preempted_note(s: &Sandbox, replica: i64) -> String {
+    let instances = || s.instances.iter().flatten();
+    let own = instances()
+        .find(|i| i.replica == replica)
+        .and_then(|i| i.failure_reason.as_ref());
+    let reason = own.or_else(|| instances().find_map(|i| i.failure_reason.as_ref()));
+    if reason.is_some_and(preempted) {
+        format!(" {PREEMPTED}")
+    } else {
+        String::new()
+    }
+}
+
 /// The generated command that stops `sandbox`, a name or an id.
 pub(crate) fn stop_command(sandbox: &str) -> String {
     format!("hedra-cli sandbox stop --sandbox {sandbox}")

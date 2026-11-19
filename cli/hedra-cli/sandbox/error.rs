@@ -201,6 +201,26 @@ impl Failure {
     }
 }
 
+/// A create's refusal of `spot`, by the reason its field error carries:
+/// spot is not on for the workspace, or the GPU model has no spot price.
+/// Neither creates anything, and nothing falls back to on-demand.
+fn spot_refusal(reason: Option<&str>, message: &str) -> String {
+    match reason {
+        Some("unsupported_value") => "Spot sandboxes are not available to this workspace yet. \
+             Leave out `--spot` to create it on demand."
+            .to_string(),
+        Some("unsupported_combination") => format!(
+            "This GPU model is not offered spot. Run `{}` for the models with a spot price, or \
+             leave out `--spot` to create it on demand.",
+            super::render::GPUS_COMMAND
+        ),
+        _ if message.is_empty() => {
+            "Hedra refused `--spot`. Leave it out to create the sandbox on demand.".to_string()
+        }
+        _ => format!("{message} Leave out `--spot` to create it on demand."),
+    }
+}
+
 /// The v3 error envelope, read leniently: a load balancer's 502 or a
 /// proxy's page has none. Read here rather than through the generated
 /// `api_error_from_body`, which lifts a reason and a sentence but leaves
@@ -213,6 +233,10 @@ pub(crate) struct Envelope {
     pub(crate) message: Option<String>,
     pub(crate) retry_after: Option<u64>,
     pub(crate) trace_id: Option<String>,
+    /// The request field the error is about, when it is about one.
+    pub(crate) param: Option<String>,
+    /// That field's `reason` among the envelope's `details`.
+    pub(crate) param_reason: Option<String>,
 }
 
 impl Envelope {
@@ -227,7 +251,21 @@ impl Envelope {
                 .and_then(Value::as_str)
                 .map(str::to_string)
         };
+        let param = str_at("param");
+        let param_reason = error
+            .and_then(|e| e.get("details"))
+            .and_then(Value::as_array)
+            .and_then(|details| {
+                details.iter().find(|d| {
+                    d.get("field").and_then(Value::as_str) == param.as_deref() && param.is_some()
+                })
+            })
+            .and_then(|d| d.get("reason"))
+            .and_then(Value::as_str)
+            .map(str::to_string);
         Self {
+            param,
+            param_reason,
             code: str_at("code"),
             message: str_at("message"),
             retry_after: error
@@ -300,6 +338,10 @@ impl HttpError {
             ),
             404 if message == SECRET_NOT_FOUND => (Class::Rejected, message),
             400 if self.envelope.has_code("FAILED_PRECONDITION") => (Class::NotReady, message),
+            400 if self.envelope.param.as_deref() == Some("spot") => (
+                Class::Rejected,
+                spot_refusal(self.envelope.param_reason.as_deref(), &message),
+            ),
             409 if self.envelope.has_code("ALREADY_IN_PROGRESS") => (Class::Unavailable, message),
             429 => (Class::Limit, message),
             500 => (
@@ -373,6 +415,62 @@ mod tests {
         HttpError::new(status, &envelope(code, message))
             .classify(Some("train"))
             .class
+    }
+
+    fn spot_refused(reason: Option<&str>) -> Failure {
+        let body = json!({
+            "error": {"code": "INVALID_ARGUMENT", "message": "spot is not supported here.",
+                      "param": "spot",
+                      "details": [{"field": "gpu", "message": "x", "reason": "enum"},
+                                  {"field": "spot", "message": "y", "reason": reason}]},
+            "trace_id": "trace_1",
+        });
+        HttpError::new(400, &body.to_string()).classify(Some("train"))
+    }
+
+    #[test]
+    fn a_refused_spot_names_why_and_the_way_on() {
+        let off = spot_refused(Some("unsupported_value"));
+        assert_eq!(off.class, Class::Rejected);
+        assert_eq!(
+            off.message,
+            "Spot sandboxes are not available to this workspace yet. Leave out `--spot` to \
+             create it on demand."
+        );
+        assert_eq!(off.reason.as_deref(), Some("INVALID_ARGUMENT"));
+        assert_eq!(off.trace_id.as_deref(), Some("trace_1"));
+        let unpriced = spot_refused(Some("unsupported_combination"));
+        assert_eq!(
+            unpriced.message,
+            "This GPU model is not offered spot. Run `hedra-cli sandbox gpus` for the models \
+             with a spot price, or leave out `--spot` to create it on demand."
+        );
+        // A reason this build does not know keeps the server's sentence.
+        assert_eq!(
+            spot_refused(Some("later")).message,
+            "spot is not supported here. Leave out `--spot` to create it on demand."
+        );
+        assert_eq!(
+            spot_refused(None).message,
+            "spot is not supported here. Leave out `--spot` to create it on demand."
+        );
+    }
+
+    #[test]
+    fn another_fields_refusal_is_not_read_as_spots() {
+        let body = json!({
+            "error": {"code": "INVALID_ARGUMENT", "message": "Bad gpu.", "param": "gpu",
+                      "details": [{"field": "spot", "message": "y",
+                                   "reason": "unsupported_value"}]},
+        });
+        let e = HttpError::new(400, &body.to_string());
+        assert_eq!(e.envelope.param.as_deref(), Some("gpu"));
+        assert_eq!(e.envelope.param_reason, None);
+        assert_eq!(e.classify(None).message, "Bad gpu.");
+        // No `param`: no reason is read from the details.
+        let bare = HttpError::new(400, &envelope("INVALID_ARGUMENT", "Bad."));
+        assert_eq!(bare.envelope.param, None);
+        assert_eq!(bare.envelope.param_reason, None);
     }
 
     #[test]

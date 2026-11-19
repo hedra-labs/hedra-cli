@@ -482,6 +482,9 @@ fn exited_line(s: &hedra_cli_sdk::api::Sandbox, name: &str, replica: i64) -> Opt
     let whose = whose(name, replica);
     let step = ended_step(s, replica);
     let line = match &instance.failure_reason {
+        Some(f) if render::preempted(f) => {
+            format!("{whose} stopped ({f}). {} {step}", render::PREEMPTED)
+        }
         Some(f) => format!("{whose} stopped ({f}). {step}"),
         None => format!("{whose} stopped. {step}"),
     };
@@ -592,10 +595,11 @@ pub(crate) fn get_line(id: &str) -> String {
 /// or that its instance stopped when an active sandbox's `replica` has, the
 /// server's text escaped.
 pub(crate) fn state_line(s: &hedra_cli_sdk::api::Sandbox, name: &str, replica: i64) -> String {
+    let preempted = render::preempted_note(s, replica);
     let line = match render::stop_reason(s) {
-        Some(reason) => format!("`{name}` is {} ({reason}).", s.status),
+        Some(reason) => format!("`{name}` is {} ({reason}).{preempted}", s.status),
         None => match replica_at(s, replica).and_then(|i| i.failure_reason.as_ref()) {
-            Some(f) => format!("{} stopped ({f}).", whose(name, replica)),
+            Some(f) => format!("{} stopped ({f}).{preempted}", whose(name, replica)),
             // An active sandbox reads as running without this.
             None if s.status == SandboxStatus::Active
                 && replica_at(s, replica).is_some_and(|i| {
@@ -628,13 +632,14 @@ pub(crate) async fn lost_detail(api: &Api, id: &str, replica: i64) -> String {
         return "The sandbox is still running.".to_string();
     };
     let reason = render::stop_reason(&s).map(|r| escape_controls(&r));
+    let preempted = render::preempted_note(&s, replica);
     match s.status {
         SandboxStatus::Ended => format!(
-            "The sandbox stopped: {}.",
+            "The sandbox stopped: {}.{preempted}",
             reason.unwrap_or_else(|| "no reason given".into())
         ),
         SandboxStatus::Stopping => format!(
-            "The sandbox is stopping: {}.",
+            "The sandbox is stopping: {}.{preempted}",
             reason.unwrap_or_else(|| "no reason given".into())
         ),
         _ => instance_stopped(&s, replica)
@@ -656,6 +661,9 @@ pub(crate) fn instance_stopped(s: &hedra_cli_sdk::api::Sandbox, replica: i64) ->
         n => format!("The sandbox's replica {n}"),
     };
     Some(match &i.failure_reason {
+        Some(f) if render::preempted(f) => {
+            format!("{whose} stopped ({f}). {}", render::PREEMPTED)
+        }
         Some(f) => format!("{whose} stopped ({}).", escape_controls(&f.to_string())),
         None => format!("{whose} stopped."),
     })
@@ -1754,6 +1762,49 @@ mod tests {
     const ANOTHER: &str = "Create another, or run `hedra-cli sandbox ls` for the running ones.";
     const CAPACITY: &str =
         "No `rtx4090:1` was free. Run `hedra-cli sandbox gpus`, then create another.";
+    const TAKEN_BACK: &str =
+        "The provider took its GPU back, and the charge stopped then; its disk is gone.";
+
+    /// `preempted` is a reason this build's generated type does not name,
+    /// so it arrives as an unknown one; each line that prints it says what
+    /// it means.
+    #[test]
+    fn a_preempted_instance_is_explained_wherever_it_is_named() {
+        let ran = active_with(replica("failed", Some("preempted"), true));
+        assert_eq!(
+            exited_line(&ran, "box", 0).unwrap(),
+            format!("`box`'s instance stopped (preempted). {TAKEN_BACK} {OUTPUT}")
+        );
+        assert_eq!(
+            state_line(&ran, "box", 0),
+            format!("`box`'s instance stopped (preempted). {TAKEN_BACK}")
+        );
+        assert_eq!(
+            instance_stopped(&ran, 0).unwrap(),
+            format!("The sandbox's instance stopped (preempted). {TAKEN_BACK}")
+        );
+        // Preempted before it started: nothing to read, so create another.
+        let never = active_with(replica("failed", Some("preempted"), false));
+        assert_eq!(
+            exited_line(&never, "box", 0).unwrap(),
+            format!("`box`'s instance stopped (preempted). {TAKEN_BACK} {ANOTHER}")
+        );
+        // An ended sandbox names it in its stop reason.
+        let mut ended = serde_json::to_value(&ran).unwrap();
+        ended["status"] = serde_json::json!("ended");
+        ended["end_reason"] = serde_json::json!("instance_failed");
+        let ended: hedra_cli_sdk::api::Sandbox = serde_json::from_value(ended).unwrap();
+        assert_eq!(
+            state_line(&ended, "box", 0),
+            format!("`box` is ended (instance_failed (preempted)). {TAKEN_BACK}")
+        );
+        // Another reason reads as it did.
+        let oom = active_with(replica("failed", Some("oom_killed"), true));
+        assert_eq!(
+            state_line(&oom, "box", 0),
+            "`box`'s instance stopped (oom_killed)."
+        );
+    }
 
     #[test]
     fn a_stopped_replica_on_an_active_sandbox_names_the_logs_command() {
