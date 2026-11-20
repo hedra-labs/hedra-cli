@@ -40,7 +40,7 @@ pub struct Sandbox {
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset::option")]
     pub ended_at: Option<DateTime<FixedOffset>>,
-    /// When the sandbox's lifetime ends: `created_at` plus `ttl_seconds`; null for a sandbox created without `ttl_seconds`.
+    /// When the sandbox stops: `created_at` plus `ttl_seconds`, or the time last set with `PATCH /v3/sandboxes/{sandbox}`; null for no end time.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset::option")]

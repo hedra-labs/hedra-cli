@@ -22,7 +22,7 @@ pub struct CreateSandboxRequest {
     /// What runs in place of the image's entrypoint; at most 16384 bytes written as JSON. Absent runs the image's `ENTRYPOINT`/`CMD`. The main process's stdin stays open, as under `docker run -i`, so a shell or an interpreter waits for input. The sandbox ends when the main process exits unless `restart` restarts it; set `idle` for a sandbox with no main process.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub command: Option<Vec<String>>,
-    /// Run no main process: the sandbox starts with nothing running and stays up for sessions until you stop it, `ttl_seconds` ends or it is inactive for `stop_after_inactive_seconds`. Not with `command`; `restart` has no effect. The image's entrypoint is not run.
+    /// Run no main process: the sandbox starts with nothing running and stays up for sessions until you stop it, its end time passes or it is inactive for `stop_after_inactive_seconds`. Not with `command`; `restart` has no effect. The image's entrypoint is not run.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub idle: Option<bool>,
     /// When the command is restarted.
@@ -31,9 +31,9 @@ pub struct CreateSandboxRequest {
     /// Environment variables for every instance, by name. Each value is a string, or `{"ref": NAME}` naming a saved workspace environment variable, Config or Secret, whose value each instance reads when it starts; at most 128 references. At most 32768 bytes written as JSON, no empty key or key containing `=`, and no key starting `SANDBOX_`, which the sandbox reserves. A reference's key also follows the variable name rule and is not one of the names `secrets` lists. Answers return the keys only, as `env_keys`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub env: Option<HashMap<String, CreateSandboxRequestEnvValue>>,
-    /// The sandbox's lifetime in seconds, counted from create, 120 to 86,400 (24 hours). Required; every instance is stopped when it ends. Longer reservations require a sales contract with Hedra; contact sales@hedra.com.
-    #[serde(default)]
-    pub ttl_seconds: i64,
+    /// The sandbox's end time, as seconds from create, 120 to 31,536,000 (365 days). Every instance stops at the end time, and the charge ends there. Change it while the sandbox runs with `PATCH /v3/sandboxes/{sandbox}`. Leave it out for no end time: the sandbox runs until you stop it, its command exits or its wallet cannot pay.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ttl_seconds: Option<i64>,
     /// Stop the sandbox, with `end_reason` `inactive`, once it has had no activity for this many seconds, 120 to 31,536,000. Activity is a request to its `url` or `internet_url`, until its response ends, and an exec or shell session, from its start until its process exits. The sandbox's command, a process left running after its session ends, a port-forward, an attach, a request refused because its endpoint token is missing or invalid, and a request answered 503 before the server first serves are not activity. The count starts when each instance starts, so set a value longer than your server takes to start serving. With `auth` `none`, a request from any caller counts, so any caller can keep the sandbox running until you stop it or its end time passes. With more than one replica, the instances stop together once every one is inactive. The stop can land a minute or so after the limit. Leave it out for no limit.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub stop_after_inactive_seconds: Option<i64>,
@@ -149,7 +149,6 @@ impl CreateSandboxRequestBuilder {
     /// - [`name`](CreateSandboxRequestBuilder::name)
     /// - [`image`](CreateSandboxRequestBuilder::image)
     /// - [`gpu`](CreateSandboxRequestBuilder::gpu)
-    /// - [`ttl_seconds`](CreateSandboxRequestBuilder::ttl_seconds)
     pub fn build(self) -> Result<CreateSandboxRequest, BuildError> {
         Ok(CreateSandboxRequest {
             name: self.name.ok_or_else(|| BuildError::missing_field("name"))?,
@@ -161,7 +160,7 @@ impl CreateSandboxRequestBuilder {
             idle: self.idle,
             restart: self.restart,
             env: self.env,
-            ttl_seconds: self.ttl_seconds.ok_or_else(|| BuildError::missing_field("ttl_seconds"))?,
+            ttl_seconds: self.ttl_seconds,
             stop_after_inactive_seconds: self.stop_after_inactive_seconds,
             ports: self.ports,
             secrets: self.secrets,
