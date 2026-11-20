@@ -2,7 +2,7 @@
 name = "hedra-cli"
 version = "10.0.0-dev"
 edition = "2021"
-description = "Command-line interface for the Hedra Web API — API spec 3.25.0"
+description = "Command-line interface for the Hedra Web API — API spec 3.25.4"
 license = "Apache-2.0"
 repository = "https://github.com/hedra-labs/hedra-cli"
 homepage = "https://www.hedra.com/docs"

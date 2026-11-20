@@ -26,6 +26,9 @@ pub struct UsageResponse {
     /// One bucket per `group_by` group.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub data: Option<Vec<UsageBucket>>,
+    /// Unless `members=false`, one entry per member who submitted a job or whose sandboxes spent in the window, most spent first. Absent with `members=false`. As with `data`, each `spent` is rounded on its own, so their sum can differ from `total_spent` by up to a millionth of a dollar per entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<Vec<UsageMember>>,
 }
 
 impl UsageResponse {
@@ -44,6 +47,7 @@ pub struct UsageResponseBuilder {
     total_spent: Option<f64>,
     currency: Option<String>,
     data: Option<Vec<UsageBucket>>,
+    members: Option<Vec<UsageMember>>,
 }
 
 impl UsageResponseBuilder {
@@ -82,6 +86,11 @@ impl UsageResponseBuilder {
         self
     }
 
+    pub fn members(mut self, value: Vec<UsageMember>) -> Self {
+        self.members = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`UsageResponse`].
     /// This method will fail if any of the following fields are not set:
     /// - [`start`](UsageResponseBuilder::start)
@@ -99,6 +108,7 @@ impl UsageResponseBuilder {
             total_spent: self.total_spent.ok_or_else(|| BuildError::missing_field("total_spent"))?,
             currency: self.currency.ok_or_else(|| BuildError::missing_field("currency"))?,
             data: self.data,
+            members: self.members,
         })
     }
 }

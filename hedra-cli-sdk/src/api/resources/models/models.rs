@@ -47,7 +47,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -87,7 +87,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -101,6 +101,21 @@ impl ModelsClient {
             .await
     }
 
+    /// Your jobs for this model, or with `members=true` every job for it in
+    /// your workspace, each with its `created_by`, newest first.
+    ///
+    /// # Arguments
+    ///
+    /// * `model` - The model's public id (`GET /v3/models`).
+    /// * `limit` - Maximum items per page.
+    /// * `cursor` - Opaque cursor from the previous page's `next_cursor`; omit for the first page.
+    /// * `members` - With `true`, every job for this model in your workspace, whoever submitted it; with `false`, the default, only the jobs you submitted. Any member of the workspace may pass `true`.
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
     /// # Examples
     ///
     /// ```no_run
@@ -135,7 +150,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -146,6 +161,7 @@ impl ModelsClient {
                 QueryBuilder::new()
                     .int("limit", request.limit.clone())
                     .serialize("cursor", request.cursor.clone())
+                    .bool("members", request.members.clone())
                     .build(),
                 options,
             )
@@ -161,6 +177,7 @@ impl ModelsClient {
         let http_client = std::sync::Arc::new(self.http_client.clone());
         let base_query_params = QueryBuilder::new()
             .int("limit", request.limit.clone())
+            .bool("members", request.members.clone())
             .build();
         let options_clone = options.clone();
         let model_clone = model.to_string();
@@ -253,7 +270,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -319,7 +336,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -373,7 +390,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -438,7 +455,7 @@ impl ModelsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client

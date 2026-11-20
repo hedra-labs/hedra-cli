@@ -22,7 +22,7 @@ pub struct SandboxEndpointToken {
     /// `browser_url` for `internet_url`: `internet_url` with `token` as its `hedra_token` query parameter, a credential as `browser_url` is; null while the sandbox has no `internet_url`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub internet_browser_url: Option<String>,
-    /// When `token` stops working: the end of the sandbox's `ttl_seconds` or 30 days after the mint, whichever is earlier, later only by the time the mint took. Mint a new one before then.
+    /// When `token` stops working: 30 days after the mint, later only by the time the mint took, whatever the sandbox's end time. Mint a new one before then.
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub expires_at: DateTime<FixedOffset>,

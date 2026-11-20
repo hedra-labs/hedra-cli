@@ -38,6 +38,7 @@ Get Usage
 | `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job and sandbox creation time. |
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
+| `--members` | `boolean` | No | With `true`, the default, the spend of everyone in the workspace the credential bills, the one `GET /v3/balance` reports, whoever submitted the job or created the sandbox, and `members` breaks it down per member, naming each by email and name; with `false`, only your own spend, in every workspace. Any credential holding `usage:read` may pass either. |
 
 #### `hedra-cli billing list-discounts`
 
@@ -96,7 +97,9 @@ Delete a finished job's outputs, prompt and logs.
 Afterwards `GET /v3/jobs/{job_id}` reports each output `EXPIRED`, with no
 prompt and no logs, and `GET /v3/jobs` still lists the job with its model,
 status, timestamps and cost. Another job whose output this job read by
-`asset_id` is unchanged. Deleting a job again returns 204.
+`asset_id` is unchanged. Deleting a job again returns 204. Any member of
+the job's workspace can delete it, whoever submitted it; another
+member's job outside your credential's workspace returns 404.
 
 Returns 409 `ALREADY_IN_PROGRESS` while the job, or another job that names
 this job's output by `asset_id`, is `IN_QUEUE` or `IN_PROGRESS`; 400
@@ -132,9 +135,11 @@ Get Job Status
 
 #### `hedra-cli jobs list`
 
-Your jobs, newest first. Each `POST /v3/chat/completions` request is a
-job too, whose id is the completion's `id`. A chat job has no outputs,
-and it sends no `job.completed` or `job.failed` webhook.
+Your jobs, or with `members=true` every job in your workspace, each
+with its `created_by`, newest first. Each `POST /v3/chat/completions`
+request is a job too, whose id is the completion's `id`. A chat job has
+no outputs, and it sends no `job.completed` or `job.failed` webhook.
+Any member can read a teammate's job by id, and delete it.
 
 `GET /jobs`
 
@@ -142,6 +147,7 @@ and it sends no `job.completed` or `job.failed` webhook.
 |------|------|----------|-------------|
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
+| `--members` | `boolean` | No | With `true`, every job in your workspace, whoever submitted it; with `false`, the default, only the jobs you submitted. Any member of the workspace may pass `true`. |
 
 #### `hedra-cli jobs list-job-logs`
 
@@ -1169,18 +1175,6 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-seedance-15-pro`
-
-Keyframe-driven video with native audio, from a start frame, an end frame, or both.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/seedance-15-pro`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
 #### `hedra-cli jobs submit-seedance-20`
 
 Reference-driven video up to 4K with native audio — hold a look across shots with reference images, clips, or audio.
@@ -1630,7 +1624,8 @@ List Models
 
 #### `hedra-cli models list-model-jobs`
 
-List Model Jobs
+Your jobs for this model, or with `members=true` every job for it in
+your workspace, each with its `created_by`, newest first.
 
 `GET /models/{model}/jobs`
 
@@ -1639,6 +1634,7 @@ List Model Jobs
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
+| `--members` | `boolean` | No | With `true`, every job for this model in your workspace, whoever submitted it; with `false`, the default, only the jobs you submitted. Any member of the workspace may pass `true`. |
 
 #### `hedra-cli models list-voices`
 
@@ -1688,10 +1684,9 @@ OpenAI-compatible Responses API. Each request runs as a chat completion, and is 
 
 Start one instance per replica, paying the first lease from the API
 wallet before any instance is created. The sandbox runs until you stop
-it, its command exits, the wallet cannot pay a lease, or its
-required `ttl_seconds` ends (120–86,400 seconds). Longer reservations
-require a sales contract with Hedra; contact sales@hedra.com. 404 while
-sandboxes are not enabled for your workspace.
+it, its command exits, the wallet cannot pay a lease, or its end time
+passes, which `ttl_seconds` sets and `PATCH /v3/sandboxes/{sandbox}`
+moves. 404 while sandboxes are not enabled for your workspace.
 
 `POST /sandboxes`
 
@@ -1848,6 +1843,22 @@ and browsers reach it at `url`.
 | Flag | Type | Required | Description |
 |------|------|----------|-------------|
 | `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
+
+#### `hedra-cli sandbox update`
+
+Move a `creating` or `active` sandbox's end time, earlier or later, to
+any time after now and at most 365 days ahead, or remove it with `null`.
+The charge ends at `ttl_ends_at`, and the sandbox stops within about
+twenty minutes after it. Endpoint tokens keep working: each lasts 30 days
+whatever the end time. Any sandbox in your workspace, whoever created
+it.
+
+`PATCH /sandboxes/{sandbox}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
 ---
 

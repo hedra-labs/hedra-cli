@@ -11,6 +11,9 @@ pub struct JobsListQueryRequest {
     /// Opaque cursor from the previous page's `next_cursor`; omit for the first page.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub cursor: Option<String>,
+    /// With `true`, every job in your workspace, whoever submitted it; with `false`, the default, only the jobs you submitted. Any member of the workspace may pass `true`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<bool>,
 }
 
 impl JobsListQueryRequest {
@@ -24,6 +27,7 @@ impl JobsListQueryRequest {
 pub struct JobsListQueryRequestBuilder {
     limit: Option<i64>,
     cursor: Option<String>,
+    members: Option<bool>,
 }
 
 impl JobsListQueryRequestBuilder {
@@ -37,11 +41,17 @@ impl JobsListQueryRequestBuilder {
         self
     }
 
+    pub fn members(mut self, value: bool) -> Self {
+        self.members = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`JobsListQueryRequest`].
     pub fn build(self) -> Result<JobsListQueryRequest, BuildError> {
         Ok(JobsListQueryRequest {
             limit: self.limit,
             cursor: self.cursor,
+            members: self.members,
         })
     }
 }

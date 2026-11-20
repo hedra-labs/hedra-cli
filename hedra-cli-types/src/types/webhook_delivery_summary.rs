@@ -7,7 +7,7 @@ pub struct WebhookDeliverySummary {
     /// The job whose terminal event this delivers.
     #[serde(default)]
     pub job_id: String,
-    /// Whether GET /v3/jobs/{job_id} works for the caller — false when the job belongs to a different owner than the authenticating key.
+    /// Whether GET /v3/jobs/{job_id} works for the caller. Every listed delivery is your own job or a member's job in the workspace your key acts in, so this is true.
     #[serde(default)]
     pub job_accessible: bool,
     /// The resolved model id the job ran on.

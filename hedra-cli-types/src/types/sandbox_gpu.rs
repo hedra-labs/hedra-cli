@@ -18,7 +18,7 @@ pub struct SandboxGpu {
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]
     pub usd_per_gpu_hour: f64,
-    /// Whether one more sandbox of this model fits in the GPUs free right now, by the recorded size of the pools that serve it, shared with other workspaces; null when that is unknown. `false` means a new sandbox may wait for GPUs to free up. `true` does not promise an immediate start: the sandbox is placed in one pool, a machine may be out of service, a request for several GPUs may need more than are free or than one machine holds, and sandboxes already waiting take free GPUs first.
+    /// Whether one more sandbox of this model fits in the GPUs free right now in the pools that serve it, shared with other workspaces; null when that is unknown, such as while a pool has not reported its GPUs recently. `false` means a new sandbox may wait for GPUs to free up. `true` does not promise an immediate start: the sandbox is placed in one pool, a machine may go out of service, a request for several GPUs may need more than are free or than one machine holds, and sandboxes already waiting take free GPUs first.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub available: Option<bool>,
     /// The GPU counts per instance that the pools serving this model offer, ascending, as `gpu` takes it after the colon; null when unknown. The list is neither complete nor a promise: a count not listed can still place, up to a pool's cap, and a listed count can wait for a machine with that many GPUs free or fail to place. Your workspace's GPU quota (`GET /sandboxes/quota`) can still refuse a count.
