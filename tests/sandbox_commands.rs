@@ -291,7 +291,7 @@ fn session_is_hidden_from_help_but_still_runs() {
 
 #[test]
 fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
-    for lifetime in [Value::Null, json!(120.5)] {
+    for lifetime in [json!(120.5)] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
         for input in ["--json", "--params"] {
             let outcome = run(
@@ -338,6 +338,35 @@ fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
         );
         assert!(!outcome.out.status.success(), "{}", outcome.output_text());
         assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+    }
+}
+
+#[test]
+fn create_accepts_an_explicit_null_lifetime_from_json_params_and_flags() {
+    let body =
+        json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": null})
+            .to_string();
+    for args in [
+        vec!["--json", body.as_str()],
+        vec!["--params", body.as_str()],
+        vec![
+            "--name",
+            "nightly",
+            "--image",
+            "python:3.12",
+            "--gpu",
+            "h100:1",
+            "--ttl-seconds",
+            "null",
+        ],
+    ] {
+        let mut command = vec!["sandbox", "create"];
+        command.extend(args);
+        let outcome = run(&command, ok(created_sandbox()));
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        let sent = outcome.body();
+        assert!(sent.as_object().unwrap().contains_key("ttl_seconds"));
+        assert!(sent["ttl_seconds"].is_null(), "{sent}");
     }
 }
 
@@ -409,7 +438,7 @@ fn create_validates_a_body_read_from_stdin() {
     let file = home.path().join("sandbox.json");
     std::fs::write(
         &file,
-        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":null}"#,
+        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":120.5}"#,
     )
     .unwrap();
     let out = hedra_cli(home.path())
@@ -419,11 +448,7 @@ fn create_validates_a_body_read_from_stdin() {
         .output()
         .unwrap();
     assert!(!out.status.success(), "{}", describe(&out));
-    assert!(
-        describe(&out).contains("ttl_seconds"),
-        "{}",
-        describe(&out)
-    );
+    assert!(describe(&out).contains("ttl_seconds"), "{}", describe(&out));
 }
 
 #[test]
