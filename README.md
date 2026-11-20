@@ -337,7 +337,9 @@ these ended it:
   the foreground: a process left running after its session ends is not activity.
 - **A program outside the sandbox:** have it run `sandbox stop --sandbox <SANDBOX>`
   (`caller_stopped`). An endpoint token cannot stop a sandbox.
-- **Nothing else:** `--ttl-seconds` stops it at its end time (`ttl_ended`).
+- **Nothing else:** `--ttl-seconds` stops it at its end time (`ttl_ended`). Pass
+  `--ttl-seconds null` to create without a stop timer; billing continues until the
+  sandbox stops or its wallet cannot pay. JSON inputs accept `"ttl_seconds": null` too.
 
 #### Restarting a replica
 
