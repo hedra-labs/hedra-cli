@@ -36,7 +36,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -76,7 +76,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -88,6 +88,7 @@ impl BillingClient {
                     .serialize("start", request.start.clone())
                     .serialize("end", request.end.clone())
                     .serialize("group_by", request.group_by.clone())
+                    .bool("members", request.members.clone())
                     .build(),
                 options,
             )
@@ -143,7 +144,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -195,7 +196,7 @@ impl BillingClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
