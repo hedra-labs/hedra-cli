@@ -75,16 +75,10 @@ fn request(shell: &GpuShell, name: &str) -> CreateSandboxRequest {
         image: shell.image.clone(),
         gpu: shell.gpu.clone(),
         replicas: shell.replicas,
-        resources: None,
-        command: None,
         idle: Some(true),
         stop_after_inactive_seconds: Some(IDLE_TTL_SECONDS),
-        restart: None,
-        env: None,
         ttl_seconds: shell.ttl_seconds,
-        ports: None,
-        secrets: None,
-        egress: None,
+        ..Default::default()
     }
 }
 
