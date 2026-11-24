@@ -38,6 +38,9 @@ pub struct ResultResponse {
     /// ISO-4217 currency code for `cost`. Present exactly when `cost` is.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub currency: Option<String>,
+    /// Who submitted the job: you, another member of your workspace, or its service key. Absent from webhook payloads.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<SandboxCreator>,
 }
 
 impl ResultResponse {
@@ -61,6 +64,7 @@ pub struct ResultResponseBuilder {
     logs: Option<Vec<JobLogItem>>,
     cost: Option<f64>,
     currency: Option<String>,
+    created_by: Option<SandboxCreator>,
 }
 
 impl ResultResponseBuilder {
@@ -124,6 +128,11 @@ impl ResultResponseBuilder {
         self
     }
 
+    pub fn created_by(mut self, value: SandboxCreator) -> Self {
+        self.created_by = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`ResultResponse`].
     /// This method will fail if any of the following fields are not set:
     /// - [`job_id`](ResultResponseBuilder::job_id)
@@ -143,6 +152,7 @@ impl ResultResponseBuilder {
             logs: self.logs,
             cost: self.cost,
             currency: self.currency,
+            created_by: self.created_by,
         })
     }
 }

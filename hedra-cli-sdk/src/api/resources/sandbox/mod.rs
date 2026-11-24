@@ -58,7 +58,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -99,7 +99,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -141,7 +141,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -206,7 +206,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -228,10 +228,9 @@ impl SandboxClient {
 
     /// Start one instance per replica, paying the first lease from the API
     /// wallet before any instance is created. The sandbox runs until you stop
-    /// it, its command exits, the wallet cannot pay a lease, or its
-    /// required `ttl_seconds` ends (120–86,400 seconds). Longer reservations
-    /// require a sales contract with Hedra; contact sales@hedra.com. 404 while
-    /// sandboxes are not enabled for your workspace.
+    /// it, its command exits, the wallet cannot pay a lease, or its end time
+    /// passes, which `ttl_seconds` sets and `PATCH /v3/sandboxes/{sandbox}`
+    /// moves. 404 while sandboxes are not enabled for your workspace.
     ///
     /// # Arguments
     ///
@@ -260,13 +259,13 @@ impl SandboxClient {
     ///                 name: "name".to_string(),
     ///                 image: "image".to_string(),
     ///                 gpu: "gpu".to_string(),
-    ///                 ttl_seconds: 1,
     ///                 replicas: None,
     ///                 resources: None,
     ///                 command: None,
     ///                 idle: None,
     ///                 restart: None,
     ///                 env: None,
+    ///                 ttl_seconds: None,
     ///                 stop_after_inactive_seconds: None,
     ///                 ports: None,
     ///                 secrets: None,
@@ -286,7 +285,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -336,7 +335,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -344,6 +343,70 @@ impl SandboxClient {
                 Method::GET,
                 &format!("sandboxes/{}", sandbox),
                 None,
+                None,
+                options,
+            )
+            .await
+    }
+
+    /// Move a `creating` or `active` sandbox's end time, earlier or later, to
+    /// any time after now and at most 365 days ahead, or remove it with `null`.
+    /// The charge ends at `ttl_ends_at`, and the sandbox stops within about
+    /// twenty minutes after it. Endpoint tokens keep working: each lasts 30 days
+    /// whatever the end time. Any sandbox in your workspace, whoever created
+    /// it.
+    ///
+    /// # Arguments
+    ///
+    /// * `sandbox` - The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id.
+    /// * `options` - Additional request options such as headers, timeout, etc.
+    ///
+    /// # Returns
+    ///
+    /// JSON response from the API
+    ///
+    /// # Examples
+    ///
+    /// ```no_run
+    /// use hedra_cli_sdk::prelude::*;
+    ///
+    /// #[tokio::main]
+    /// async fn main() {
+    ///     let config = ClientConfig {
+    ///         token: Some("<token>".to_string()),
+    ///         ..Default::default()
+    ///     };
+    ///     let client = HedraCliClient::new(config).expect("Failed to build client");
+    ///     client
+    ///         .sandbox
+    ///         .update(
+    ///             &"sandbox".to_string(),
+    ///             &UpdateSandboxRequest {
+    ///                 ..Default::default()
+    ///             },
+    ///             None,
+    ///         )
+    ///         .await;
+    /// }
+    /// ```
+    pub async fn update(
+        &self,
+        sandbox: &str,
+        request: &UpdateSandboxRequest,
+        options: Option<RequestOptions>,
+    ) -> Result<Sandbox, ApiError> {
+        let options = {
+            let mut o = options.unwrap_or_default();
+            o.additional_headers
+                .entry("X-Hedra-Spec-Version".to_string())
+                .or_insert_with(|| "3.25.4".to_string());
+            Some(o)
+        };
+        self.http_client
+            .execute_request(
+                Method::PATCH,
+                &format!("sandboxes/{}", sandbox),
+                Some(serde_json::to_value(request).map_err(ApiError::Serialization)?),
                 None,
                 options,
             )
@@ -388,7 +451,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -456,7 +519,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -521,7 +584,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -585,7 +648,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -651,7 +714,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client
@@ -714,7 +777,7 @@ impl SandboxClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.25.4".to_string());
             Some(o)
         };
         self.http_client

@@ -18,6 +18,9 @@ pub struct JobSummary {
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset")]
     pub created_at: DateTime<FixedOffset>,
+    /// Who submitted the job: you, another member of your workspace, or its service key. Set on every listed job.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub created_by: Option<SandboxCreator>,
 }
 
 impl JobSummary {
@@ -34,6 +37,7 @@ pub struct JobSummaryBuilder {
     quality: Option<String>,
     status: Option<JobStatus>,
     created_at: Option<DateTime<FixedOffset>>,
+    created_by: Option<SandboxCreator>,
 }
 
 impl JobSummaryBuilder {
@@ -62,6 +66,11 @@ impl JobSummaryBuilder {
         self
     }
 
+    pub fn created_by(mut self, value: SandboxCreator) -> Self {
+        self.created_by = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`JobSummary`].
     /// This method will fail if any of the following fields are not set:
     /// - [`job_id`](JobSummaryBuilder::job_id)
@@ -75,6 +84,7 @@ impl JobSummaryBuilder {
             quality: self.quality,
             status: self.status.ok_or_else(|| BuildError::missing_field("status"))?,
             created_at: self.created_at.ok_or_else(|| BuildError::missing_field("created_at"))?,
+            created_by: self.created_by,
         })
     }
 }

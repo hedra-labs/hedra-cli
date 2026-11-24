@@ -2,8 +2,8 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Who created a sandbox, a workspace member or the workspace's service
-/// key.
+/// Who created a sandbox or a job, a workspace member or the workspace's
+/// service key.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Hash)]
 pub struct SandboxCreator {
     /// The creator's email; null for a workspace service key and for a creator whose account was deleted.
@@ -12,7 +12,7 @@ pub struct SandboxCreator {
     /// The creator's first and last name; null when they have set neither, for a workspace service key and for a creator whose account was deleted.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub name: Option<String>,
-    /// `service` when the workspace's service key created the sandbox; `personal` when a member did, with their own key or session, and for a creator whose account was deleted.
+    /// `service` when the workspace's service key created it; `personal` when a member did, with their own key or session, and for a creator whose account was deleted.
     pub kind: ApiKeyKind,
 }
 

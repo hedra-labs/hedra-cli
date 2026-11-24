@@ -14,6 +14,9 @@ pub struct GetUsageQueryRequest {
     /// One summary row (`total`), one per UTC day (`day`), or one per model (`model`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub group_by: Option<UsageGroupBy>,
+    /// With `true`, the default, the spend of everyone in the workspace the credential bills, the one `GET /v3/balance` reports, whoever submitted the job or created the sandbox, and `members` breaks it down per member, naming each by email and name; with `false`, only your own spend, in every workspace. Any credential holding `usage:read` may pass either.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub members: Option<bool>,
 }
 
 impl GetUsageQueryRequest {
@@ -28,6 +31,7 @@ pub struct GetUsageQueryRequestBuilder {
     start: Option<DateTime<FixedOffset>>,
     end: Option<DateTime<FixedOffset>>,
     group_by: Option<UsageGroupBy>,
+    members: Option<bool>,
 }
 
 impl GetUsageQueryRequestBuilder {
@@ -46,12 +50,18 @@ impl GetUsageQueryRequestBuilder {
         self
     }
 
+    pub fn members(mut self, value: bool) -> Self {
+        self.members = Some(value);
+        self
+    }
+
     /// Consumes the builder and constructs a [`GetUsageQueryRequest`].
     pub fn build(self) -> Result<GetUsageQueryRequest, BuildError> {
         Ok(GetUsageQueryRequest {
             start: self.start,
             end: self.end,
             group_by: self.group_by,
+            members: self.members,
         })
     }
 }
