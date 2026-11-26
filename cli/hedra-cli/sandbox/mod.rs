@@ -157,42 +157,50 @@ fn exec_command() -> Command {
 
 fn shell_command() -> Command {
     Command::new("shell")
-        .about("Open an interactive shell in a sandbox, or with --gpu in a new one that stops when the shell ends")
+        .about("Open an interactive shell in a sandbox, or with --image in a new one that stops when the shell ends")
         .after_long_help(EXIT_CODES)
-        .arg(sandbox_arg().required(false).required_unless_present("gpu"))
+        .arg(sandbox_arg().required(false).required_unless_present("image"))
+        .arg(
+            Arg::new("image")
+                .long("image")
+                .value_name("REF")
+                .conflicts_with("sandbox")
+                .help("Create a sandbox running this container image for this shell; add --gpu for one with a GPU"),
+        )
         .arg(
             Arg::new("gpu")
                 .long("gpu")
                 .value_name("MODEL:COUNT")
                 .conflicts_with("sandbox")
                 .requires("image")
-                .help("Create a sandbox with this GPU model and count, such as h100:1, for this shell"),
-        )
-        .arg(
-            Arg::new("image")
-                .long("image")
-                .value_name("REF")
-                .requires("gpu")
-                .help("With --gpu: the container image to run"),
+                .help(
+                    "With --image: the sandbox's GPU model and count, such as h100:1. Without it \
+                     the sandbox has no GPU and the API's default CPU and memory, where your \
+                     workspace has CPU-only sandboxes",
+                ),
         )
         .arg(
             Arg::new("max-duration")
                 .long("max-duration")
                 .value_name("DURATION")
-                .requires("gpu")
-                .help("With --gpu: stop the sandbox this long after it is created, such as 8h; 24h by default"),
+                // clap waives `requires("image")` beside a SANDBOX, since
+                // --image conflicts with one, so the conflict is declared here.
+                .conflicts_with("sandbox")
+                .requires("image")
+                .help("With --image: stop the sandbox this long after it is created, such as 8h; 24h by default"),
         )
         .arg(
             Arg::new("replicas")
                 .long("replicas")
                 .value_name("N")
-                .requires("gpu")
+                .conflicts_with("sandbox")
+                .requires("image")
                 .value_parser(clap::value_parser!(i64).range(1..=MAX_REPLICAS))
-                .help("With --gpu: how many instances to create, at most your workspace's sandbox quota; 1 by default. Every one stops with the shell"),
+                .help("With --image: how many instances to create, at most your workspace's sandbox quota; 1 by default. Every one stops with the shell"),
         )
         .arg(term_arg())
         .arg(replica_arg().help(
-            "The replica to reach, from 0; with --gpu, below --replicas, else \
+            "The replica to reach, from 0; with --image, below --replicas, else \
              `hedra-cli sandbox get --sandbox <SANDBOX>` lists them",
         ))
 }
@@ -440,7 +448,7 @@ fn dispatch(verb: &str, m: &ArgMatches, ctx: &dyn std::any::Any) -> Result<(), C
                 }
             }
         }
-        "shell" if m.get_one::<String>("gpu").is_some() => match gpu_shell_args(m, ctx) {
+        "shell" if m.get_one::<String>("image").is_some() => match gpu_shell_args(m, ctx) {
             Ok((shell, transport)) => unwinding(json_errors, || {
                 run_async(gpu_shell::run(&api, transport, shell, json_errors))
             }),
@@ -501,14 +509,14 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
     if m.try_get_one::<String>("sandbox").ok().flatten().is_some() {
         target(m)?;
     }
-    if verb == "shell" {
+    if verb == "shell" && m.get_one::<String>("image").is_some() {
         if let Some(gpu) = m.get_one::<String>("gpu") {
             check_gpu(gpu)?;
-            if let Some(raw) = m.get_one::<String>("max-duration") {
-                render::parse_duration(raw).map_err(Failure::rejected)?;
-            }
-            check_shell_replica(m)?;
         }
+        if let Some(raw) = m.get_one::<String>("max-duration") {
+            render::parse_duration(raw).map_err(Failure::rejected)?;
+        }
+        check_shell_replica(m)?;
     }
     if verb == "exec" {
         exec_env(m)?;
@@ -527,7 +535,7 @@ fn dry_run(verb: &str, m: &ArgMatches) -> Result<(), Failure> {
     Ok(())
 }
 
-/// `shell --gpu`'s arguments, checked before any request.
+/// `shell --image`'s arguments, checked before any request.
 fn gpu_shell_args(
     m: &ArgMatches,
     ctx: &AppContext,
@@ -538,8 +546,10 @@ fn gpu_shell_args(
     ),
     Failure,
 > {
-    let gpu = m.get_one::<String>("gpu").expect("checked").clone();
-    check_gpu(&gpu)?;
+    let gpu = m.get_one::<String>("gpu").cloned();
+    if let Some(gpu) = &gpu {
+        check_gpu(gpu)?;
+    }
     let ttl_seconds = match m.get_one::<String>("max-duration") {
         Some(raw) => render::parse_duration(raw).map_err(Failure::rejected)?,
         None => gpu_shell::DEFAULT_MAX_DURATION,
@@ -548,7 +558,7 @@ fn gpu_shell_args(
         gpu,
         image: m
             .get_one::<String>("image")
-            .expect("required by --gpu")
+            .expect("the create form is chosen by --image")
             .clone(),
         ttl_seconds,
         term: m.get_one::<String>("term").cloned(),
@@ -574,7 +584,7 @@ fn check_shell_replica(m: &ArgMatches) -> Result<i64, Failure> {
     let replica = replica(m);
     if replica >= replicas {
         return Err(Failure::rejected(format!(
-            "--replica {replica} is not among the {replicas} replica{} --gpu creates; \
+            "--replica {replica} is not among the {replicas} replica{} --image creates; \
              they are numbered from 0, so raise --replicas or lower --replica.",
             if replicas == 1 { "" } else { "s" }
         )));
@@ -732,15 +742,19 @@ fn check_gpu(gpu: &str) -> Result<(), Failure> {
 /// How long each read before `shell --gpu`'s create may take.
 const PRE_CREATE_READ: std::time::Duration = std::time::Duration::from_secs(5);
 
-/// The warnings from the two reads before `shell --gpu`'s create: on any
-/// failure or after `read`, a read's line is skipped and the create goes
-/// ahead. The quota counts every one of the `replicas` instances' GPUs.
+/// The warnings from the two reads before `shell --image --gpu`'s create: on
+/// any failure or after `read`, a read's line is skipped and the create goes
+/// ahead. The quota counts every one of the `replicas` instances' GPUs. A
+/// sandbox with no GPU has neither to warn about, so nothing is read.
 async fn warnings_before_create(
     api: &Api,
-    gpu: &str,
+    gpu: Option<&str>,
     replicas: i64,
     read: std::time::Duration,
 ) -> Vec<String> {
+    let Some(gpu) = gpu else {
+        return Vec::new();
+    };
     let (model, count) = gpu.split_once(':').unwrap_or((gpu, "1"));
     let count: i64 = count
         .parse::<i64>()
@@ -912,13 +926,17 @@ mod tests {
     }
 
     #[test]
-    fn shell_takes_a_sandbox_or_gpu_and_image() {
+    fn shell_takes_a_sandbox_or_an_image_with_an_optional_gpu() {
         let parse = |args: &[&str]| {
             shell_command()
                 .try_get_matches_from(std::iter::once("shell").chain(args.iter().copied()))
         };
         assert!(parse(&["train"]).is_ok());
         assert!(parse(&["--gpu", "h100:1", "--image", "i"]).is_ok());
+        // No --gpu: a sandbox with no GPU.
+        assert!(parse(&["--image", "i"]).is_ok());
+        assert!(parse(&["--image", "i", "--max-duration", "8h", "--replicas", "2"]).is_ok());
+        assert!(parse(&["train", "--image", "i"]).is_err());
         assert!(parse(&[]).is_err());
         assert!(parse(&["--gpu", "h100:1"]).is_err());
         assert!(parse(&["train", "--gpu", "h100:1", "--image", "i"]).is_err());
@@ -985,7 +1003,7 @@ mod tests {
     }
 
     #[test]
-    fn shell_takes_replicas_only_with_gpu_and_a_replica_below_it() {
+    fn shell_takes_replicas_only_with_an_image_and_a_replica_below_it() {
         let parse = |args: &[&str]| {
             shell_command()
                 .try_get_matches_from(std::iter::once("shell").chain(args.iter().copied()))
@@ -1012,7 +1030,7 @@ mod tests {
         let f = check_shell_replica(&with(&["--replica", "1"])).unwrap_err();
         assert_eq!(f.class, Class::Rejected);
         assert!(
-            f.message.contains("the 1 replica --gpu creates"),
+            f.message.contains("the 1 replica --image creates"),
             "{}",
             f.message
         );
@@ -1066,7 +1084,8 @@ mod tests {
         async fn prompt_reads_give_both_warnings() {
             let server = server(Duration::ZERO).await;
             let api = Api::for_tests(&server.uri());
-            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_secs(5)).await;
+            let lines =
+                warnings_before_create(&api, Some("h100:1"), 1, Duration::from_secs(5)).await;
             assert_eq!(lines.len(), 2, "{lines:?}");
             assert!(lines[0].contains("No h100 is free"), "{lines:?}");
             assert!(lines[1].contains("0 GPUs left"), "{lines:?}");
@@ -1077,7 +1096,8 @@ mod tests {
             let server = server(Duration::from_secs(3)).await;
             let api = Api::for_tests(&server.uri());
             let started = Instant::now();
-            let lines = warnings_before_create(&api, "h100:1", 1, Duration::from_millis(200)).await;
+            let lines =
+                warnings_before_create(&api, Some("h100:1"), 1, Duration::from_millis(200)).await;
             assert!(lines.is_empty(), "{lines:?}");
             assert!(started.elapsed() < Duration::from_secs(1));
         }
@@ -1096,14 +1116,16 @@ mod tests {
                 .await;
             let api = Api::for_tests(&server.uri());
             let read = Duration::from_secs(5);
-            assert!(warnings_before_create(&api, "h100:2", 1, read)
+            assert!(warnings_before_create(&api, Some("h100:2"), 1, read)
                 .await
                 .is_empty());
-            let lines = warnings_before_create(&api, "h100:1", 4, read).await;
+            let lines = warnings_before_create(&api, Some("h100:1"), 4, read).await;
             assert_eq!(lines.len(), 1, "{lines:?}");
             assert!(lines[0].contains("2 GPUs left"), "{lines:?}");
             assert_eq!(
-                warnings_before_create(&api, "h100:2", 2, read).await.len(),
+                warnings_before_create(&api, Some("h100:2"), 2, read)
+                    .await
+                    .len(),
                 1
             );
         }

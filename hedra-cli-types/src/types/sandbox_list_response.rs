@@ -4,7 +4,7 @@ use super::*;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct SandboxListResponse {
-    /// Your sandboxes, or with `members=true` every sandbox in your workspace, whoever created it, newest first.
+    /// Every sandbox in your workspace, whoever created it, or with `members=false` only yours, newest first.
     #[serde(default)]
     pub data: Vec<Sandbox>,
     /// Opaque cursor for the next page, or null when this response completes the list. Always present. Endpoints that serve the whole collection at once always return null.

@@ -38,6 +38,7 @@ Get Usage
 | `--start` | `string` | No | Window start (inclusive, ISO-8601); defaults to 7 days before `end`. Bounds job and sandbox creation time. |
 | `--end` | `string` | No | Window end (exclusive, ISO-8601); defaults to now. The window is capped at 90 days. |
 | `--group-by` | `UsageGroupBy` | No | One summary row (`total`), one per UTC day (`day`), or one per model (`model`). |
+| `--members` | `boolean` | No | With `true`, the default, the spend of everyone in the workspace the credential bills, the one `GET /v3/balance` reports, whoever submitted the job or created the sandbox, and `members` breaks it down per member, naming each by email and name; with `false`, only your own spend, in every workspace. Any credential holding `usage:read` may pass either. |
 
 #### `hedra-cli billing list-discounts`
 
@@ -96,7 +97,9 @@ Delete a finished job's outputs, prompt and logs.
 Afterwards `GET /v3/jobs/{job_id}` reports each output `EXPIRED`, with no
 prompt and no logs, and `GET /v3/jobs` still lists the job with its model,
 status, timestamps and cost. Another job whose output this job read by
-`asset_id` is unchanged. Deleting a job again returns 204.
+`asset_id` is unchanged. Deleting a job again returns 204. Any member of
+the job's workspace can delete it, whoever submitted it; another
+member's job outside your credential's workspace returns 404.
 
 Returns 409 `ALREADY_IN_PROGRESS` while the job, or another job that names
 this job's output by `asset_id`, is `IN_QUEUE` or `IN_PROGRESS`; 400
@@ -132,9 +135,12 @@ Get Job Status
 
 #### `hedra-cli jobs list`
 
-Your jobs, newest first. Each `POST /v3/chat/completions` request is a
-job too, whose id is the completion's `id`. A chat job has no outputs,
-and it sends no `job.completed` or `job.failed` webhook.
+Every job in your workspace, whoever submitted it, or with
+`members=false` only yours, each with its `created_by`, newest first.
+Each `POST /v3/chat/completions` request is a job too, whose id is the
+completion's `id`. A chat job has no outputs, and it sends no
+`job.completed` or `job.failed` webhook. Any member can read a
+teammate's job by id, and delete it.
 
 `GET /jobs`
 
@@ -142,6 +148,7 @@ and it sends no `job.completed` or `job.failed` webhook.
 |------|------|----------|-------------|
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
+| `--members` | `boolean` | No | With `true`, the default, every job in your workspace, whoever submitted it; with `false`, only the jobs you submitted. Any member of the workspace may pass either. |
 
 #### `hedra-cli jobs list-job-logs`
 
@@ -1169,18 +1176,6 @@ Submits an asynchronous job and returns `202` with a job id. Fetch the result at
 |------|------|----------|-------------|
 | `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
 
-#### `hedra-cli jobs submit-seedance-15-pro`
-
-Keyframe-driven video with native audio, from a start frame, an end frame, or both.
-
-Submits an asynchronous job and returns `202` with a job id. Fetch the result at `GET /v3/jobs/{job_id}` — each item in its `outputs[]` follows the `OutputItem` schema — or track progress via `GET /v3/jobs/{job_id}/status` / the SSE stream at `GET /v3/jobs/{job_id}/stream`.
-
-`POST /models/seedance-15-pro`
-
-| Flag | Type | Required | Description |
-|------|------|----------|-------------|
-| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
-
 #### `hedra-cli jobs submit-seedance-20`
 
 Reference-driven video up to 4K with native audio — hold a look across shots with reference images, clips, or audio.
@@ -1630,7 +1625,9 @@ List Models
 
 #### `hedra-cli models list-model-jobs`
 
-List Model Jobs
+Every job for this model in your workspace, whoever submitted it, or
+with `members=false` only yours, each with its `created_by`, newest
+first.
 
 `GET /models/{model}/jobs`
 
@@ -1639,6 +1636,7 @@ List Model Jobs
 | `--model` | `string` | Yes | The model's public id (`GET /v3/models`). |
 | `--limit` | `integer` | No | Maximum items per page. |
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
+| `--members` | `boolean` | No | With `true`, the default, every job for this model in your workspace, whoever submitted it; with `false`, only the jobs you submitted. Any member of the workspace may pass either. |
 
 #### `hedra-cli models list-voices`
 
@@ -1686,12 +1684,15 @@ OpenAI-compatible Responses API. Each request runs as a chat completion, and is 
 
 #### `hedra-cli sandbox create`
 
-Start one instance per replica, paying the first lease from the API
-wallet before any instance is created. The sandbox runs until you stop
-it, its command exits, the wallet cannot pay a lease, or its
-required `ttl_seconds` ends (120–86,400 seconds). Longer reservations
-require a sales contract with Hedra; contact sales@hedra.com. 404 while
-sandboxes are not enabled for your workspace.
+Start one instance per replica. A `lease` sandbox pays its first lease
+from the API wallet before any instance is created, and runs until you
+stop it, its command exits, the wallet cannot pay a lease, or its end
+time passes, which `ttl_seconds` sets and `PATCH /v3/sandboxes/{sandbox}`
+moves. A `capacity_reservation` sandbox pays no lease and ignores
+`ttl_seconds`: it runs until you stop it with
+`POST /v3/sandboxes/{sandbox}/stop`, its command exits, or the
+workspace's capacity reservation ends. 404 while sandboxes are not
+enabled for your workspace.
 
 `POST /sandboxes`
 
@@ -1734,11 +1735,11 @@ sandboxes are disabled or your workspace is ineligible.
 
 #### `hedra-cli sandbox ls`
 
-Your sandboxes, or with `members=true` every sandbox in your
-workspace, each with its `created_by`, newest first, without `instances`
-and `started_at`: the creating, active and stopping ones, or every one
-with `all=true`. A cursor resumes only under the `name`, `all` and
-`members` it was issued with.
+Every sandbox in your workspace, whoever created it, or with
+`members=false` only yours, each with its `created_by`, newest first,
+without `instances` and `started_at`: the creating, active and stopping
+ones, or every one with `all=true`. A cursor resumes only under the
+`name`, `all` and `members` it was issued with.
 
 `GET /sandboxes`
 
@@ -1748,7 +1749,7 @@ with `all=true`. A cursor resumes only under the `name`, `all` and
 | `--cursor` | `string` | No | Opaque cursor from the previous page's `next_cursor`; omit for the first page. |
 | `--name` | `string` | No | Only sandboxes with exactly this name. A name is unique among one creator's creating, active and stopping sandboxes, so without `all=true` the page holds at most one per creator. |
 | `--all` | `boolean` | No | With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes. |
-| `--members` | `boolean` | No | With `true`, every sandbox in your workspace, whoever created it; with `false`, the default, only the sandboxes you created. Any member of the workspace may pass `true`. |
+| `--members` | `boolean` | No | With `true`, the default, every sandbox in your workspace, whoever created it; with `false`, only the sandboxes you created. Any member of the workspace may pass either. |
 
 #### `hedra-cli sandbox quota`
 
@@ -1763,10 +1764,12 @@ workspace is ineligible.
 
 Restart one running replica's instance in place: its command starts
 again in a new container, which prefers the machine it ran on; when that
-machine is full it waits for capacity, and can fail `no_capacity`. The
-time until the new container runs is billed. The other replicas keep
-running, and the sandbox keeps its lease and its `ttl_seconds`. Answers
-the sandbox; read it again to follow the restart, during which the
+machine is full it waits for capacity, and can fail `no_capacity`. For
+billing mode `lease`, the time until the new container runs is billed,
+and the sandbox keeps its lease and its `ttl_seconds`. For billing mode
+`capacity_reservation`, usage charges stay zero and the sandbox keeps
+its capacity reservation deadline. The other replicas keep running.
+Answers the sandbox; read it again to follow the restart, during which the
 replica's `restarting` is true. Restarting a replica that is already
 restarting changes nothing. Any sandbox in your workspace, whoever created
 it.
@@ -1849,6 +1852,24 @@ and browsers reach it at `url`.
 |------|------|----------|-------------|
 | `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
 
+#### `hedra-cli sandbox update`
+
+Move a `creating` or `active` `lease` sandbox's end time, earlier or later, to
+any time after now and at most 365 days ahead, or remove it with `null`.
+A `capacity_reservation` sandbox answers HTTP 400 `FAILED_PRECONDITION`
+for either operation; stop it with `POST /v3/sandboxes/{sandbox}/stop`.
+The charge ends at `ttl_ends_at`, and the sandbox stops within about
+twenty minutes after it. Endpoint tokens keep working: each lasts 30 days
+whatever the end time. Any sandbox in your workspace, whoever created
+it.
+
+`PATCH /sandboxes/{sandbox}`
+
+| Flag | Type | Required | Description |
+|------|------|----------|-------------|
+| `--sandbox` | `string` | Yes | The sandbox's id (`sandbox_<uuid>`), which names any sandbox in your workspace, or its name: your creating, active or stopping sandbox of that name, else your newest. A name is unique only among one creator's sandboxes, so a teammate's sandbox is named by its id. |
+| `--json` | `JSON` | Yes | Request body as JSON (or use individual body-field flags) |
+
 ---
 
 ### `hedra-cli sandbox env`
@@ -1905,16 +1926,18 @@ started with.
 
 ### `hedra-cli sandbox secrets`
 
-#### `hedra-cli sandbox secrets ls`
+#### `hedra-cli sandbox secrets ls` `[DEPRECATED]`
 
 The names of your workspace's secrets, in one page. A secret's value is
-never returned.
+never returned. Deprecated: `GET /sandboxes/environment-variables` lists
+these secrets with your Config variables.
 
 `GET /sandboxes/secrets`
 
-#### `hedra-cli sandbox secrets rm`
+#### `hedra-cli sandbox secrets rm` `[DEPRECATED]`
 
-Delete a secret.
+Delete a secret. Deprecated: use `DELETE
+/sandboxes/environment-variables/{name}`.
 
 `DELETE /sandboxes/secrets/{name}`
 
@@ -1922,11 +1945,12 @@ Delete a secret.
 |------|------|----------|-------------|
 | `--name` | `string` | Yes | The secret's name. |
 
-#### `hedra-cli sandbox secrets set`
+#### `hedra-cli sandbox secrets set` `[DEPRECATED]`
 
 Store a secret that any member's sandbox can name in `secrets`: 201
 for a new name, 200 when it replaces the value of a name your workspace
-holds.
+holds. Deprecated: use `POST /sandboxes/environment-variables` with
+`type: secret`.
 
 `POST /sandboxes/secrets`
 

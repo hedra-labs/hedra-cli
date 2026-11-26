@@ -11,16 +11,19 @@ pub struct Sandbox {
     /// The sandbox's name, as created.
     #[serde(default)]
     pub name: String,
-    /// The request's `gpu`.
-    #[serde(default)]
-    pub gpu: String,
-    /// The `gpu`'s GPU model.
-    #[serde(default)]
-    pub gpu_model: String,
+    /// The request's `gpu`; null for a sandbox with no GPU.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu: Option<String>,
+    /// The `gpu`'s GPU model; null for a sandbox with no GPU.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub gpu_model: Option<String>,
     /// How many instances.
     #[serde(default)]
     pub replicas: i64,
     pub status: SandboxStatus,
+    /// How the sandbox is paid for: `lease` from the API wallet, or `capacity_reservation` by the workspace's capacity reservation. Fixed when the sandbox is created.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub billing_mode: Option<SandboxBillingMode>,
     /// Why the sandbox ended. On an `active` sandbox, set only while its last lease is refused for funds (`unpaid`).
     #[serde(skip_serializing_if = "Option::is_none")]
     pub end_reason: Option<SandboxEndReason>,
@@ -30,6 +33,9 @@ pub struct Sandbox {
     /// Who created the sandbox: you, another member of your workspace, or its service key. Set on every answer.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<SandboxCreator>,
+    /// Who stopped the sandbox when `end_reason` is `caller_stopped`: you, another member of your workspace, or its service key. Null for every other `end_reason`, and for a sandbox stopped before Hedra recorded who stopped it.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stopped_by: Option<SandboxCreator>,
     /// The earliest `started_at` of its instances; null on the list and before any instance starts.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
@@ -40,7 +46,7 @@ pub struct Sandbox {
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset::option")]
     pub ended_at: Option<DateTime<FixedOffset>>,
-    /// When the sandbox's lifetime ends: `created_at` plus `ttl_seconds`; null for a sandbox created without `ttl_seconds`.
+    /// When the sandbox stops: `created_at` plus `ttl_seconds`, or the time last set with `PATCH /v3/sandboxes/{sandbox}`; null for no end time or when `billing_mode` is `capacity_reservation`.
     #[serde(skip_serializing_if = "Option::is_none")]
     #[serde(default)]
     #[serde(with = "crate::core::flexible_datetime::offset::option")]
@@ -82,9 +88,11 @@ pub struct SandboxBuilder {
     gpu_model: Option<String>,
     replicas: Option<i64>,
     status: Option<SandboxStatus>,
+    billing_mode: Option<SandboxBillingMode>,
     end_reason: Option<SandboxEndReason>,
     created_at: Option<DateTime<FixedOffset>>,
     created_by: Option<SandboxCreator>,
+    stopped_by: Option<SandboxCreator>,
     started_at: Option<DateTime<FixedOffset>>,
     ended_at: Option<DateTime<FixedOffset>>,
     ttl_ends_at: Option<DateTime<FixedOffset>>,
@@ -128,6 +136,11 @@ impl SandboxBuilder {
         self
     }
 
+    pub fn billing_mode(mut self, value: SandboxBillingMode) -> Self {
+        self.billing_mode = Some(value);
+        self
+    }
+
     pub fn end_reason(mut self, value: SandboxEndReason) -> Self {
         self.end_reason = Some(value);
         self
@@ -140,6 +153,11 @@ impl SandboxBuilder {
 
     pub fn created_by(mut self, value: SandboxCreator) -> Self {
         self.created_by = Some(value);
+        self
+    }
+
+    pub fn stopped_by(mut self, value: SandboxCreator) -> Self {
+        self.stopped_by = Some(value);
         self
     }
 
@@ -197,8 +215,6 @@ impl SandboxBuilder {
     /// This method will fail if any of the following fields are not set:
     /// - [`id`](SandboxBuilder::id)
     /// - [`name`](SandboxBuilder::name)
-    /// - [`gpu`](SandboxBuilder::gpu)
-    /// - [`gpu_model`](SandboxBuilder::gpu_model)
     /// - [`replicas`](SandboxBuilder::replicas)
     /// - [`status`](SandboxBuilder::status)
     /// - [`created_at`](SandboxBuilder::created_at)
@@ -208,13 +224,15 @@ impl SandboxBuilder {
         Ok(Sandbox {
             id: self.id.ok_or_else(|| BuildError::missing_field("id"))?,
             name: self.name.ok_or_else(|| BuildError::missing_field("name"))?,
-            gpu: self.gpu.ok_or_else(|| BuildError::missing_field("gpu"))?,
-            gpu_model: self.gpu_model.ok_or_else(|| BuildError::missing_field("gpu_model"))?,
+            gpu: self.gpu,
+            gpu_model: self.gpu_model,
             replicas: self.replicas.ok_or_else(|| BuildError::missing_field("replicas"))?,
             status: self.status.ok_or_else(|| BuildError::missing_field("status"))?,
+            billing_mode: self.billing_mode,
             end_reason: self.end_reason,
             created_at: self.created_at.ok_or_else(|| BuildError::missing_field("created_at"))?,
             created_by: self.created_by,
+            stopped_by: self.stopped_by,
             started_at: self.started_at,
             ended_at: self.ended_at,
             ttl_ends_at: self.ttl_ends_at,

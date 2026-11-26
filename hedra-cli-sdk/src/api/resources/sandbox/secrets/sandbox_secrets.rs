@@ -14,7 +14,8 @@ impl SecretsClient {
     }
 
     /// The names of your workspace's secrets, in one page. A secret's value is
-    /// never returned.
+    /// never returned. Deprecated: `GET /sandboxes/environment-variables` lists
+    /// these secrets with your Config variables.
     ///
     /// # Arguments
     ///
@@ -47,7 +48,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.26.2".to_string());
             Some(o)
         };
         self.http_client
@@ -57,7 +58,8 @@ impl SecretsClient {
 
     /// Store a secret that any member's sandbox can name in `secrets`: 201
     /// for a new name, 200 when it replaces the value of a name your workspace
-    /// holds.
+    /// holds. Deprecated: use `POST /sandboxes/environment-variables` with
+    /// `type: secret`.
     ///
     /// # Arguments
     ///
@@ -101,7 +103,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.26.2".to_string());
             Some(o)
         };
         self.http_client
@@ -115,7 +117,8 @@ impl SecretsClient {
             .await
     }
 
-    /// Delete a secret.
+    /// Delete a secret. Deprecated: use `DELETE
+    /// /sandboxes/environment-variables/{name}`.
     ///
     /// # Arguments
     ///
@@ -150,7 +153,7 @@ impl SecretsClient {
             let mut o = options.unwrap_or_default();
             o.additional_headers
                 .entry("X-Hedra-Spec-Version".to_string())
-                .or_insert_with(|| "3.25.0".to_string());
+                .or_insert_with(|| "3.26.2".to_string());
             Some(o)
         };
         self.http_client

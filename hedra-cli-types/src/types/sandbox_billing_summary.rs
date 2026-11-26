@@ -5,7 +5,7 @@ use super::*;
 /// What a sandbox costs, has paid and was charged.
 #[derive(Debug, Clone, Serialize, Deserialize, Default, PartialEq)]
 pub struct SandboxBillingSummary {
-    /// The sandbox's rate per hour for all its instances, after your workspace's discount.
+    /// The sandbox's rate per hour for all its instances, after your workspace's discount; 0 when `billing_mode` is `capacity_reservation`.
     #[serde(default)]
     #[serde(with = "crate::core::number_serializers")]
     pub usd_per_hour: f64,

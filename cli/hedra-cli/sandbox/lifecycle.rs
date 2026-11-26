@@ -291,11 +291,13 @@ pub(crate) fn readiness(s: &Sandbox, waiter: Waiter) -> Readiness {
             Some(SandboxFailureReason::NoCapacity) => {
                 return Readiness::Failed(Failure::new(
                     Class::NoCapacity,
-                    format!(
-                        "No `{}` is free right now. Run `{}`.",
-                        s.gpu,
-                        super::render::GPUS_COMMAND
-                    ),
+                    match s.gpu.as_deref() {
+                        Some(gpu) => format!(
+                            "No `{gpu}` is free right now. Run `{}`.",
+                            super::render::GPUS_COMMAND
+                        ),
+                        None => "No capacity is free for it right now.".to_string(),
+                    },
                 ))
             }
             Some(SandboxFailureReason::QuotaExceeded) => Class::Limit,

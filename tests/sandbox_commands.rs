@@ -290,88 +290,180 @@ fn session_is_hidden_from_help_but_still_runs() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn create_rejects_non_integer_lifetimes_from_every_input_without_sending() {
-    for lifetime in [Value::Null, json!(120.5)] {
-        let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
-        for input in ["--json", "--params"] {
-            let outcome = run(
-                &[
-                    "sandbox",
-                    "create",
-                    input,
-                    &body.to_string(),
-                    "--format",
-                    "json",
-                ],
-                ok(created_sandbox()),
-            );
-            assert!(
-                !outcome.out.status.success(),
-                "{input} {lifetime}: {}",
-                outcome.output_text()
-            );
-            assert!(
-                outcome.requests.is_empty(),
-                "{input} {lifetime}: {}",
-                outcome.output_text()
-            );
-            assert!(
-                outcome.output_text().contains("ttl_seconds"),
-                "{}",
-                outcome.output_text()
-            );
-        }
+fn create_rejects_a_fractional_lifetime_from_every_input_without_sending() {
+    let lifetime = json!(120.5);
+    let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": lifetime});
+    for input in ["--json", "--params"] {
         let outcome = run(
             &[
                 "sandbox",
                 "create",
-                "--name",
-                "nightly",
-                "--image",
-                "python:3.12",
-                "--gpu",
-                "h100:1",
-                "--ttl-seconds",
-                &lifetime.to_string(),
+                input,
+                &body.to_string(),
+                "--format",
+                "json",
             ],
             ok(created_sandbox()),
         );
-        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
-        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
-    }
-}
-
-#[test]
-fn create_requires_a_lifetime_including_dry_runs() {
-    let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1"}).to_string();
-    for args in [
-        vec!["--json", body.as_str()],
-        vec!["--json", body.as_str(), "--dry-run"],
-        vec![
-            "--name",
-            "nightly",
-            "--image",
-            "python:3.12",
-            "--gpu",
-            "h100:1",
-        ],
-    ] {
-        let mut command = vec!["sandbox", "create"];
-        command.extend(args);
-        let outcome = run(&command, ok(created_sandbox()));
-        assert!(!outcome.out.status.success(), "{}", outcome.output_text());
-        assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+        assert!(
+            !outcome.out.status.success(),
+            "{input}: {}",
+            outcome.output_text()
+        );
+        assert!(
+            outcome.requests.is_empty(),
+            "{input}: {}",
+            outcome.output_text()
+        );
         assert!(
             outcome.output_text().contains("ttl_seconds"),
             "{}",
             outcome.output_text()
         );
     }
+    let outcome = run(
+        &[
+            "sandbox",
+            "create",
+            "--name",
+            "nightly",
+            "--image",
+            "python:3.12",
+            "--gpu",
+            "h100:1",
+            "--ttl-seconds",
+            &lifetime.to_string(),
+        ],
+        ok(created_sandbox()),
+    );
+    assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+}
+
+/// `ttl_seconds` and `gpu` are optional: a create that names neither sends
+/// neither, so the sandbox has no end time and no GPU.
+#[test]
+fn create_sends_neither_a_lifetime_nor_a_gpu_unless_given() {
+    let gpu = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1"}).to_string();
+    let bare = json!({"name": "nightly", "image": "python:3.12"}).to_string();
+    for (args, sends_gpu) in [
+        (vec!["--json", gpu.as_str()], true),
+        (vec!["--json", bare.as_str()], false),
+        (
+            vec![
+                "--name",
+                "nightly",
+                "--image",
+                "python:3.12",
+                "--gpu",
+                "h100:1",
+            ],
+            true,
+        ),
+        (vec!["--name", "nightly", "--image", "python:3.12"], false),
+    ] {
+        let mut command = vec!["sandbox", "create"];
+        command.extend(args);
+        let outcome = run(&command, ok(created_sandbox()));
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        let body = outcome.body();
+        assert!(body.get("ttl_seconds").is_none(), "{body}");
+        assert_eq!(body.get("gpu").is_some(), sends_gpu, "{body}");
+    }
+}
+
+/// A null lifetime is the API's spelling of no end time, and reaches it as
+/// a JSON null from the flag, `--json` and `--params`.
+#[test]
+fn create_sends_a_null_lifetime_from_every_input() {
+    let body = json!({"name": "nightly", "image": "python:3.12", "ttl_seconds": null}).to_string();
+    for args in [
+        vec!["--json", body.as_str()],
+        vec!["--params", body.as_str()],
+        vec![
+            "--name",
+            "nightly",
+            "--image",
+            "python:3.12",
+            "--ttl-seconds",
+            "null",
+        ],
+    ] {
+        let mut command = vec!["sandbox", "create"];
+        command.extend(args);
+        let outcome = run(&command, ok(created_sandbox()));
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        assert_eq!(outcome.body()["ttl_seconds"], Value::Null);
+    }
+}
+
+/// A CPU-only create is refused by the API for a workspace without CPU-only
+/// sandboxes, and the CLI prints the API's message.
+#[test]
+fn create_without_a_gpu_prints_the_apis_refusal() {
+    let message = "CPU-only sandboxes are not enabled for your workspace; name a `gpu`.";
+    let outcome = run(
+        &["sandbox", "create", "--name", "nightly", "--image", "i"],
+        vec![ResponseTemplate::new(400).set_body_json(json!({
+            "error": {"type": "INVALID_ARGUMENT", "message": message, "param": "gpu"}
+        }))],
+    );
+    assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    assert_eq!(outcome.requests.len(), 1);
+    assert!(
+        outcome.output_text().contains(message),
+        "{}",
+        outcome.output_text()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// update
+// ---------------------------------------------------------------------------
+
+#[test]
+fn update_patches_the_end_time() {
+    for (given, sent) in [
+        (
+            "2026-12-02T10:00:00-08:00",
+            json!("2026-12-02T10:00:00-08:00"),
+        ),
+        ("null", Value::Null),
+    ] {
+        let outcome = run(
+            &[
+                "sandbox",
+                "update",
+                "--sandbox",
+                "train",
+                "--ttl-ends-at",
+                given,
+            ],
+            ok(sandbox()),
+        );
+        assert!(outcome.out.status.success(), "{}", outcome.output_text());
+        let request = outcome.request();
+        assert_eq!(request.method.as_str(), "PATCH");
+        assert_eq!(request.url.path(), "/sandboxes/train");
+        assert_eq!(outcome.body(), json!({"ttl_ends_at": sent}));
+    }
+}
+
+#[test]
+fn update_requires_an_end_time_without_sending() {
+    let outcome = run(&["sandbox", "update", "--sandbox", "train"], ok(sandbox()));
+    assert!(!outcome.out.status.success(), "{}", outcome.output_text());
+    assert!(outcome.requests.is_empty(), "{}", outcome.output_text());
+    assert!(
+        outcome.output_text().contains("ttl_ends_at"),
+        "{}",
+        outcome.output_text()
+    );
 }
 
 #[test]
 fn create_accepts_both_lifetime_boundaries() {
-    for seconds in [120, 86400] {
+    for seconds in [120, 31_536_000] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
         let outcome = run(
             &["sandbox", "create", "--json", &body.to_string()],
@@ -385,7 +477,7 @@ fn create_accepts_both_lifetime_boundaries() {
 #[test]
 fn create_leaves_lifetime_range_validation_to_the_api() {
     let message = "Lifetime refused by the API; contact sales@hedra.com.";
-    for seconds in [0, 119, 86401, 31536000] {
+    for seconds in [0, 119, 31_536_001] {
         let body = json!({"name": "nightly", "image": "python:3.12", "gpu": "h100:1", "ttl_seconds": seconds});
         let outcome = run(
             &["sandbox", "create", "--json", &body.to_string()],
@@ -409,7 +501,7 @@ fn create_validates_a_body_read_from_stdin() {
     let file = home.path().join("sandbox.json");
     std::fs::write(
         &file,
-        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":null}"#,
+        r#"{"name":"nightly","image":"python:3.12","gpu":"h100:1","ttl_seconds":120.5}"#,
     )
     .unwrap();
     let out = hedra_cli(home.path())

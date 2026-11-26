@@ -305,8 +305,8 @@ would make the selected workspace not the one actually used.
 
 ### `sandbox`
 
-GPU sandboxes. The control commands (`create`, `ls`, `get`, `stop`, `gpus`, `quota`,
-`events`, `secrets`, …) come from the API spec; [reference.md](reference.md) lists their
+Sandboxes, with or without a GPU. The control commands (`create`, `update`, `ls`, `get`,
+`stop`, `gpus`, `quota`, `events`, `secrets`, …) come from the API spec; [reference.md](reference.md) lists their
 flags. The verbs below are hand-written. Each stream verb keeps a stream open to the
 sandbox through the sandbox broker, and `restart` waits for the replica it restarts.
 `SANDBOX` is a name or a `sandbox_` id.
@@ -315,7 +315,7 @@ sandbox through the sandbox broker, and `restart` waits for the replica it resta
 |---------|-------------|
 | `hedra-cli sandbox exec <SANDBOX> [-t] [-n] [--env K=V] -- <COMMAND>…` | Run a command and relay its stdin, stdout, stderr and exit code |
 | `hedra-cli sandbox shell <SANDBOX>` | Open an interactive shell |
-| `hedra-cli sandbox shell --gpu <MODEL:COUNT> --image <REF> [--replicas N]` | Create a sandbox for one shell, and stop it when the shell ends |
+| `hedra-cli sandbox shell --image <REF> [--gpu <MODEL:COUNT>] [--replicas N]` | Create a sandbox for one shell, and stop it when the shell ends |
 | `hedra-cli sandbox logs <SANDBOX> [-f]` | Print the main process's output; `-f` keeps following it |
 | `hedra-cli sandbox attach <SANDBOX>` | The same as `logs -f` |
 | `hedra-cli sandbox cp <SRC> <DST>` | Copy files in or out; one side is `<SANDBOX>:<PATH>` |
@@ -326,7 +326,7 @@ Each verb's `--help` lists its exit codes.
 
 #### Stop a sandbox when its work is done
 
-Hedra charges a sandbox's GPU time until the sandbox stops. `sandbox get` shows which of
+Hedra charges a sandbox's time until the sandbox stops. `sandbox get` shows which of
 these ended it:
 
 - **A job that runs to completion:** make it the `--command`. The sandbox ends when the
@@ -338,6 +338,28 @@ these ended it:
 - **A program outside the sandbox:** have it run `sandbox stop --sandbox <SANDBOX>`
   (`caller_stopped`). An endpoint token cannot stop a sandbox.
 - **Nothing else:** `--ttl-seconds` stops it at its end time (`ttl_ended`).
+
+#### End times
+
+`sandbox create --ttl-seconds N` sets an end time `N` seconds after the create, from 120
+to 31,536,000 (365 days). Without `--ttl-seconds` the sandbox has no end time, and runs
+until one of the stops above. `sandbox update` moves a running sandbox's end time, or
+removes it with `null`:
+
+```bash
+hedra-cli sandbox update --sandbox train --ttl-ends-at 2026-12-02T10:00:00-08:00
+hedra-cli sandbox update --sandbox train --ttl-ends-at null
+```
+
+`sandbox shell --image` keeps its own end time, `--max-duration`, 24 hours by default.
+
+#### Sandboxes with no GPU
+
+`sandbox create` without `--gpu` creates a sandbox with no GPU, and
+`sandbox shell --image <REF>` without `--gpu` opens a shell in one. The API accepts this
+only for a workspace with CPU-only sandboxes enabled, and otherwise answers 400 on `gpu`.
+`sandbox create` sizes it with `--resources '{"cpu": N, "memory_gb": N}'`; `sandbox shell`
+sends no sizes, so the sandbox gets the API's defaults, 1 CPU core and 2 GB of memory.
 
 #### Restarting a replica
 
@@ -374,8 +396,8 @@ A sandbox created with `replicas` greater than 1 runs one instance per replica, 
 from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`.
 
 - **Create with several replicas:** use `sandbox create --replicas N` (also accepted in
-  `--json '{"replicas": N, …}'`), or `sandbox shell --gpu … --replicas N`. The count is at
-  most your workspace's sandbox quota. `shell --gpu` waits for every replica to run, and
+  `--json '{"replicas": N, …}'`), or `sandbox shell --image … --replicas N`. The count is at
+  most your workspace's sandbox quota. `shell --image` waits for every replica to run, and
   stops all of them when the shell ends.
 - **Reach one replica:** each stream verb takes `--replica N`, which defaults to 0.
   `exec`, `shell`, `attach`, `cp`, `port-forward` and `logs` (including `-f` and the
@@ -393,7 +415,7 @@ from 0. `hedra-cli sandbox get --sandbox <SANDBOX>` lists them under `instances`
   message says how many replicas the sandbox has. That means an `N` the sandbox does
   not list and that is at or past both its `replicas` and its count of listed
   instances. `exec`, `shell` and `cp` exit 255; `logs`, `attach`, `port-forward` and
-  `restart` exit 19. With `shell --gpu`, `--replica` must be below `--replicas`, and this is
+  `restart` exit 19. With `shell --image`, `--replica` must be below `--replicas`, and this is
   checked before the create, so nothing is paid for.
 - **A replacement keeps its replica's number.** When the platform replaces a lost
   instance, the replacement takes the lost instance's number and `instances` lists
@@ -431,7 +453,7 @@ Available on every command:
 | `--user-agent-suffix <TOKEN>` | Product token appended to the User-Agent (e.g. `my-app/1.0`) |
 | `--schema` | Print a machine-readable JSON schema for this scope |
 | `--spec` / `--spec-raw` | Print the effective / byte-exact embedded OpenAPI spec |
-| `--spec-version <VALUE>` | Override the `X-Hedra-Spec-Version` header (default `3.3.0`) |
+| `--spec-version <VALUE>` | Override the `X-Hedra-Spec-Version` header (default: the bundled spec's version) |
 | `--no-extract` | Print the full response body instead of the extracted return value |
 | `--no-retry` | Disable this operation's declared retries, including on network errors |
 | `--no-pager` | Disable the pager on interactive terminals |

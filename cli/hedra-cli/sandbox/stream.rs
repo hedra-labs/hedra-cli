@@ -531,7 +531,7 @@ pub(crate) fn ended_step(s: &hedra_cli_sdk::api::Sandbox, replica: i64) -> Strin
                 .find_map(|i| i.failure_reason.as_ref())
         });
     match failure {
-        Some(SandboxFailureReason::NoCapacity) => capacity_line(&s.gpu),
+        Some(SandboxFailureReason::NoCapacity) => capacity_line(s.gpu.as_deref()),
         Some(
             SandboxFailureReason::QuotaExceeded
             | SandboxFailureReason::ImagePullFailed
@@ -567,8 +567,12 @@ fn another_line() -> String {
     )
 }
 
-/// For a sandbox that never started because no GPU of its shape was free.
-fn capacity_line(gpu: &str) -> String {
+/// For a sandbox that never started because no GPU of its shape was free,
+/// or, for one with no GPU, no capacity.
+fn capacity_line(gpu: Option<&str>) -> String {
+    let Some(gpu) = gpu else {
+        return "No capacity was free for it. Create another.".to_string();
+    };
     escape_controls(&format!(
         "No `{gpu}` was free. Run `{}`, then create another.",
         render::GPUS_COMMAND
@@ -1192,7 +1196,7 @@ pub(crate) enum NoTerminal {
     ExecT,
     /// `shell`: a command runs without one through `exec`.
     Shell,
-    /// `shell --gpu`: no form of it runs without a terminal.
+    /// `shell --image`: no form of it runs without a terminal.
     GpuShell,
 }
 

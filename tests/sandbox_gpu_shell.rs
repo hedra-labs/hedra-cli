@@ -246,6 +246,34 @@ async fn it_creates_an_idle_sandbox_and_stops_it_when_the_shell_exits() {
     assert!(!out.stderr.contains("Connection lost"), "{}", out.stderr);
 }
 
+/// Without `--gpu` the create names no GPU and no sizes, so the API's
+/// CPU-only defaults apply, and neither pre-create read about GPUs is made.
+#[tokio::test]
+async fn without_a_gpu_it_creates_a_sandbox_with_none() {
+    let broker = FakeBroker::start();
+    broker.push_exec(ExecScript::admit([Step::Start, Step::Exit(0)]));
+    let server = api(&broker, 0).await;
+    let run = Run::new(&server);
+    let pty = Pty::open(24, 80);
+    let child = pty.spawn(&run.command(&["sandbox", "shell", "--image", "python:3.12"]));
+    let out = child.finish(WAIT);
+    assert!(pty.cooked(), "the terminal was left raw");
+    assert_eq!(out.code, 0, "{}", out.stderr);
+
+    let sent = creates(&server).await;
+    assert_eq!(sent.len(), 1);
+    let body = &sent[0];
+    assert!(body.get("gpu").is_none(), "{body}");
+    assert!(body.get("resources").is_none(), "{body}");
+    assert_eq!(body["image"], "python:3.12");
+    assert_eq!(body["idle"], true);
+    assert_eq!(body["ttl_seconds"], 86400);
+    for read in ["/v3/sandboxes/gpus", "/v3/sandboxes/quota"] {
+        assert!(requests_to(&server, "GET", read).await.is_empty(), "{read}");
+    }
+    assert_eq!(stops(&server).await, 1);
+}
+
 #[tokio::test]
 async fn without_a_terminal_nothing_is_created() {
     let broker = FakeBroker::start();
@@ -1234,7 +1262,7 @@ async fn a_replica_past_replicas_is_refused_before_the_create() {
         assert!(
             class_line(&err).is_some_and(|l| l
                 .starts_with("hedra-cli: Rejected request (19): --replica ")
-                && l.contains("--gpu creates")),
+                && l.contains("--image creates")),
             "{extra:?}: {err}"
         );
     }
