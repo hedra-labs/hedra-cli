@@ -1,5 +1,6 @@
-//! `shell --gpu`: create a sandbox for one shell, open the shell, and stop
-//! the sandbox when the shell ends.
+//! `shell --image`: create a sandbox for one shell, open the shell, and stop
+//! the sandbox when the shell ends. `--gpu` gives it a GPU; without it the
+//! sandbox has none, at the API's default CPU and memory.
 //!
 //! The sandbox is created idle with a 15-minute idle TTL, so one this
 //! process never stops (a crash, a sleeping laptop, a dropped stream) ends
@@ -31,7 +32,8 @@ const IDLE_TTL_SECONDS: i64 = 15 * 60;
 pub(crate) const DEFAULT_MAX_DURATION: i64 = 24 * 60 * 60;
 
 pub(crate) struct GpuShell {
-    pub(crate) gpu: String,
+    /// `--gpu`: absent for a sandbox with no GPU.
+    pub(crate) gpu: Option<String>,
     pub(crate) image: String,
     pub(crate) ttl_seconds: i64,
     pub(crate) term: Option<String>,
@@ -77,7 +79,7 @@ fn request(shell: &GpuShell, name: &str) -> CreateSandboxRequest {
         replicas: shell.replicas,
         idle: Some(true),
         stop_after_inactive_seconds: Some(IDLE_TTL_SECONDS),
-        ttl_seconds: shell.ttl_seconds,
+        ttl_seconds: Some(shell.ttl_seconds),
         ..Default::default()
     }
 }
@@ -112,7 +114,7 @@ pub(crate) async fn run(
     let warnings = tokio::select! {
         lines = super::warnings_before_create(
             api,
-            &shell.gpu,
+            shell.gpu.as_deref(),
             shell.replicas.unwrap_or(1),
             super::PRE_CREATE_READ,
         ) => lines,
@@ -633,7 +635,7 @@ mod tests {
             .await;
         let api = Api::for_tests(&server.uri());
         let shell = GpuShell {
-            gpu: "h100:1".into(),
+            gpu: Some("h100:1".into()),
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
@@ -677,7 +679,7 @@ mod tests {
             .await;
         let api = Api::for_tests(&server.uri());
         let shell = GpuShell {
-            gpu: "h100:1".into(),
+            gpu: Some("h100:1".into()),
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
@@ -713,7 +715,7 @@ mod tests {
             .await;
         let api = Api::for_tests(&server.uri());
         let shell = GpuShell {
-            gpu: "h100:1".into(),
+            gpu: Some("h100:1".into()),
             image: "i".into(),
             ttl_seconds: DEFAULT_MAX_DURATION,
             term: None,
@@ -854,7 +856,7 @@ mod tests {
     fn the_request_is_idle_with_an_idle_ttl_and_a_lifetime() {
         let r = request(
             &GpuShell {
-                gpu: "h100:1".into(),
+                gpu: Some("h100:1".into()),
                 image: "i".into(),
                 ttl_seconds: DEFAULT_MAX_DURATION,
                 term: None,
@@ -865,17 +867,40 @@ mod tests {
         );
         assert_eq!(r.idle, Some(true));
         assert_eq!(r.stop_after_inactive_seconds, Some(IDLE_TTL_SECONDS));
-        assert_eq!(r.ttl_seconds, DEFAULT_MAX_DURATION);
+        assert_eq!(r.ttl_seconds, Some(DEFAULT_MAX_DURATION));
+        assert_eq!(r.gpu.as_deref(), Some("h100:1"));
         assert_eq!(r.command, None);
         // No `--replicas` leaves the route's default of one.
         assert_eq!(r.replicas, None);
+    }
+
+    /// Without `--gpu` the request names no GPU and no resources, so the
+    /// route's CPU-only defaults apply.
+    #[test]
+    fn without_a_gpu_the_request_names_none() {
+        let r = request(
+            &GpuShell {
+                gpu: None,
+                image: "i".into(),
+                ttl_seconds: DEFAULT_MAX_DURATION,
+                term: None,
+                replicas: None,
+                replica: 0,
+            },
+            "shell-abcdef",
+        );
+        assert_eq!(r.gpu, None);
+        assert_eq!(r.resources, None);
+        let sent = serde_json::to_value(&r).unwrap();
+        assert!(sent.get("gpu").is_none(), "{sent}");
+        assert_eq!(sent["idle"], true);
     }
 
     #[test]
     fn replicas_reach_the_create() {
         let r = request(
             &GpuShell {
-                gpu: "h100:1".into(),
+                gpu: Some("h100:1".into()),
                 image: "i".into(),
                 ttl_seconds: DEFAULT_MAX_DURATION,
                 term: None,
