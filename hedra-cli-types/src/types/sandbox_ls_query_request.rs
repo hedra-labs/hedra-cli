@@ -17,7 +17,7 @@ pub struct SandboxLsQueryRequest {
     /// With `true`, sandboxes in every status; with `false`, the default, only creating, active and stopping sandboxes.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub all: Option<bool>,
-    /// With `true`, every sandbox in your workspace, whoever created it; with `false`, the default, only the sandboxes you created. Any member of the workspace may pass `true`.
+    /// With `true`, the default, every sandbox in your workspace, whoever created it; with `false`, only the sandboxes you created. Any member of the workspace may pass either.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub members: Option<bool>,
 }

@@ -2,7 +2,7 @@ pub use crate::prelude::*;
 #[allow(unused_imports)]
 use super::*;
 
-/// Body of a webhook delivery: the `GET /jobs/{job_id}` result envelope without its poll-only fields (`logs`, `cost`, `currency`) — poll the job to read those.
+/// Body of a webhook delivery: the `GET /jobs/{job_id}` result envelope without its poll-only fields (`logs`, `cost`, `currency`, `created_by`) — poll the job to read those.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct WebhookPayload {
     /// The job this envelope describes.

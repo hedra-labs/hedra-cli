@@ -15,6 +15,7 @@ pub enum SandboxEndReason {
     LeaseLapsed,
     AccessRemoved,
     Inactive,
+    CapacityReservationEnded,
     /// This variant is used for forward compatibility.
     /// If the server sends a value not recognized by the current SDK version,
     /// it will be captured here with the raw string value.
@@ -31,6 +32,7 @@ impl Serialize for SandboxEndReason {
             Self::LeaseLapsed => serializer.serialize_str("lease_lapsed"),
             Self::AccessRemoved => serializer.serialize_str("access_removed"),
             Self::Inactive => serializer.serialize_str("inactive"),
+            Self::CapacityReservationEnded => serializer.serialize_str("capacity_reservation_ended"),
             Self::__Unknown(val) => serializer.serialize_str(val),
         }
     }
@@ -48,6 +50,7 @@ impl<'de> Deserialize<'de> for SandboxEndReason {
             "lease_lapsed" => Ok(Self::LeaseLapsed),
             "access_removed" => Ok(Self::AccessRemoved),
             "inactive" => Ok(Self::Inactive),
+            "capacity_reservation_ended" => Ok(Self::CapacityReservationEnded),
             _ => Ok(Self::__Unknown(value)),
         }
     }
@@ -64,6 +67,7 @@ impl fmt::Display for SandboxEndReason {
             Self::LeaseLapsed => write!(f, "lease_lapsed"),
             Self::AccessRemoved => write!(f, "access_removed"),
             Self::Inactive => write!(f, "inactive"),
+            Self::CapacityReservationEnded => write!(f, "capacity_reservation_ended"),
             Self::__Unknown(val) => write!(f, "{}", val),
         }
     }
